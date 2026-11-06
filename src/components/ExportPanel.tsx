@@ -3,10 +3,11 @@ import type { DocumentState } from '../core/document';
 interface ExportPanelProps {
   readonly doc: DocumentState;
   readonly busy: boolean;
+  readonly downloading: boolean;
   readonly onExport: () => void;
 }
 
-export function ExportPanel({ doc, busy, onExport }: ExportPanelProps) {
+export function ExportPanel({ doc, busy, downloading, onExport }: ExportPanelProps) {
   const size = `${doc.frame.width}×${doc.frame.height}`;
   return (
     <aside className="panel">
@@ -27,7 +28,7 @@ export function ExportPanel({ doc, busy, onExport }: ExportPanelProps) {
           <span>—</span>
         </div>
         <button type="button" className="big primary" onClick={onExport} disabled={!doc.source || busy}>
-          {busy ? 'Exportando…' : 'Exportar PNG'}
+          {busy ? (downloading ? 'Aguarde o link…' : 'Exportando…') : 'Exportar PNG'}
         </button>
         <p className="panel-hint">Ctrl+S exporta · salva na pasta escolhida</p>
       </section>

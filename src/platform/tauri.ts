@@ -4,7 +4,6 @@ import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import {
   DownloadTransportError,
-  MAX_DOWNLOAD_BYTES,
   type DownloadHandle,
   type DownloadMeta,
   type DownloadProgress,
@@ -135,7 +134,6 @@ export const tauriDownloadTransport: DownloadTransport = {
         const buffer = await invoke<ArrayBuffer>('download_source', {
           url,
           download_id: id,
-          max_bytes: MAX_DOWNLOAD_BYTES,
         });
         return { bytes: new Uint8Array(buffer), ...meta };
       } catch (reason) {

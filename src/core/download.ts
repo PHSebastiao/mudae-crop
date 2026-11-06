@@ -2,10 +2,14 @@ import type { ImageFormat } from './document';
 import { detectFormat, type SourceCandidate } from './import';
 
 /**
- * Image Chest accepts 30 MB per file, so a Source from a URL may not be larger
- * than that. The native transport enforces the same ceiling while streaming.
+ * The download ceiling matches Image Chest's 30 MB per-file limit, so a fetched
+ * Source never exceeds what the upload path accepts. The native transport
+ * enforces the same ceiling while streaming.
  */
 export const MAX_DOWNLOAD_BYTES = 30 * 1024 * 1024;
+
+const SIZE_MESSAGE = 'O download passa de 30 MB. Use um arquivo menor ou otimize o GIF antes.';
+const CANCELLED_MESSAGE = 'Download cancelado.';
 
 export type DownloadErrorCode =
   | 'invalid-url'
@@ -82,8 +86,6 @@ export interface DownloadOptions {
   readonly maxBytes?: number;
 }
 
-const SIZE_MESSAGE = 'O download passa de 30 MB. Use um arquivo menor ou otimize o GIF antes.';
-
 function hostOf(url: URL): string {
   return url.host || url.href;
 }
@@ -106,6 +108,11 @@ export function sourceUrlFrom(text: string): URL | null {
 
 const KNOWN_EXTENSION = /\.(png|jpe?g|gif)$/i;
 const CONTENT_EXTENSION: Record<ImageFormat, string> = { png: 'png', jpg: 'jpg', gif: 'gif' };
+const FORMAT_EXTENSIONS: Record<ImageFormat, string[]> = {
+  png: ['png'],
+  jpg: ['jpg', 'jpeg'],
+  gif: ['gif'],
+};
 
 /**
  * A name for the Source taken from the last path segment. Query strings and
@@ -122,7 +129,12 @@ export function sourceNameFromUrl(url: URL, format: ImageFormat): string {
   }
   name = name.replace(/[\\/:*?"<>|]+/g, '-').trim();
   if (!name) return `link.${CONTENT_EXTENSION[format]}`;
-  if (KNOWN_EXTENSION.test(name)) return name;
+  if (KNOWN_EXTENSION.test(name)) {
+    const extension = (name.split('.').pop() ?? '').toLowerCase();
+    // Keep the name only when its extension matches what the bytes turned out to be.
+    if (FORMAT_EXTENSIONS[format].includes(extension)) return name;
+    return `${name.replace(/\.[^.]+$/, '')}.${CONTENT_EXTENSION[format]}`;
+  }
   const stem = name.replace(/\.[a-z0-9]{1,8}$/i, '').trim();
   return `${stem || 'link'}.${CONTENT_EXTENSION[format]}`;
 }
@@ -164,14 +176,22 @@ function notImageMessage(url: URL, type: string | null): string {
     : `O link ${hostOf(url)} não devolveu um PNG, JPG ou GIF. Use um link direto para a imagem.`;
 }
 
+function cancelledError(): DownloadError {
+  return new DownloadError('cancelled', CANCELLED_MESSAGE);
+}
+
+function tooLargeError(): DownloadError {
+  return new DownloadError('too-large', SIZE_MESSAGE);
+}
+
 function asDownloadError(reason: unknown, url: URL): DownloadError {
   if (reason instanceof DownloadError) return reason;
   if (reason instanceof DownloadTransportError) {
     switch (reason.code) {
       case 'cancelled':
-        return new DownloadError('cancelled', 'Download cancelado.');
+        return cancelledError();
       case 'too-large':
-        return new DownloadError('too-large', SIZE_MESSAGE);
+        return tooLargeError();
       case 'http':
         return new DownloadError('http', httpMessage(url, reason.status ?? 0), reason.status);
       default:
@@ -237,13 +257,13 @@ export async function downloadSource(
   try {
     const result = await handle.result;
     if (cancelRequested) {
-      throw new DownloadError('cancelled', 'Download cancelado.');
+      throw cancelledError();
     }
     if (oversized || result.bytes.length > maxBytes) {
-      throw new DownloadError('too-large', SIZE_MESSAGE);
+      throw tooLargeError();
     }
     if (result.contentLength !== null && result.contentLength > maxBytes) {
-      throw new DownloadError('too-large', SIZE_MESSAGE);
+      throw tooLargeError();
     }
     const type = contentTypeOf(result.contentType);
     if (!isImageContentType(type)) {
@@ -256,10 +276,15 @@ export async function downloadSource(
     if (!format) {
       throw new DownloadError('not-image', notImageMessage(url, null));
     }
-    return { name: sourceNameFromUrl(url, format), path: null, bytes: result.bytes };
+    // Redirects often land on the real file, so the final URL names the Source.
+    return {
+      name: sourceNameFromUrl(sourceUrlFrom(result.finalUrl) ?? url, format),
+      path: null,
+      bytes: result.bytes,
+    };
   } catch (reason) {
-    if (oversized) throw new DownloadError('too-large', SIZE_MESSAGE);
-    if (cancelRequested) throw new DownloadError('cancelled', 'Download cancelado.');
+    if (oversized) throw tooLargeError();
+    if (cancelRequested) throw cancelledError();
     throw asDownloadError(reason, url);
   } finally {
     options.signal?.removeEventListener('abort', onAbort);

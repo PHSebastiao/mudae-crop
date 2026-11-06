@@ -95,6 +95,11 @@ describe('sourceNameFromUrl', () => {
   it('replaces an extension that is not an image one', () => {
     expect(name('https://cdn.example.com/get.php', 'png')).toBe('get.png');
   });
+
+  it('aligns a known extension with the format the bytes actually are', () => {
+    expect(name('https://cdn.example.com/card.gif', 'png')).toBe('card.png');
+    expect(name('https://cdn.example.com/card.jpeg', 'jpg')).toBe('card.jpeg');
+  });
 });
 
 describe('downloadSource', () => {
@@ -110,6 +115,18 @@ describe('downloadSource', () => {
     });
 
     expect(candidate).toEqual({ name: 'card.png', path: null, bytes: PNG });
+  });
+
+  it('names the Source from the final URL after a redirect', async () => {
+    const { transport } = fakeTransport({
+      bytes: PNG,
+      contentType: 'image/png',
+      finalUrl: 'https://cdn.example.com/real/card.png',
+    });
+
+    const candidate = await downloadSource('https://short.example.com/abc', { transport });
+
+    expect(candidate.name).toBe('card.png');
   });
 
   it('keeps an animated GIF as bytes for the normal import path', async () => {

@@ -40,7 +40,10 @@ export default function App() {
   const [status, setStatus] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [link, setLink] = useState('');
-  const [download, setDownload] = useState<{ received: number; total: number | null } | null>(null);
+  const [downloadProgress, setDownloadProgress] = useState<{
+    received: number;
+    total: number | null;
+  } | null>(null);
   const docRef = useRef(doc);
   docRef.current = doc;
   const runningRef = useRef(false);
@@ -58,6 +61,11 @@ export default function App() {
     setBusy(false);
   }, []);
 
+  const refuseBecauseBusy = useCallback(() => {
+    setError('Termine a operação em andamento antes de importar outra Source.');
+    setStatus(null);
+  }, []);
+
   const applyCandidate = useCallback(async (candidate: SourceCandidate) => {
     const source = await loadSource(candidate, decodeWithBrowser);
     setDoc((current) => withSource(current, source));
@@ -67,7 +75,10 @@ export default function App() {
 
   const importCandidate = useCallback(
     async (candidate: SourceCandidate) => {
-      if (!beginRun()) return;
+      if (!beginRun()) {
+        refuseBecauseBusy();
+        return;
+      }
       try {
         await applyCandidate(candidate);
       } catch (reason) {
@@ -77,12 +88,15 @@ export default function App() {
         endRun();
       }
     },
-    [applyCandidate, beginRun, endRun],
+    [applyCandidate, beginRun, endRun, refuseBecauseBusy],
   );
 
   const importPath = useCallback(
     async (path: string) => {
-      if (!beginRun()) return;
+      if (!beginRun()) {
+        refuseBecauseBusy();
+        return;
+      }
       const name = fileNameOf(path);
       try {
         let bytes: Uint8Array;
@@ -103,35 +117,35 @@ export default function App() {
         endRun();
       }
     },
-    [applyCandidate, beginRun, endRun],
+    [applyCandidate, beginRun, endRun, refuseBecauseBusy],
   );
 
   const importFromUrl = useCallback(
     async (raw: string) => {
-      const url = sourceUrlFrom(raw);
-      if (!url) {
-        setError('O link precisa começar com http:// ou https://.');
-        setStatus(null);
-        return;
-      }
       if (!isDesktop()) {
         setError('Importar por link só funciona no app desktop.');
         setStatus(null);
         return;
       }
-      if (!beginRun()) return;
+      if (!beginRun()) {
+        refuseBecauseBusy();
+        return;
+      }
 
       const controller = new AbortController();
       cancelDownloadRef.current = () => controller.abort();
       setError(null);
       setStatus(null);
-      setDownload({ received: 0, total: null });
+      setDownloadProgress({ received: 0, total: null });
       try {
-        const candidate = await downloadSource(url.href, {
+        const candidate = await downloadSource(raw, {
           transport: tauriDownloadTransport,
           signal: controller.signal,
-          onProgress: (progress) => setDownload(progress),
+          onProgress: (progress) => setDownloadProgress(progress),
         });
+        // The link is down; decoding is local and no longer cancellable.
+        cancelDownloadRef.current = null;
+        setDownloadProgress(null);
         await applyCandidate(candidate);
         setLink('');
       } catch (reason) {
@@ -144,11 +158,11 @@ export default function App() {
         }
       } finally {
         cancelDownloadRef.current = null;
-        setDownload(null);
+        setDownloadProgress(null);
         endRun();
       }
     },
-    [applyCandidate, beginRun, endRun],
+    [applyCandidate, beginRun, endRun, refuseBecauseBusy],
   );
 
   const cancelDownload = useCallback(() => {
@@ -194,7 +208,7 @@ export default function App() {
       const bytes = await renderPng(current, 1, browserExportAdapter);
       await writeFileBytes(path, bytes);
       setError(null);
-      setStatus(`PNG ${current.frame.width}x${current.frame.height} exportado: ${fileNameOf(path)}`);
+      setStatus(`PNG ${current.frame.width}×${current.frame.height} exportado: ${fileNameOf(path)}`);
     } catch (reason) {
       setError(`Não foi possível exportar o PNG. ${messageOf(reason)}`);
       setStatus(null);
@@ -224,13 +238,6 @@ export default function App() {
 
   useEffect(() => {
     const onPaste = (event: ClipboardEvent) => {
-      const target = event.target as HTMLElement | null;
-      if (
-        target &&
-        (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)
-      ) {
-        return;
-      }
       const data = event.clipboardData;
       if (!data) return;
 
@@ -246,6 +253,16 @@ export default function App() {
             bytes: new Uint8Array(buffer),
           }),
         );
+        return;
+      }
+
+      // Text pasted into a field stays an ordinary paste; only page-level
+      // Ctrl+V turns a link into a Source.
+      const target = event.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)
+      ) {
         return;
       }
 
@@ -299,7 +316,7 @@ export default function App() {
   }, [importCandidate]);
 
   const sourceChip = doc.source
-    ? `${doc.source.format.toUpperCase()} · ${doc.source.width}x${doc.source.height}`
+    ? `${doc.source.format.toUpperCase()} · ${doc.source.width}×${doc.source.height}`
     : 'sem Source';
 
   return (
@@ -330,7 +347,7 @@ export default function App() {
         <div className="preset-toggle" role="group" aria-label="Preset do Frame">
           <span className="on">{doc.frame.label}</span>
           <span className="disabled" title="Square chega numa próxima etapa">
-            Square 350x350
+            Square 350×350
           </span>
         </div>
         <div className="topbar-right">
@@ -339,13 +356,16 @@ export default function App() {
         </div>
       </header>
 
-      {download ? (
+      {downloadProgress ? (
         <div className="notice download" role="status">
           <span>
-            Baixando link… {formatBytes(download.received)}
-            {download.total ? ` de ${formatBytes(download.total)}` : ''}
+            Baixando link… {formatBytes(downloadProgress.received)}
+            {downloadProgress.total ? ` de ${formatBytes(downloadProgress.total)}` : ''}
           </span>
-          <progress value={download.received} max={download.total ?? undefined} />
+          <progress
+            value={downloadProgress.total ? downloadProgress.received : undefined}
+            max={downloadProgress.total ?? undefined}
+          />
           <button type="button" onClick={cancelDownload}>
             cancelar
           </button>
@@ -387,7 +407,12 @@ export default function App() {
           onOpen={handleOpen}
           busy={busy}
         />
-        <ExportPanel doc={doc} busy={busy} onExport={handleExport} />
+        <ExportPanel
+          doc={doc}
+          busy={busy}
+          downloading={downloadProgress !== null}
+          onExport={handleExport}
+        />
       </main>
 
       <BorderBar />

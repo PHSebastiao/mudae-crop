@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -8,17 +8,25 @@ use futures_util::StreamExt;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 
-/// Image Chest refuses files above 30 MB, so a Source from a URL may not be
-/// larger. The front-end wrapper enforces the same ceiling before decoding.
+/// The download ceiling matches Image Chest's 30 MB per-file limit, so a fetched
+/// Source never exceeds what the upload path accepts. The front-end wrapper
+/// enforces the same ceiling before decoding.
 const MAX_DOWNLOAD_BYTES: u64 = 30 * 1024 * 1024;
 
-/// Cancellation flags for in-flight downloads, keyed by the id the front-end
-/// chose. A flag can arrive before its download starts, so it is remembered.
 #[derive(Default)]
-struct Downloads(Mutex<HashMap<String, Arc<AtomicBool>>>);
+struct DownloadRegistry {
+    live: HashMap<String, Arc<AtomicBool>>,
+    early_cancels: VecDeque<String>,
+}
+
+/// Cancellation flags for in-flight downloads, keyed by the id the front-end
+/// chose. A cancel can arrive before its download starts, so early ids wait in
+/// their own queue and never displace a live flag.
+#[derive(Default)]
+struct Downloads(Mutex<DownloadRegistry>);
 
 impl Downloads {
-    fn lock(&self) -> MutexGuard<'_, HashMap<String, Arc<AtomicBool>>> {
+    fn lock(&self) -> MutexGuard<'_, DownloadRegistry> {
         self.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 }
@@ -101,43 +109,48 @@ async fn download_source(
     downloads: State<'_, Downloads>,
     url: String,
     download_id: String,
-    max_bytes: u64,
 ) -> Result<tauri::ipc::Response, DownloadFailure> {
-    let max_bytes = max_bytes.min(MAX_DOWNLOAD_BYTES).max(1);
+    let cancelled = {
+        let mut registry = downloads.lock();
+        let early = registry
+            .early_cancels
+            .iter()
+            .position(|id| id == &download_id);
+        if let Some(index) = early {
+            registry.early_cancels.remove(index);
+        }
+        let flag = Arc::new(AtomicBool::new(early.is_some()));
+        registry.live.insert(download_id.clone(), flag.clone());
+        flag
+    };
 
-    // Consume a cancellation that arrived before the download did.
-    let cancelled = downloads
-        .lock()
-        .remove(&download_id)
-        .unwrap_or_else(|| Arc::new(AtomicBool::new(false)));
-    downloads.lock().insert(download_id.clone(), cancelled.clone());
+    let outcome = stream_download(&app, &url, &download_id, &cancelled).await;
 
-    let outcome = stream_download(&app, &url, &download_id, max_bytes, &cancelled).await;
-
-    downloads.lock().remove(&download_id);
+    downloads.lock().live.remove(&download_id);
     outcome.map(tauri::ipc::Response::new)
 }
 
 #[tauri::command(rename_all = "snake_case")]
 fn cancel_download(downloads: State<'_, Downloads>, download_id: String) {
-    let mut flags = downloads.lock();
-    if let Some(flag) = flags.get(&download_id) {
+    let mut registry = downloads.lock();
+    if let Some(flag) = registry.live.get(&download_id) {
         flag.store(true, Ordering::Relaxed);
         return;
     }
-    // Keep the remembered id bounded: a cancel whose download never starts is
-    // harmless, but it should not grow forever.
-    if flags.len() >= 32 {
-        flags.clear();
+    if registry.early_cancels.iter().any(|id| id == &download_id) {
+        return;
     }
-    flags.insert(download_id, Arc::new(AtomicBool::new(true)));
+    // A cancel whose download never starts is harmless, so the queue is bounded.
+    if registry.early_cancels.len() >= 32 {
+        registry.early_cancels.pop_front();
+    }
+    registry.early_cancels.push_back(download_id);
 }
 
 async fn stream_download(
     app: &AppHandle,
     url: &str,
     download_id: &str,
-    max_bytes: u64,
     cancelled: &AtomicBool,
 ) -> Result<Vec<u8>, DownloadFailure> {
     if cancelled.load(Ordering::Relaxed) {
@@ -182,11 +195,12 @@ async fn stream_download(
     if cancelled.load(Ordering::Relaxed) {
         return Err(DownloadFailure::new("cancelled"));
     }
-    if content_length.is_some_and(|length| length > max_bytes) {
+    if content_length.is_some_and(|length| length > MAX_DOWNLOAD_BYTES) {
         return Err(DownloadFailure::new("too-large"));
     }
 
-    let mut bytes = Vec::with_capacity(content_length.unwrap_or(0).min(max_bytes) as usize);
+    let mut bytes =
+        Vec::with_capacity(content_length.unwrap_or(0).min(MAX_DOWNLOAD_BYTES) as usize);
     let mut received: u64 = 0;
     let mut chunks = response.bytes_stream();
 
@@ -197,7 +211,7 @@ async fn stream_download(
         let chunk =
             chunk.map_err(|error| DownloadFailure::detail("unreachable", error.to_string()))?;
         received += chunk.len() as u64;
-        if received > max_bytes {
+        if received > MAX_DOWNLOAD_BYTES {
             return Err(DownloadFailure::new("too-large"));
         }
         bytes.extend_from_slice(&chunk);
