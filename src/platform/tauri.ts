@@ -1,6 +1,16 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { open, save } from '@tauri-apps/plugin-dialog';
+import {
+  DownloadTransportError,
+  MAX_DOWNLOAD_BYTES,
+  type DownloadHandle,
+  type DownloadMeta,
+  type DownloadProgress,
+  type DownloadResult,
+  type DownloadTransport,
+} from '../core/download';
 
 const IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif'];
 
@@ -55,3 +65,87 @@ export async function watchFileDrops(
     }
   });
 }
+
+interface DownloadMetaPayload {
+  readonly id: string;
+  readonly contentType: string | null;
+  readonly contentLength: number | null;
+  readonly finalUrl: string;
+}
+
+interface DownloadProgressPayload {
+  readonly id: string;
+  readonly received: number;
+  readonly total: number | null;
+}
+
+function transportError(reason: unknown): DownloadTransportError {
+  const failure = reason as { code?: unknown; status?: unknown; detail?: unknown } | null;
+  if (failure && typeof failure.code === 'string') {
+    const { code } = failure;
+    if (code === 'unreachable' || code === 'http' || code === 'too-large' || code === 'cancelled') {
+      const status = typeof failure.status === 'number' ? failure.status : null;
+      const detail = typeof failure.detail === 'string' ? failure.detail : code;
+      return new DownloadTransportError(code, detail, status);
+    }
+  }
+  return new DownloadTransportError(
+    'unreachable',
+    typeof reason === 'string' ? reason : 'falha de rede',
+  );
+}
+
+let downloadSequence = 0;
+
+/**
+ * The native URL transport. Progress and metadata arrive as events, the body
+ * comes back as a raw response, and cancel flips a flag on the Rust side.
+ */
+export const tauriDownloadTransport: DownloadTransport = {
+  start(url: string, onProgress: (progress: DownloadProgress) => void): DownloadHandle {
+    const id = `source-${Date.now()}-${++downloadSequence}`;
+    let settled = false;
+    let cancelled = false;
+
+    const cancel = () => {
+      if (settled) return;
+      cancelled = true;
+      void invoke('cancel_download', { download_id: id }).catch(() => undefined);
+    };
+
+    const result = (async (): Promise<DownloadResult> => {
+      let meta: DownloadMeta = { contentType: null, contentLength: null, finalUrl: url };
+      const listeners = await Promise.all([
+        listen<DownloadMetaPayload>('download-meta', (event) => {
+          if (event.payload.id !== id) return;
+          meta = {
+            contentType: event.payload.contentType,
+            contentLength: event.payload.contentLength,
+            finalUrl: event.payload.finalUrl,
+          };
+        }),
+        listen<DownloadProgressPayload>('download-progress', (event) => {
+          if (event.payload.id !== id) return;
+          onProgress({ received: event.payload.received, total: event.payload.total });
+        }),
+      ]);
+
+      try {
+        if (cancelled) throw new DownloadTransportError('cancelled', 'cancelado');
+        const buffer = await invoke<ArrayBuffer>('download_source', {
+          url,
+          download_id: id,
+          max_bytes: MAX_DOWNLOAD_BYTES,
+        });
+        return { bytes: new Uint8Array(buffer), ...meta };
+      } catch (reason) {
+        throw transportError(reason);
+      } finally {
+        settled = true;
+        for (const stop of listeners) stop();
+      }
+    })();
+
+    return { result, cancel };
+  },
+};

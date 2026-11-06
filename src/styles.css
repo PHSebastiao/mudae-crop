@@ -64,6 +64,59 @@ button {
   color: #f1eef7;
 }
 
+/* Source link import */
+
+.link-import {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 1 320px;
+  min-width: 160px;
+}
+
+.link-import input {
+  flex: 1;
+  min-width: 0;
+  background: #14131a;
+  border: 1px solid #302f39;
+  border-radius: 7px;
+  padding: 5px 9px;
+  color: #e8e4f0;
+  font: inherit;
+  font-size: 11px;
+  user-select: text;
+}
+
+.link-import input::placeholder {
+  color: #6f6b7d;
+}
+
+.link-import input:focus {
+  outline: 1px solid #55505f;
+  outline-offset: 0;
+}
+
+.link-import input:disabled {
+  opacity: 0.55;
+}
+
+.link-import button {
+  flex: none;
+  border: 1px solid #3a3745;
+  background: #232129;
+  color: #d5d0e0;
+  border-radius: 7px;
+  padding: 5px 9px;
+  font-size: 11px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.link-import button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
 .preset-toggle,
 .toggle {
   display: flex;
@@ -118,6 +171,27 @@ button {
   background: var(--danger-bg);
   color: var(--danger);
   border-bottom-color: #5a2331;
+}
+
+.notice.download {
+  background: #1b2230;
+  color: #c3d2ee;
+  border-bottom-color: #29354b;
+}
+
+.notice.download progress {
+  flex: none;
+  width: 120px;
+  height: 6px;
+  accent-color: #9db8e8;
+}
+
+.notice.download button {
+  flex: none;
+  border: 1px solid #3a4660;
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 10.5px;
 }
 
 .notice span {

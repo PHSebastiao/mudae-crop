@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { downloadDir, join } from '@tauri-apps/api/path';
 import { emptyDocument, withCrop, withSource, FIT_CROP, type DocumentState } from './core/document';
+import {
+  DownloadError,
+  downloadErrorMessage,
+  downloadSource,
+  formatBytes,
+  sourceUrlFrom,
+} from './core/download';
 import { renderPng } from './core/export';
 import { panBy, zoomAt } from './core/geometry';
 import { importErrorMessage, loadSource, type SourceCandidate } from './core/import';
@@ -12,6 +19,7 @@ import {
   fileNameOf,
   isDesktop,
   readFileBytes,
+  tauriDownloadTransport,
   watchFileDrops,
   writeFileBytes,
 } from './platform/tauri';
@@ -31,40 +39,124 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [link, setLink] = useState('');
+  const [download, setDownload] = useState<{ received: number; total: number | null } | null>(null);
   const docRef = useRef(doc);
   docRef.current = doc;
+  const runningRef = useRef(false);
+  const cancelDownloadRef = useRef<(() => void) | null>(null);
 
-  const importCandidate = useCallback(async (candidate: SourceCandidate) => {
+  const beginRun = useCallback(() => {
+    if (runningRef.current) return false;
+    runningRef.current = true;
     setBusy(true);
-    try {
-      const source = await loadSource(candidate, decodeWithBrowser);
-      setDoc((current) => withSource(current, source));
-      setError(null);
-      setStatus(`Source carregada: ${source.name}`);
-    } catch (reason) {
-      setError(importErrorMessage(reason));
-      setStatus(null);
-    } finally {
-      setBusy(false);
-    }
+    return true;
   }, []);
+
+  const endRun = useCallback(() => {
+    runningRef.current = false;
+    setBusy(false);
+  }, []);
+
+  const applyCandidate = useCallback(async (candidate: SourceCandidate) => {
+    const source = await loadSource(candidate, decodeWithBrowser);
+    setDoc((current) => withSource(current, source));
+    setError(null);
+    setStatus(`Source carregada: ${source.name}`);
+  }, []);
+
+  const importCandidate = useCallback(
+    async (candidate: SourceCandidate) => {
+      if (!beginRun()) return;
+      try {
+        await applyCandidate(candidate);
+      } catch (reason) {
+        setError(importErrorMessage(reason));
+        setStatus(null);
+      } finally {
+        endRun();
+      }
+    },
+    [applyCandidate, beginRun, endRun],
+  );
 
   const importPath = useCallback(
     async (path: string) => {
+      if (!beginRun()) return;
       const name = fileNameOf(path);
       try {
-        const bytes = await readFileBytes(path);
-        await importCandidate({ name, path, bytes });
-      } catch (reason) {
-        setError(`Não foi possível ler "${name}". ${messageOf(reason)}`);
-        setStatus(null);
-        setBusy(false);
+        let bytes: Uint8Array;
+        try {
+          bytes = await readFileBytes(path);
+        } catch (reason) {
+          setError(`Não foi possível ler "${name}". ${messageOf(reason)}`);
+          setStatus(null);
+          return;
+        }
+        try {
+          await applyCandidate({ name, path, bytes });
+        } catch (reason) {
+          setError(importErrorMessage(reason));
+          setStatus(null);
+        }
+      } finally {
+        endRun();
       }
     },
-    [importCandidate],
+    [applyCandidate, beginRun, endRun],
   );
 
+  const importFromUrl = useCallback(
+    async (raw: string) => {
+      const url = sourceUrlFrom(raw);
+      if (!url) {
+        setError('O link precisa começar com http:// ou https://.');
+        setStatus(null);
+        return;
+      }
+      if (!isDesktop()) {
+        setError('Importar por link só funciona no app desktop.');
+        setStatus(null);
+        return;
+      }
+      if (!beginRun()) return;
+
+      const controller = new AbortController();
+      cancelDownloadRef.current = () => controller.abort();
+      setError(null);
+      setStatus(null);
+      setDownload({ received: 0, total: null });
+      try {
+        const candidate = await downloadSource(url.href, {
+          transport: tauriDownloadTransport,
+          signal: controller.signal,
+          onProgress: (progress) => setDownload(progress),
+        });
+        await applyCandidate(candidate);
+        setLink('');
+      } catch (reason) {
+        if (reason instanceof DownloadError && reason.code === 'cancelled') {
+          setError(null);
+          setStatus('Download cancelado.');
+        } else {
+          setError(downloadErrorMessage(reason));
+          setStatus(null);
+        }
+      } finally {
+        cancelDownloadRef.current = null;
+        setDownload(null);
+        endRun();
+      }
+    },
+    [applyCandidate, beginRun, endRun],
+  );
+
+  const cancelDownload = useCallback(() => {
+    cancelDownloadRef.current?.();
+  }, []);
+
   const handleOpen = useCallback(async () => {
+    if (runningRef.current) return;
     try {
       if (!isDesktop()) {
         setError('Abrir arquivos só funciona no app desktop.');
@@ -80,11 +172,12 @@ export default function App() {
   const handleExport = useCallback(async () => {
     const current = docRef.current;
     if (!current.source) return;
+    if (!isDesktop()) {
+      setError('Exportar só funciona no app desktop.');
+      return;
+    }
+    if (!beginRun()) return;
     try {
-      if (!isDesktop()) {
-        setError('Exportar só funciona no app desktop.');
-        return;
-      }
       const name = exportFileName(current.source.name, current.frame.id, new Date());
       let defaultPath = name;
       try {
@@ -98,18 +191,17 @@ export default function App() {
       if (current.source.path && path.toLowerCase() === current.source.path.toLowerCase()) {
         throw new Error('o Export não pode sobrescrever a Source. Escolha outro nome.');
       }
-      setBusy(true);
       const bytes = await renderPng(current, 1, browserExportAdapter);
       await writeFileBytes(path, bytes);
       setError(null);
-      setStatus(`PNG ${current.frame.width}×${current.frame.height} exportado: ${fileNameOf(path)}`);
+      setStatus(`PNG ${current.frame.width}x${current.frame.height} exportado: ${fileNameOf(path)}`);
     } catch (reason) {
       setError(`Não foi possível exportar o PNG. ${messageOf(reason)}`);
       setStatus(null);
     } finally {
-      setBusy(false);
+      endRun();
     }
-  }, []);
+  }, [beginRun, endRun]);
 
   const exportRef = useRef(handleExport);
   exportRef.current = handleExport;
@@ -132,9 +224,17 @@ export default function App() {
 
   useEffect(() => {
     const onPaste = (event: ClipboardEvent) => {
-      const items = event.clipboardData?.items;
-      if (!items) return;
-      for (const item of items) {
+      const target = event.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)
+      ) {
+        return;
+      }
+      const data = event.clipboardData;
+      if (!data) return;
+
+      for (const item of data.items) {
         if (item.kind !== 'file' || !item.type.startsWith('image/')) continue;
         const file = item.getAsFile();
         if (!file) return;
@@ -148,10 +248,15 @@ export default function App() {
         );
         return;
       }
+
+      const url = sourceUrlFrom(data.getData('text'));
+      if (!url) return;
+      event.preventDefault();
+      void importFromUrl(url.href);
     };
     window.addEventListener('paste', onPaste);
     return () => window.removeEventListener('paste', onPaste);
-  }, [importCandidate]);
+  }, [importCandidate, importFromUrl]);
 
   useEffect(() => {
     let dispose: (() => void) | undefined;
@@ -194,17 +299,38 @@ export default function App() {
   }, [importCandidate]);
 
   const sourceChip = doc.source
-    ? `${doc.source.format.toUpperCase()} · ${doc.source.width}×${doc.source.height}`
+    ? `${doc.source.format.toUpperCase()} · ${doc.source.width}x${doc.source.height}`
     : 'sem Source';
 
   return (
     <div className="app">
       <header className="topbar">
         <div className="brand">mudae crop</div>
+        <form
+          className="link-import"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void importFromUrl(link);
+          }}
+        >
+          <input
+            type="text"
+            inputMode="url"
+            value={link}
+            onChange={(event) => setLink(event.target.value)}
+            placeholder="cole um link de imagem"
+            aria-label="Link da Source"
+            spellCheck={false}
+            disabled={busy}
+          />
+          <button type="submit" disabled={busy || !sourceUrlFrom(link)}>
+            Abrir link
+          </button>
+        </form>
         <div className="preset-toggle" role="group" aria-label="Preset do Frame">
           <span className="on">{doc.frame.label}</span>
           <span className="disabled" title="Square chega numa próxima etapa">
-            Square 350×350
+            Square 350x350
           </span>
         </div>
         <div className="topbar-right">
@@ -213,20 +339,33 @@ export default function App() {
         </div>
       </header>
 
-      {(error || status) && (
-        <div className={`notice${error ? ' error' : ''}`} role={error ? 'alert' : 'status'}>
-          <span>{error ?? status}</span>
-          <button
-            type="button"
-            aria-label="Fechar aviso"
-            onClick={() => {
-              setError(null);
-              setStatus(null);
-            }}
-          >
-            ×
+      {download ? (
+        <div className="notice download" role="status">
+          <span>
+            Baixando link… {formatBytes(download.received)}
+            {download.total ? ` de ${formatBytes(download.total)}` : ''}
+          </span>
+          <progress value={download.received} max={download.total ?? undefined} />
+          <button type="button" onClick={cancelDownload}>
+            cancelar
           </button>
         </div>
+      ) : (
+        (error || status) && (
+          <div className={`notice${error ? ' error' : ''}`} role={error ? 'alert' : 'status'}>
+            <span>{error ?? status}</span>
+            <button
+              type="button"
+              aria-label="Fechar aviso"
+              onClick={() => {
+                setError(null);
+                setStatus(null);
+              }}
+            >
+              x
+            </button>
+          </div>
+        )
       )}
 
       <main className="workspace">

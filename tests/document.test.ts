@@ -21,4 +21,21 @@ describe('document', () => {
     expect(replaced.frame).toEqual(MUDAE_FRAME);
     expect(replaced.crop).toEqual(FIT_CROP);
   });
+
+  it('keeps every setting outside the Crop, ready for Border and Export state', () => {
+    const first = makeSource(400, 800);
+    const settings = {
+      ...makeDoc(first),
+      border: { width: 2, color: '#ffcc00' },
+      export: { format: 'png', scale: 2, folder: 'C:\\cards' },
+    };
+
+    const replaced = withSource(settings, makeSource(800, 400)) as typeof settings;
+
+    expect(replaced.border).toEqual(settings.border);
+    expect(replaced.export).toEqual(settings.export);
+    expect(replaced.frame).toEqual(MUDAE_FRAME);
+    expect(replaced.crop).toEqual(FIT_CROP);
+    expect(replaced.source).not.toBe(first);
+  });
 });
