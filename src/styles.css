@@ -126,15 +126,27 @@ button {
   padding: 2px;
 }
 
-.preset-toggle span {
+.preset-toggle span,
+.preset-toggle button {
   padding: 3px 10px;
+  border: 0;
+  background: none;
   border-radius: 6px;
   color: var(--text-dim);
   font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.preset-toggle button:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 .preset-toggle span.on,
-.toggle span.on {
+.preset-toggle button.on,
+.toggle span.on,
+.toggle button.on {
   background: #34313e;
   color: #fff;
 }
@@ -240,13 +252,95 @@ button {
   font-weight: 600;
 }
 
-.toggle span {
+.toggle span,
+.toggle button {
   flex: 1;
   text-align: center;
   padding: 3px 0;
+  border: 0;
+  background: none;
   border-radius: 5px;
   color: #898496;
   font-size: 10.5px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.toggle button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.toggle button + button {
+  margin-left: 2px;
+}
+
+/* Numeric fields in the tool rail */
+
+.field {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.num {
+  width: 58px;
+  background: #232129;
+  border: 1px solid #312f3a;
+  border-radius: 6px;
+  padding: 2px 6px;
+  color: #cfcadb;
+  font: inherit;
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  user-select: text;
+}
+
+.num:focus {
+  outline: 1px solid #55505f;
+  outline-offset: 0;
+}
+
+.num:disabled {
+  opacity: 0.45;
+}
+
+.unit {
+  color: #6f6b7d;
+  font-size: 10px;
+}
+
+.color {
+  width: 30px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid #312f3a;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.color:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.rail .row code {
+  font-family: ui-monospace, 'Cascadia Mono', monospace;
+  font-size: 9.5px;
+  color: #a8a3b8;
+}
+
+.row .pill {
+  font: inherit;
+  font-size: 10.5px;
+  cursor: pointer;
+}
+
+.row .pill:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
 .row {

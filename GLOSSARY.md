@@ -14,6 +14,11 @@ The fixed output rectangle the Crop lands in: 225×350 (Mudae), 350×225 (Mudae 
 
 _Avoid_: canvas, output box, viewport
 
+**Orientation**:
+Whether a Mudae Frame is portrait (225×350) or landscape (350×225). Square has no Orientation.
+
+_Avoid_: direction, ratio, rotation
+
 **Crop**:
 The region of the Source that lands inside the Frame, set by zoom, pan and rotation. A Crop never distorts.
 
@@ -28,6 +33,21 @@ _Avoid_: cover, fill, crop-to-fill
 A Crop scale where the Source is contained inside the Frame and the leftover area is filled with a solid color.
 
 _Avoid_: contain, letterbox, background mode
+
+**Scale mode**:
+How the Crop meets the Frame: Fit, Pad, full width (the Source matches the Frame's width) or full height (it matches the height). Zoom multiplies the mode's scale.
+
+_Avoid_: size mode, anchor, aspect mode
+
+**Rotation**:
+A 90° step applied to the Source inside the Crop: 0, 90, 180 or 270. The bitmap is turned at draw time, so steps never compound.
+
+_Avoid_: angle, spin, tilt
+
+**Pad color**:
+The solid color painted wherever a Crop leaves the Frame uncovered. Separate from the Border color.
+
+_Avoid_: background, fill color
 
 **Border**:
 A solid stroke drawn on top of the Crop, inside the Frame edge, aligned to the Frame regardless of Source rotation. Width is in Frame pixels at 1× and scales with the Export scale.

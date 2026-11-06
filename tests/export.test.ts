@@ -2,7 +2,12 @@ import { createCanvas, type Canvas } from '@napi-rs/canvas';
 import { describe, expect, it } from 'vitest';
 import { ExportError, renderPng, type EncodableCanvas, type ExportAdapter } from '../src/core/export';
 import { renderFrame } from '../src/core/render';
-import { emptyDocument } from '../src/core/document';
+import {
+  SQUARE_FRAME,
+  emptyDocument,
+  withExportScale,
+  type DocumentState,
+} from '../src/core/document';
 import { contextOf, makeDoc, makeSource, pngSize } from './helpers';
 
 const adapter: ExportAdapter = {
@@ -27,6 +32,35 @@ describe('PNG Export', () => {
 
     const reference = createCanvas(225, 350);
     renderFrame(contextOf(reference), doc, { scale: 1 });
+    const expected = new Uint8Array(reference.toBuffer('image/png'));
+
+    expect(Buffer.from(exported).equals(Buffer.from(expected))).toBe(true);
+  });
+
+  it('doubles the Mudae Frame to 450×700 for a 2× Export', async () => {
+    const doc = withExportScale(makeDoc(makeSource(900, 1400)), 2);
+    const bytes = await renderPng(doc, doc.exportScale, adapter);
+    expect(pngSize(bytes)).toEqual({ width: 450, height: 700 });
+  });
+
+  it('doubles the Square Frame to 700×700 for a 2× Export', async () => {
+    const square: DocumentState = {
+      ...withExportScale(makeDoc(makeSource(900, 900)), 2),
+      frame: SQUARE_FRAME,
+    };
+    const bytes = await renderPng(square, square.exportScale, adapter);
+    expect(pngSize(bytes)).toEqual({ width: 700, height: 700 });
+  });
+
+  it('draws the 2× Export from the Source at that size, not from a 1× render', async () => {
+    const doc = {
+      ...withExportScale(makeDoc(makeSource(900, 1400)), 2),
+      crop: { mode: 'fit' as const, zoom: 1, offsetX: 0, offsetY: 0, rotation: 0 as const },
+    };
+    const exported = await renderPng(doc, doc.exportScale, adapter);
+
+    const reference = createCanvas(450, 700);
+    renderFrame(contextOf(reference), doc, { scale: 2 });
     const expected = new Uint8Array(reference.toBuffer('image/png'));
 
     expect(Buffer.from(exported).equals(Buffer.from(expected))).toBe(true);

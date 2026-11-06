@@ -1,6 +1,22 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { downloadDir, join } from '@tauri-apps/api/path';
-import { emptyDocument, withCrop, withSource, FIT_CROP, type DocumentState } from './core/document';
+import {
+  emptyDocument,
+  frameFor,
+  orientationOf,
+  outputSize,
+  presetOf,
+  swappedFrame,
+  withCrop,
+  withExportScale,
+  withFrame,
+  withPadColor,
+  withSource,
+  type DocumentState,
+  type ExportScale,
+  type Frame,
+  type ScaleMode,
+} from './core/document';
 import {
   DownloadError,
   downloadErrorMessage,
@@ -9,7 +25,7 @@ import {
   sourceUrlFrom,
 } from './core/download';
 import { renderPng } from './core/export';
-import { panBy, zoomAt } from './core/geometry';
+import { clampCrop, panBy, resetCrop, rotate90, setScaleMode, zoomAt } from './core/geometry';
 import { importErrorMessage, loadSource, type SourceCandidate } from './core/import';
 import { exportFileName } from './core/naming';
 import { browserExportAdapter, decodeWithBrowser } from './platform/browser';
@@ -205,10 +221,11 @@ export default function App() {
       if (current.source.path && path.toLowerCase() === current.source.path.toLowerCase()) {
         throw new Error('o Export não pode sobrescrever a Source. Escolha outro nome.');
       }
-      const bytes = await renderPng(current, 1, browserExportAdapter);
+      const bytes = await renderPng(current, current.exportScale, browserExportAdapter);
       await writeFileBytes(path, bytes);
+      const size = outputSize(current);
       setError(null);
-      setStatus(`PNG ${current.frame.width}×${current.frame.height} exportado: ${fileNameOf(path)}`);
+      setStatus(`PNG ${size.width}×${size.height} exportado: ${fileNameOf(path)}`);
     } catch (reason) {
       setError(`Não foi possível exportar o PNG. ${messageOf(reason)}`);
       setStatus(null);
@@ -219,6 +236,47 @@ export default function App() {
 
   const exportRef = useRef(handleExport);
   exportRef.current = handleExport;
+
+  const applyFrame = useCallback((frame: Frame) => {
+    setDoc((current) => {
+      const next = withFrame(current, frame);
+      // Rotated bounds and the mode scale move with the Frame, so keep the
+      // pan inside whatever limits the new Frame allows.
+      return withCrop(next, clampCrop(next, next.crop));
+    });
+  }, []);
+
+  const changeMode = useCallback((mode: ScaleMode) => {
+    setDoc((current) =>
+      withCrop(current, clampCrop(current, setScaleMode(current.crop, mode))),
+    );
+  }, []);
+
+  const changeZoom = useCallback((zoom: number) => {
+    setDoc((current) => withCrop(current, clampCrop(current, { ...current.crop, zoom })));
+  }, []);
+
+  const changeOffset = useCallback((offsetX: number, offsetY: number) => {
+    setDoc((current) =>
+      withCrop(current, clampCrop(current, { ...current.crop, offsetX, offsetY })),
+    );
+  }, []);
+
+  const changePadColor = useCallback((padColor: string) => {
+    setDoc((current) => withPadColor(current, padColor));
+  }, []);
+
+  const changeExportScale = useCallback((exportScale: ExportScale) => {
+    setDoc((current) => withExportScale(current, exportScale));
+  }, []);
+
+  const rotate = useCallback(() => {
+    setDoc((current) => withCrop(current, rotate90(current, current.crop)));
+  }, []);
+
+  const reset = useCallback(() => {
+    setDoc((current) => withCrop(current, resetCrop(current.crop)));
+  }, []);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -345,10 +403,28 @@ export default function App() {
           </button>
         </form>
         <div className="preset-toggle" role="group" aria-label="Preset do Frame">
-          <span className="on">{doc.frame.label}</span>
-          <span className="disabled" title="Square chega numa próxima etapa">
+          <button
+            type="button"
+            className={presetOf(doc.frame) === 'mudae' ? 'on' : ''}
+            onClick={() => applyFrame(frameFor('mudae', orientationOf(doc.frame)))}
+          >
+            {presetOf(doc.frame) === 'mudae' ? doc.frame.label : 'Mudae 225×350'}
+          </button>
+          <button
+            type="button"
+            className={presetOf(doc.frame) === 'square' ? 'on' : ''}
+            onClick={() => applyFrame(frameFor('square', 'portrait'))}
+          >
             Square 350×350
-          </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => applyFrame(swappedFrame(doc.frame))}
+            disabled={presetOf(doc.frame) === 'square'}
+            title="Trocar retrato e paisagem"
+          >
+            {orientationOf(doc.frame) === 'portrait' ? '↔ paisagem' : '↕ retrato'}
+          </button>
         </div>
         <div className="topbar-right">
           <span className="chip">{sourceChip}</span>
@@ -389,7 +465,15 @@ export default function App() {
       )}
 
       <main className="workspace">
-        <ToolRail doc={doc} onResetCrop={() => setDoc((current) => withCrop(current, FIT_CROP))} />
+        <ToolRail
+          doc={doc}
+          onMode={changeMode}
+          onZoom={changeZoom}
+          onOffset={changeOffset}
+          onPadColor={changePadColor}
+          onRotate={rotate}
+          onResetCrop={reset}
+        />
         <Stage
           doc={doc}
           onPan={(dx, dy) =>
@@ -412,6 +496,7 @@ export default function App() {
           busy={busy}
           downloading={downloadProgress !== null}
           onExport={handleExport}
+          onExportScale={changeExportScale}
         />
       </main>
 

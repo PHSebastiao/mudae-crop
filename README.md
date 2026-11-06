@@ -4,7 +4,7 @@
 
 A local Windows desktop editor that turns a Source image or animation into a Mudae card: a fixed 225×350 Frame, a Border, and an Export ready to upload to Image Chest.
 
-This first slice is the core loop: bring a Source in from a file dialog, a drop, the clipboard or an image link, crop it into the Mudae Frame with Fit, pan and zoom, and Export a PNG at 1× through the native save dialog. Links are fetched by the Rust side, so CORS never applies; the download shows progress, can be cancelled, and refuses anything above 30 MB.
+This slice is the core loop: bring a Source in from a file dialog, a drop, the clipboard or an image link, crop it into the Mudae or Square Frame, and Export a PNG at 1× or 2× through the native save dialog. The Frame swaps between portrait and landscape, the Crop runs in Fit (overflow cropped, no bars) or Pad (whole Source visible, bars painted), snaps to width or height, rotates in 90° steps, and offers numeric zoom and offsets with a reset. Links are fetched by the Rust side, so CORS never applies; the download shows progress, can be cancelled, and refuses anything above 30 MB.
 
 ## Stack
 
@@ -39,7 +39,7 @@ npm run build
 cargo check --manifest-path src-tauri/Cargo.toml
 ```
 
-Vitest covers the render seam (a 1× hash snapshot plus fixture colors), Crop geometry, Source decoding and error messages, Export dimensions and naming, and the URL download wrapper against a fake transport (success, HTTP failure, non-image content, cancel and the 30 MB ceiling). Native dialogs, drag-and-drop, the real download and the save path are covered by the manual QA pass tracked in #13.
+Vitest covers the render seam (a 1× hash snapshot, fixture colors, Pad fill and 90° rotation), Crop geometry (scale per mode, clamping, rotated bounds, pan limits and mode defaults), Frame presets and orientation, Source decoding and error messages, 1×/2× Export dimensions and naming, and the URL download wrapper against a fake transport (success, HTTP failure, non-image content, cancel and the 30 MB ceiling). Native dialogs, drag-and-drop, the real download and the save path are covered by the manual QA pass tracked in #13.
 
 ## Troubleshooting
 

@@ -1,5 +1,6 @@
 import { createCanvas, type Canvas, type SKRSContext2D } from '@napi-rs/canvas';
 import {
+  DEFAULT_PAD_COLOR,
   FIT_CROP,
   MUDAE_FRAME,
   type DocumentState,
@@ -32,7 +33,13 @@ export function makeSource(
 }
 
 export function makeDoc(source: Source | null): DocumentState {
-  return { source, frame: MUDAE_FRAME, crop: FIT_CROP };
+  return {
+    source,
+    frame: MUDAE_FRAME,
+    crop: FIT_CROP,
+    padColor: DEFAULT_PAD_COLOR,
+    exportScale: 1,
+  };
 }
 
 export function contextOf(canvas: Canvas): RenderContext {
