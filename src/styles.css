@@ -321,6 +321,29 @@ button {
   cursor: default;
 }
 
+.stage-meta {
+  position: absolute;
+  bottom: 28px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  max-width: calc(100% - 40px);
+  color: #b7b2c5;
+  font-size: 10.5px;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.stage-meta .source-name {
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 600;
+  color: #ddd8ea;
+}
+
 .stage-hint {
   position: absolute;
   bottom: 12px;

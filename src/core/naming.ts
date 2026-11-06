@@ -1,5 +1,5 @@
 /** File name from the Source stem, preset and local timestamp. Pure so it can be tested. */
-export function exportFileName(sourceName: string, presetId: string, date: Date): string {
+export function exportFileName(sourceName: string, frameId: string, date: Date): string {
   const stem =
     sourceName
       .replace(/\.[^.]+$/, '')
@@ -15,5 +15,5 @@ export function exportFileName(sourceName: string, presetId: string, date: Date)
     String(date.getMinutes()).padStart(2, '0'),
     String(date.getSeconds()).padStart(2, '0'),
   ].join('');
-  return `${stem}-${presetId}-${stamp}.png`;
+  return `${stem}-${frameId}-${stamp}.png`;
 }

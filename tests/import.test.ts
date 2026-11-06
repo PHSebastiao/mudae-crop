@@ -64,6 +64,15 @@ describe('loadSource', () => {
     });
   });
 
+  it('calls a mislabelled supported extension corrupt, not unsupported', async () => {
+    await expect(
+      loadSource({ name: 'actually-webp.png', path: null, bytes: WEBP }, decodes),
+    ).rejects.toMatchObject({
+      code: 'corrupt',
+      message: 'Não foi possível ler "actually-webp.png". O arquivo pode estar corrompido.',
+    });
+  });
+
   it('reports a corrupt file by name', async () => {
     const failing: Decoder = async () => {
       throw new Error('bad data');

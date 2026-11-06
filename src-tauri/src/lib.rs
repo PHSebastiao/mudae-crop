@@ -6,7 +6,7 @@ use std::path::Path;
 fn read_file_bytes(path: String) -> Result<tauri::ipc::Response, String> {
     std::fs::read(&path)
         .map(tauri::ipc::Response::new)
-        .map_err(|error| format!("Não foi possível ler o arquivo: {error}"))
+        .map_err(|error| error.to_string())
 }
 
 /// Write an Export to the path chosen in the native save dialog.
@@ -15,8 +15,7 @@ fn write_file_bytes(path: String, contents: Vec<u8>) -> Result<(), String> {
     if Path::new(&path).is_dir() {
         return Err("O caminho escolhido é uma pasta, não um arquivo.".into());
     }
-    std::fs::write(&path, contents)
-        .map_err(|error| format!("Não foi possível salvar o arquivo: {error}"))
+    std::fs::write(&path, contents).map_err(|error| error.to_string())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

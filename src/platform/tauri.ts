@@ -13,11 +13,6 @@ export function fileNameOf(path: string): string {
   return parts[parts.length - 1] || path;
 }
 
-export function folderOf(path: string): string {
-  const index = Math.max(path.lastIndexOf('\\'), path.lastIndexOf('/'));
-  return index > 0 ? path.slice(0, index) : path;
-}
-
 export async function chooseSourceFile(): Promise<string | null> {
   const selected = await open({
     multiple: false,

@@ -47,7 +47,7 @@ export function ExportPanel({ doc, busy, onExport }: ExportPanelProps) {
         <h4>Borda</h4>
         <div className="border-preview">
           <div className="border-pixel" />
-          <div className="caption">1 px dentro do Frame</div>
+          <div className="caption">prévia da Borda na próxima etapa</div>
         </div>
       </section>
     </aside>

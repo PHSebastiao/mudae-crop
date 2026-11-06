@@ -9,7 +9,7 @@ This first slice is the core loop: bring a Source in from a file dialog, a drop 
 ## Stack
 
 - Tauri 2 desktop shell (Rust) with a React + TypeScript front-end built by Vite.
-- The render pipeline is one pure module: Preview and Export both draw through `renderFrame(doc, { scale })` in `src/core/render.ts`.
+- The render pipeline is one pure module: the Preview's Frame and the Export both draw through `renderFrame(doc, { scale })` in `src/core/render.ts`. The dimmed surround reuses the same Source draw.
 - Domain vocabulary lives in [GLOSSARY.md](GLOSSARY.md); decisions in [docs/adr](docs/adr).
 
 ## Prerequisites

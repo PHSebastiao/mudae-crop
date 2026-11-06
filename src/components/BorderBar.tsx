@@ -21,7 +21,7 @@ export function BorderBar() {
         <span className="recalc disabled">recalcular</span>
       </div>
       <div className="border-hint">
-        a Palette chega numa próxima etapa · o Border padrão é 1 px branco
+        Borda e Palette chegam numa próxima etapa · o Export desta versão sai sem borda
       </div>
     </footer>
   );

@@ -56,6 +56,8 @@ export function detectFormat(bytes: Uint8Array): ImageFormat | null {
   return null;
 }
 
+const SUPPORTED_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif']);
+
 function extensionOf(name: string): string {
   const match = /\.([a-z0-9]+)$/i.exec(name);
   return match ? match[1].toLowerCase() : '';
@@ -66,6 +68,23 @@ function unsupportedMessage(name: string): string {
   return ext
     ? `Formato não suportado: .${ext}. Use PNG, JPG ou GIF.`
     : 'Formato não suportado. Use PNG, JPG ou GIF.';
+}
+
+function corruptMessage(name: string): string {
+  return `Não foi possível ler "${name}". O arquivo pode estar corrompido.`;
+}
+
+/**
+ * The extension only chooses the wording. Content decides what is valid, so a
+ * file that claims to be a PNG but is not gets the corrupt message rather than
+ * a misleading "unsupported .png".
+ */
+function unrecognisedBytesError(name: string): ImportError {
+  const ext = extensionOf(name);
+  if (ext && SUPPORTED_EXTENSIONS.has(ext)) {
+    return new ImportError('corrupt', corruptMessage(name));
+  }
+  return new ImportError('unsupported', unsupportedMessage(name));
 }
 
 /**
@@ -81,26 +100,22 @@ export async function loadSource(candidate: SourceCandidate, decode: Decoder): P
     throw new ImportError('empty', `"${name}" está vazio.`);
   }
 
+  // Content wins over the extension: a PNG renamed to .txt still imports.
+
   const format = detectFormat(bytes);
   if (!format) {
-    throw new ImportError('unsupported', unsupportedMessage(name));
+    throw unrecognisedBytesError(name);
   }
 
   let decoded: DecodedImage;
   try {
     decoded = await decode(bytes, format);
   } catch {
-    throw new ImportError(
-      'corrupt',
-      `Não foi possível ler "${name}". O arquivo pode estar corrompido.`,
-    );
+    throw new ImportError('corrupt', corruptMessage(name));
   }
 
   if (!decoded.width || !decoded.height) {
-    throw new ImportError(
-      'corrupt',
-      `Não foi possível ler "${name}". O arquivo pode estar corrompido.`,
-    );
+    throw new ImportError('corrupt', corruptMessage(name));
   }
 
   return {

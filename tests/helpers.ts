@@ -5,6 +5,7 @@ import {
   type DocumentState,
   type Source,
 } from '../src/core/document';
+import { sourceRect } from '../src/core/geometry';
 import type { RenderContext } from '../src/core/render';
 
 export function makeSource(
@@ -44,13 +45,8 @@ export function sourcePointAt(
   point: { x: number; y: number },
 ): { x: number; y: number } {
   if (!doc.source) return { x: 0, y: 0 };
-  const scale =
-    Math.max(doc.frame.width / doc.source.width, doc.frame.height / doc.source.height) * doc.crop.zoom;
-  const width = doc.source.width * scale;
-  const height = doc.source.height * scale;
-  const left = doc.frame.width / 2 + doc.crop.offsetX - width / 2;
-  const top = doc.frame.height / 2 + doc.crop.offsetY - height / 2;
-  return { x: (point.x - left) / width, y: (point.y - top) / height };
+  const rect = sourceRect(doc);
+  return { x: (point.x - rect.x) / rect.width, y: (point.y - rect.y) / rect.height };
 }
 
 /** Reads the four big-endian dimension bytes from a PNG IHDR chunk. */

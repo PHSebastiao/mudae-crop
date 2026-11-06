@@ -162,9 +162,36 @@ export default function App() {
       .then((stop) => {
         dispose = stop;
       })
-      .catch(() => undefined);
+      .catch(() => {
+        setError('Não foi possível ativar o arrastar e soltar. Use Ctrl+O ou Ctrl+V.');
+      });
     return () => dispose?.();
   }, [importPath]);
+
+  // Browser-only fallback so `npm run dev` can exercise the same import path.
+  // The desktop window receives OS drops through Tauri instead.
+  useEffect(() => {
+    if (isDesktop()) return;
+    const onDragOver = (event: DragEvent) => event.preventDefault();
+    const onDrop = (event: DragEvent) => {
+      event.preventDefault();
+      const file = event.dataTransfer?.files[0];
+      if (!file) return;
+      void file.arrayBuffer().then((buffer) =>
+        importCandidate({
+          name: file.name,
+          path: null,
+          bytes: new Uint8Array(buffer),
+        }),
+      );
+    };
+    window.addEventListener('dragover', onDragOver);
+    window.addEventListener('drop', onDrop);
+    return () => {
+      window.removeEventListener('dragover', onDragOver);
+      window.removeEventListener('drop', onDrop);
+    };
+  }, [importCandidate]);
 
   const sourceChip = doc.source
     ? `${doc.source.format.toUpperCase()} · ${doc.source.width}×${doc.source.height}`
@@ -175,7 +202,7 @@ export default function App() {
       <header className="topbar">
         <div className="brand">mudae crop</div>
         <div className="preset-toggle" role="group" aria-label="Preset do Frame">
-          <span className="on">Mudae 225×350</span>
+          <span className="on">{doc.frame.label}</span>
           <span className="disabled" title="Square chega numa próxima etapa">
             Square 350×350
           </span>

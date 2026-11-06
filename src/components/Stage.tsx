@@ -21,7 +21,7 @@ export function Stage({ doc, onPan, onZoomAt, onOpen, busy }: StageProps) {
   const backdropRef = useRef<HTMLCanvasElement>(null);
   const frameRef = useRef<HTMLCanvasElement>(null);
   const dragRef = useRef<{ id: number; x: number; y: number } | null>(null);
-  const [host, setHost] = useState({ width: 0, height: 0 });
+  const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
   const [dragging, setDragging] = useState(false);
 
   useEffect(() => {
@@ -29,19 +29,19 @@ export function Stage({ doc, onPan, onZoomAt, onOpen, busy }: StageProps) {
     if (!element) return;
     const observer = new ResizeObserver((entries) => {
       const rect = entries[0]?.contentRect;
-      if (rect) setHost({ width: rect.width, height: rect.height });
+      if (rect) setStageSize({ width: rect.width, height: rect.height });
     });
     observer.observe(element);
     return () => observer.disconnect();
   }, []);
 
   const scale =
-    host.width && host.height
+    stageSize.width && stageSize.height
       ? Math.max(
           MIN_STAGE_SCALE,
           Math.min(
-            (host.width - PAD * 2) / doc.frame.width,
-            (host.height - PAD * 2) / doc.frame.height,
+            (stageSize.width - PAD * 2) / doc.frame.width,
+            (stageSize.height - PAD * 2) / doc.frame.height,
             MAX_STAGE_SCALE,
           ),
         )
@@ -162,7 +162,7 @@ export function Stage({ doc, onPan, onZoomAt, onOpen, busy }: StageProps) {
           >
             <div className="empty-inner">
               <strong>Traga uma Source</strong>
-              <p>PNG, JPG ou GIF entra no Frame Mudae 225×350.</p>
+              <p>PNG, JPG ou GIF entra no Frame {doc.frame.label}.</p>
               <button type="button" className="primary" onClick={onOpen} disabled={busy}>
                 Abrir arquivo…
               </button>
@@ -173,7 +173,17 @@ export function Stage({ doc, onPan, onZoomAt, onOpen, busy }: StageProps) {
         )}
       </div>
       {doc.source && (
-        <div className="stage-hint">arraste para mover · roda do mouse para zoom</div>
+        <>
+          <div className="stage-meta">
+            <span className="source-name" title={doc.source.path ?? doc.source.name}>
+              {doc.source.name}
+            </span>
+            <span>
+              {doc.source.format.toUpperCase()} · {doc.source.width}×{doc.source.height}
+            </span>
+          </div>
+          <div className="stage-hint">arraste para mover · roda do mouse para zoom</div>
+        </>
       )}
     </div>
   );
