@@ -259,6 +259,12 @@ button {
   display: block;
 }
 
+/* Feather the dimmed Source so the stage does not read as a hard rectangle. */
+.backdrop {
+  mask-image: radial-gradient(closest-side, #000 82%, transparent 100%);
+  -webkit-mask-image: radial-gradient(closest-side, #000 82%, transparent 100%);
+}
+
 .frame-canvas {
   box-shadow:
     0 0 0 1px rgba(255, 255, 255, 0.55),

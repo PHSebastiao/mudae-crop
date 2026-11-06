@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } f
 import type { DocumentState } from '../core/document';
 import { drawSource, renderFrame } from '../core/render';
 
-const PAD = 46;
+const PAD = 84;
 const MIN_STAGE_SCALE = 0.35;
 const MAX_STAGE_SCALE = 1.4;
 
@@ -83,7 +83,7 @@ export function Stage({ doc, onPan, onZoomAt, onOpen, busy }: StageProps) {
     const height = frameHeight * dpr;
     const fullWidth = sceneWidth * dpr;
     const fullHeight = sceneHeight * dpr;
-    backdropContext.fillStyle = 'rgba(8, 7, 11, 0.7)';
+    backdropContext.fillStyle = 'rgba(8, 7, 11, 0.55)';
     backdropContext.fillRect(0, 0, fullWidth, pad);
     backdropContext.fillRect(0, pad + height, fullWidth, fullHeight - pad - height);
     backdropContext.fillRect(0, pad, pad, height);
