@@ -1,0 +1,3 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`render seam at 1× > matches the committed snapshot for the fixture Source 1`] = `"308cf1f7198142a41f273de824a9f4cf347f666971947a6c6ba369552f99c955"`;
