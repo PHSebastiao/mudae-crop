@@ -132,9 +132,6 @@ export function ToolRail({
             />
           </span>
         </div>
-        {hasSource && doc.crop.mode === 'fit' && (
-          <p className="rail-hint">Pad color só aparece fora do Fit.</p>
-        )}
         <button
           type="button"
           className="link rail-pick"

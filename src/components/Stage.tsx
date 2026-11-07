@@ -6,6 +6,19 @@ import { drawSource, renderFrame } from '../core/render';
 const PAD = 84;
 const MIN_STAGE_SCALE = 0.35;
 const MAX_STAGE_SCALE = 1.4;
+const MAGNIFIER_SIZE = 184;
+const MAGNIFIER_CANVAS = 180;
+const MAGNIFIER_REGION = 9;
+const MAGNIFIER_OFFSET = 22;
+const MAGNIFIER_MARGIN = 12;
+
+interface MagnifierState {
+  readonly left: number;
+  readonly top: number;
+  readonly sx: number;
+  readonly sy: number;
+  readonly hex: string;
+}
 
 interface StageProps {
   readonly doc: DocumentState;
@@ -32,9 +45,11 @@ export function Stage({
   const hostRef = useRef<HTMLDivElement>(null);
   const backdropRef = useRef<HTMLCanvasElement>(null);
   const frameRef = useRef<HTMLCanvasElement>(null);
+  const magnifierRef = useRef<HTMLCanvasElement>(null);
   const dragRef = useRef<{ id: number; x: number; y: number } | null>(null);
   const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
   const [dragging, setDragging] = useState(false);
+  const [magnifier, setMagnifier] = useState<MagnifierState | null>(null);
 
   useEffect(() => {
     const element = hostRef.current;
@@ -122,25 +137,36 @@ export function Stage({
     return () => element.removeEventListener('wheel', onWheel);
   }, [doc.source, onZoomAt, scale]);
 
+  function framePixelAt(
+    clientX: number,
+    clientY: number,
+  ): { sx: number; sy: number } | null {
+    const frameCanvas = frameRef.current;
+    if (!frameCanvas) return null;
+    const rect = frameCanvas.getBoundingClientRect();
+    if (
+      clientX < rect.left ||
+      clientX >= rect.right ||
+      clientY < rect.top ||
+      clientY >= rect.bottom
+    ) {
+      return null;
+    }
+    return {
+      sx: Math.floor(((clientX - rect.left) / rect.width) * frameCanvas.width),
+      sy: Math.floor(((clientY - rect.top) / rect.height) * frameCanvas.height),
+    };
+  }
+
   function handlePointerDown(event: ReactPointerEvent<HTMLDivElement>) {
     if (!doc.source) return;
 
     if (picking) {
+      const point = framePixelAt(event.clientX, event.clientY);
       const frameCanvas = frameRef.current;
-      if (!frameCanvas) return;
-      const rect = frameCanvas.getBoundingClientRect();
-      if (
-        event.clientX < rect.left ||
-        event.clientX >= rect.right ||
-        event.clientY < rect.top ||
-        event.clientY >= rect.bottom
-      ) {
-        return;
-      }
-      const x = Math.floor(((event.clientX - rect.left) / rect.width) * frameCanvas.width);
-      const y = Math.floor(((event.clientY - rect.top) / rect.height) * frameCanvas.height);
+      if (!point || !frameCanvas) return;
       const context = frameCanvas.getContext('2d');
-      const pixel = context?.getImageData(x, y, 1, 1).data;
+      const pixel = context?.getImageData(point.sx, point.sy, 1, 1).data;
       if (!pixel || pixel[3] === 0) return;
       event.preventDefault();
       onPickColor(toHexColor({ r: pixel[0], g: pixel[1], b: pixel[2] }));
@@ -152,7 +178,48 @@ export function Stage({
     setDragging(true);
   }
 
+  function updateMagnifier(event: ReactPointerEvent<HTMLDivElement>) {
+    const host = hostRef.current;
+    const frameCanvas = frameRef.current;
+    if (!host || !frameCanvas) return;
+    const point = framePixelAt(event.clientX, event.clientY);
+    if (!point) {
+      setMagnifier(null);
+      return;
+    }
+    const context = frameCanvas.getContext('2d');
+    const pixel = context?.getImageData(point.sx, point.sy, 1, 1).data;
+    if (!pixel || pixel[3] === 0) {
+      setMagnifier(null);
+      return;
+    }
+
+    const hostRect = host.getBoundingClientRect();
+    const pointerX = event.clientX - hostRect.left;
+    const pointerY = event.clientY - hostRect.top;
+    let left = pointerX + MAGNIFIER_OFFSET;
+    let top = pointerY + MAGNIFIER_OFFSET;
+    if (left + MAGNIFIER_SIZE > hostRect.width - MAGNIFIER_MARGIN) {
+      left = pointerX - MAGNIFIER_SIZE - MAGNIFIER_OFFSET;
+    }
+    if (top + MAGNIFIER_SIZE > hostRect.height - MAGNIFIER_MARGIN) {
+      top = pointerY - MAGNIFIER_SIZE - MAGNIFIER_OFFSET;
+    }
+
+    setMagnifier({
+      left: Math.max(MAGNIFIER_MARGIN, left),
+      top: Math.max(MAGNIFIER_MARGIN, top),
+      sx: point.sx,
+      sy: point.sy,
+      hex: toHexColor({ r: pixel[0], g: pixel[1], b: pixel[2] }),
+    });
+  }
+
   function handlePointerMove(event: ReactPointerEvent<HTMLDivElement>) {
+    if (picking) {
+      updateMagnifier(event);
+      return;
+    }
     const drag = dragRef.current;
     if (!drag || drag.id !== event.pointerId) return;
     const dx = (event.clientX - drag.x) / scale;
@@ -162,11 +229,77 @@ export function Stage({
   }
 
   function endDrag(event: ReactPointerEvent<HTMLDivElement>) {
+    if (picking) setMagnifier(null);
     if (dragRef.current?.id === event.pointerId) {
       dragRef.current = null;
       setDragging(false);
     }
   }
+
+  useEffect(() => {
+    if (!picking) setMagnifier(null);
+  }, [picking]);
+
+  useEffect(() => {
+    if (!picking || !magnifier) return;
+    const canvas = magnifierRef.current;
+    const source = frameRef.current;
+    if (!canvas || !source) return;
+    const context = canvas.getContext('2d');
+    const sourceContext = source.getContext('2d');
+    if (!context || !sourceContext) return;
+
+    const half = Math.floor(MAGNIFIER_REGION / 2);
+    const cell = canvas.width / MAGNIFIER_REGION;
+    let image: ImageData;
+    try {
+      image = sourceContext.getImageData(
+        magnifier.sx - half,
+        magnifier.sy - half,
+        MAGNIFIER_REGION,
+        MAGNIFIER_REGION,
+      );
+    } catch {
+      return;
+    }
+
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    context.fillStyle = '#111116';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    for (let y = 0; y < MAGNIFIER_REGION; y += 1) {
+      for (let x = 0; x < MAGNIFIER_REGION; x += 1) {
+        const index = (y * MAGNIFIER_REGION + x) * 4;
+        const alpha = image.data[index + 3];
+        if (alpha === 0) continue;
+        context.fillStyle = `rgba(${image.data[index]}, ${image.data[index + 1]}, ${
+          image.data[index + 2]
+        }, ${alpha / 255})`;
+        context.fillRect(x * cell, y * cell, cell, cell);
+      }
+    }
+
+    context.strokeStyle = 'rgba(0, 0, 0, 0.35)';
+    context.lineWidth = 1;
+    for (let step = 1; step < MAGNIFIER_REGION; step += 1) {
+      const position = step * cell + 0.5;
+      context.beginPath();
+      context.moveTo(position, 0);
+      context.lineTo(position, canvas.height);
+      context.stroke();
+      context.beginPath();
+      context.moveTo(0, position);
+      context.lineTo(canvas.width, position);
+      context.stroke();
+    }
+
+    context.fillStyle = 'rgba(190, 190, 200, 0.42)';
+    context.fillRect(half * cell, 0, cell, canvas.height);
+    context.fillRect(0, half * cell, canvas.width, cell);
+
+    context.strokeStyle = '#FFFFFF';
+    context.lineWidth = 2;
+    context.strokeRect(half * cell + 1, half * cell + 1, cell - 2, cell - 2);
+  }, [doc, magnifier, picking]);
 
   return (
     <div
@@ -178,6 +311,7 @@ export function Stage({
       onPointerMove={handlePointerMove}
       onPointerUp={endDrag}
       onPointerCancel={endDrag}
+      onPointerLeave={() => setMagnifier(null)}
       aria-label="Palco do Crop"
     >
       <div className="scene" style={{ width: sceneWidth, height: sceneHeight }}>
@@ -226,6 +360,16 @@ export function Stage({
               : 'arraste para mover · roda do mouse para zoom'}
           </div>
         </>
+      )}
+      {picking && magnifier && (
+        <div
+          className="magnifier"
+          style={{ left: magnifier.left, top: magnifier.top }}
+          aria-hidden="true"
+        >
+          <canvas ref={magnifierRef} width={MAGNIFIER_CANVAS} height={MAGNIFIER_CANVAS} />
+          <span className="magnifier-hex">{magnifier.hex}</span>
+        </div>
       )}
     </div>
   );

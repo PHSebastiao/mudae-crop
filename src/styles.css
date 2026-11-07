@@ -590,6 +590,44 @@ button {
   white-space: nowrap;
 }
 
+/* Pixel magnifier shown while the Pad eyedropper is armed. */
+
+.magnifier {
+  position: absolute;
+  z-index: 6;
+  width: 184px;
+  height: 184px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  background: #111116;
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.magnifier canvas {
+  display: block;
+  width: 180px;
+  height: 180px;
+  margin: 1px;
+  image-rendering: pixelated;
+}
+
+.magnifier-hex {
+  position: absolute;
+  left: 50%;
+  bottom: 8px;
+  transform: translateX(-50%);
+  background: rgba(10, 10, 14, 0.82);
+  color: #fff;
+  font-family: ui-monospace, 'Cascadia Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.3px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
 /* Export panel */
 
 .panel {
