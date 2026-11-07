@@ -21,8 +21,6 @@ import {
   aspectMatches,
   exceedsSource,
   formatAspect,
-  formatScale,
-  relativeScale,
 } from '../core/size';
 import { NumberField } from './NumberField';
 
@@ -187,7 +185,6 @@ export function ExportPanel({
   const custom = doc.resize !== null;
   const ratioMatches = aspectMatches(size, doc.frame);
   const ratioLabel = formatAspect(size);
-  const scaleLabel = formatScale(relativeScale(size, doc.frame));
   const sourceTooSmall = exceedsSource(size, doc.source);
   const exportLabel = downloading
     ? 'Aguarde o link…'
@@ -213,11 +210,10 @@ export function ExportPanel({
           <strong>
             {format} · {size.width}×{size.height}
           </strong>
-          <span>{scaleLabel}</span>
           <span className={ratioMatches ? '' : 'warn'}>
             {ratioMatches ? 'proporção da carta' : 'esticada'}
           </span>
-          {optimizeResult && <span>{formatBytes(optimizeResult.size)}</span>}
+          {optimizeResult && <span>arquivo {formatBytes(optimizeResult.size)}</span>}
         </div>
 
         <div className="toggle" role="group" aria-label="Formato do Export">
@@ -277,7 +273,7 @@ export function ExportPanel({
             aria-checked={custom}
           >
             <span>Personalizado</span>
-            <span className="dims">{custom ? `${size.width}×${size.height}` : '—'}</span>
+            <span className="dims">—</span>
           </button>
         </div>
 
@@ -327,12 +323,13 @@ export function ExportPanel({
                 fora da proporção da carta — a imagem vai esticar
               </p>
             )}
-            {sourceTooSmall && doc.source && (
-              <p className="panel-hint warn">
-                acima da Source ({doc.source.width}×{doc.source.height}) — só amplia
-              </p>
-            )}
           </div>
+        )}
+
+        {sourceTooSmall && doc.source && (
+          <p className="panel-hint warn">
+            acima da Source ({doc.source.width}×{doc.source.height}) — só amplia
+          </p>
         )}
 
         <button

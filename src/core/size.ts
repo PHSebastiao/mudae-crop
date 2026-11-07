@@ -13,20 +13,13 @@ export function aspectMatches(output: Size, frame: Size, tolerance = ASPECT_TOLE
   return Math.abs(outputRatio / frameRatio - 1) <= tolerance;
 }
 
-/** The output ratio as `1,56:1`, matching the app's decimal comma. */
+/** The output ratio as `1,56:1` or `1:1,56`, matching the app's decimal comma. */
 export function formatAspect(size: Size): string {
-  if (size.height <= 0) return '0:1';
+  if (size.width <= 0 || size.height <= 0) return '0:1';
+  if (size.width < size.height) {
+    return `1:${(size.height / size.width).toFixed(2).replace('.', ',')}`;
+  }
   return `${(size.width / size.height).toFixed(2).replace('.', ',')}:1`;
-}
-
-/** How many times the Frame width the output uses. */
-export function relativeScale(output: Size, frame: Size): number {
-  if (frame.width <= 0) return 1;
-  return output.width / frame.width;
-}
-
-export function formatScale(scale: number): string {
-  return `${scale.toFixed(2).replace('.', ',')}×`;
 }
 
 /** True when the output asks for pixels the Source does not have. */

@@ -859,11 +859,12 @@ button {
 .custom-size-head .num {
   flex: 1;
   width: auto;
+  min-width: 0;
 }
 
 .lock {
   flex: none;
-  width: 28px;
+  width: 26px;
   height: 24px;
   padding: 0;
   border: 1px solid #3a3745;
