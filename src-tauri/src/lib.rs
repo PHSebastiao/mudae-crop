@@ -83,8 +83,9 @@ impl DownloadFailure {
     }
 }
 
-/// Read the bytes of a file the user picked in the native dialog. Returning a
-/// raw Response keeps large GIFs out of the JSON IPC path.
+/// Read the bytes of a local Source: a file the user picked in the native
+/// dialog or a path pasted into the Source bar. Returning a raw Response keeps
+/// large GIFs out of the JSON IPC path.
 #[tauri::command]
 fn read_file_bytes(path: String) -> Result<tauri::ipc::Response, String> {
     std::fs::read(&path)

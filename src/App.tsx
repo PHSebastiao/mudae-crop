@@ -59,7 +59,12 @@ import {
   rotate90,
   zoomAt,
 } from './core/geometry';
-import { importErrorMessage, loadSource, type SourceCandidate } from './core/import';
+import {
+  importErrorMessage,
+  loadSource,
+  localPathFrom,
+  type SourceCandidate,
+} from './core/import';
 import { extractPalette, type PaletteColor } from './core/palette';
 import {
   appendHistory,
@@ -493,6 +498,27 @@ export default function App() {
       fail(`Não foi possível abrir o diálogo de arquivos. ${messageOf(reason)}`);
     }
   }, [fail, importPath]);
+
+  /** The Source bar takes a link or a local path; Enter and the button share this. */
+  const submitLink = useCallback(() => {
+    const url = sourceUrlFrom(link);
+    if (url) {
+      void importFromUrl(url.href);
+      return;
+    }
+    const path = localPathFrom(link);
+    if (!path) {
+      fail(
+        'Cole um link http(s) ou o caminho de um arquivo PNG, JPG, GIF, WebP, APNG, MP4, MOV ou WebM.',
+      );
+      return;
+    }
+    if (!isDesktop()) {
+      fail('Importar por caminho de arquivo só funciona no app desktop.');
+      return;
+    }
+    void importPath(path);
+  }, [fail, importFromUrl, importPath, link]);
 
   const renderForExport = useCallback(
     async (
@@ -1069,7 +1095,7 @@ export default function App() {
       }
 
       // Text pasted into a field stays an ordinary paste; only page-level
-      // Ctrl+V turns a link into a Source.
+      // Ctrl+V turns a link or a local path into a Source.
       const target = event.target as HTMLElement | null;
       if (
         target &&
@@ -1078,14 +1104,23 @@ export default function App() {
         return;
       }
 
-      const url = sourceUrlFrom(data.getData('text'));
-      if (!url) return;
-      event.preventDefault();
-      void importFromUrl(url.href);
+      const text = data.getData('text');
+      const url = sourceUrlFrom(text);
+      if (url) {
+        event.preventDefault();
+        void importFromUrl(url.href);
+        return;
+      }
+      // "Copy as path" in Explorer pastes a quoted local path; open it directly.
+      const path = localPathFrom(text);
+      if (path && isDesktop()) {
+        event.preventDefault();
+        void importPath(path);
+      }
     };
     window.addEventListener('paste', onPaste);
     return () => window.removeEventListener('paste', onPaste);
-  }, [importCandidate, importFromUrl]);
+  }, [importCandidate, importFromUrl, importPath]);
 
   useEffect(() => {
     let dispose: (() => void) | undefined;
@@ -1140,6 +1175,9 @@ export default function App() {
       }`
     : 'sem Source';
 
+  /** What the Source bar currently holds, so the button can name the action. */
+  const linkTarget = sourceUrlFrom(link) ? 'link' : localPathFrom(link) ? 'path' : null;
+
   const clearNotice = () => {
     setError(null);
     setStatus(null);
@@ -1154,7 +1192,7 @@ export default function App() {
           className="link-import"
           onSubmit={(event) => {
             event.preventDefault();
-            void importFromUrl(link);
+            submitLink();
           }}
         >
           <input
@@ -1162,13 +1200,31 @@ export default function App() {
             inputMode="url"
             value={link}
             onChange={(event) => setLink(event.target.value)}
-            placeholder="cole um link de imagem"
-            aria-label="Link da Source"
+            placeholder="link ou caminho de arquivo"
+            aria-label="Link ou caminho da Source"
             spellCheck={false}
             disabled={busy}
           />
-          <button type="submit" disabled={busy || !sourceUrlFrom(link)}>
-            Abrir link
+          <button type="submit" disabled={busy || !linkTarget}>
+            {linkTarget === 'path' ? 'Abrir arquivo' : 'Abrir link'}
+          </button>
+          <button
+            type="button"
+            className="link-import-browse"
+            onClick={() => void handleOpen()}
+            disabled={busy}
+            aria-label="Abrir arquivo do computador"
+            title="Abrir arquivo do computador (Ctrl+O)"
+          >
+            <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+              <path
+                d="M1.75 3.25h4l1.5 1.5h6.75v7.5a.75.75 0 0 1-.75.75H2.5a.75.75 0 0 1-.75-.75V3.25Z"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.3"
+                strokeLinejoin="round"
+              />
+            </svg>
           </button>
         </form>
         <div className="preset-toggle" role="group" aria-label="Preset do Frame">

@@ -5,6 +5,7 @@ import {
   detectFormat,
   importErrorMessage,
   loadSource,
+  localPathFrom,
   type Decoder,
 } from '../src/core/import';
 import { makeSource } from './helpers';
@@ -90,6 +91,31 @@ describe('format detection', () => {
 
   it('rejects anything else, whatever the extension says', () => {
     expect(detectFormat(BMP)).toBeNull();
+  });
+});
+
+describe('localPathFrom', () => {
+  it('accepts Windows and POSIX paths for supported media', () => {
+    expect(localPathFrom('C:\\Users\\me\\Pictures\\card.png')).toBe(
+      'C:\\Users\\me\\Pictures\\card.png',
+    );
+    expect(localPathFrom('\\\\server\\share\\clip.webm')).toBe('\\\\server\\share\\clip.webm');
+    expect(localPathFrom('/home/me/pictures/card.gif')).toBe('/home/me/pictures/card.gif');
+    expect(localPathFrom('./rel/card.webp')).toBe('./rel/card.webp');
+  });
+
+  it('strips the quotes Explorer and browsers wrap around a path', () => {
+    expect(localPathFrom(' "C:\\Pictures\\my card.MP4" ')).toBe('C:\\Pictures\\my card.MP4');
+    expect(localPathFrom("'/home/me/dog.JPG'")).toBe('/home/me/dog.JPG');
+  });
+
+  it('keeps links, scheme URLs and bare file names out', () => {
+    expect(localPathFrom('https://cdn.example.com/card.png')).toBeNull();
+    expect(localPathFrom('file:///C:/Pictures/card.png')).toBeNull();
+    expect(localPathFrom('card.png')).toBeNull();
+    expect(localPathFrom('C:\\Pictures\\notes.txt')).toBeNull();
+    expect(localPathFrom('C:\\Pictures\\card.png\nextra')).toBeNull();
+    expect(localPathFrom('   ')).toBeNull();
   });
 });
 

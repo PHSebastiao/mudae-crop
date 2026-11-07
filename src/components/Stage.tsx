@@ -405,7 +405,7 @@ export function Stage({
               </button>
               <p className="hint">Arraste uma imagem para a janela</p>
               <p className="hint">ou Ctrl+V para colar da área de transferência</p>
-              <p className="hint">ou cole um link na barra acima</p>
+              <p className="hint">ou cole um link ou caminho na barra acima</p>
             </div>
           </div>
         )}

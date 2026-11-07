@@ -195,6 +195,30 @@ export async function loadSource(candidate: SourceCandidate, decode: Decoder): P
   };
 }
 
+/**
+ * Read a local file path from text pasted into the Source bar. Explorer and
+ * some browsers wrap a copied path in quotes, so those are stripped. Only a
+ * single media file with a path separator counts; a bare file name or a
+ * scheme URL (http:, file:) stays with the link importer. Whether the path
+ * exists is the platform's job, not this helper's.
+ */
+export function localPathFrom(text: string): string | null {
+  let cleaned = text.trim();
+  const quote = cleaned[0];
+  if (
+    cleaned.length >= 2 &&
+    (quote === '"' || quote === "'") &&
+    cleaned[cleaned.length - 1] === quote
+  ) {
+    cleaned = cleaned.slice(1, -1).trim();
+  }
+  if (!cleaned || /[\r\n]/.test(cleaned)) return null;
+  // A scheme is not a path, but a Windows drive letter (`C:\`) is.
+  if (/^[a-z][a-z0-9+.-]*:/i.test(cleaned) && !/^[a-z]:[\\/]/i.test(cleaned)) return null;
+  if (!/[\\/]/.test(cleaned)) return null;
+  return SUPPORTED_EXTENSIONS.has(extensionOf(cleaned)) ? cleaned : null;
+}
+
 export function importErrorMessage(error: unknown): string {
   if (error instanceof ImportError) return error.message;
   if (error instanceof Error && error.message) return error.message;

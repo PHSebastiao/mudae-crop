@@ -117,6 +117,26 @@ button {
   cursor: default;
 }
 
+/* The file picker mirrors the stage's "Abrir arquivo…" without eating the bar. */
+.link-import .link-import-browse {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5px 7px;
+  color: #b7b2c5;
+}
+
+.link-import-browse svg {
+  width: 13px;
+  height: 13px;
+  display: block;
+}
+
+.link-import-browse:hover:not(:disabled) {
+  border-color: #55505f;
+  color: #e9e6ef;
+}
+
 .preset-toggle,
 .toggle {
   display: flex;
