@@ -353,7 +353,9 @@ export function ExportPanel({
               <span>Otimizar GIF</span>
               <span>
                 {optimize.enabled
-                  ? `ligado · ${(optimize.targetBytes / (1024 * 1024)).toFixed(1).replace('.', ',')} MB`
+                  ? optimize.targetEnabled
+                    ? `ligado · ${(optimize.targetBytes / (1024 * 1024)).toFixed(1).replace('.', ',')} MB`
+                    : 'ligado · sem alvo'
                   : 'desligado'}{' '}
                 {optimizeOpen ? '▾' : '▸'}
               </span>
@@ -371,15 +373,31 @@ export function ExportPanel({
                 </div>
                 {optimize.enabled && (
                   <>
-                    <div className="row">
-                      <span className="key">alvo MB</span>
-                      <NumberField
-                        value={optimize.targetBytes / (1024 * 1024)}
-                        onCommit={(mb) => onOptimize({ targetBytes: mb * 1024 * 1024 })}
-                        label="Alvo de tamanho em MB"
-                        precision={1}
+                    <label className="row">
+                      <span className="key">usar alvo</span>
+                      <input
+                        type="checkbox"
+                        checked={optimize.targetEnabled}
+                        onChange={(event) =>
+                          onOptimize({ targetEnabled: event.target.checked })
+                        }
                       />
-                    </div>
+                    </label>
+                    {optimize.targetEnabled ? (
+                      <div className="row">
+                        <span className="key">alvo MB</span>
+                        <NumberField
+                          value={optimize.targetBytes / (1024 * 1024)}
+                          onCommit={(mb) => onOptimize({ targetBytes: mb * 1024 * 1024 })}
+                          label="Alvo de tamanho em MB"
+                          precision={1}
+                        />
+                      </div>
+                    ) : (
+                      <p className="panel-hint">
+                        sem alvo — aplica a compressão escolhida, mesmo abaixo de 10 MB
+                      </p>
+                    )}
                     <div className="row">
                       <span className="key">compressão</span>
                       <span className="pill">{optimize.lossy}</span>
@@ -420,9 +438,17 @@ export function ExportPanel({
               </>
             )}
             {optimizeResult && (
-              <p className={`panel-hint${optimizeResult.met ? '' : ' bad'}`}>
-                {optimizeResult.met ? 'alvo atingido' : 'alvo não atingido'} ·{' '}
-                {formatBytes(optimizeResult.size)} · perda {optimizeResult.lossy}
+              <p
+                className={`panel-hint${
+                  optimizeResult.met === false ? ' bad' : ''
+                }`}
+              >
+                {optimizeResult.met === null
+                  ? 'compressão aplicada'
+                  : optimizeResult.met
+                    ? 'alvo atingido'
+                    : 'alvo não atingido'}{' '}
+                · {formatBytes(optimizeResult.size)} · perda {optimizeResult.lossy}
                 {optimizeResult.colors ? ` · ${optimizeResult.colors} cores` : ''}
                 {optimizeResult.droppedFrames > 0
                   ? ` · ${optimizeResult.droppedFrames} repetidos`

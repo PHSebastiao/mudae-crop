@@ -277,6 +277,8 @@ export function clampResize(resize: ExportResize): ExportResize {
 
 export interface OptimizeSettings {
   readonly enabled: boolean;
+  /** When false, apply the chosen lossy/colour settings without a size goal. */
+  readonly targetEnabled: boolean;
   readonly targetBytes: number;
   /** Lossy GIF strength, 0 (off) to 200. */
   readonly lossy: number;
@@ -293,8 +295,9 @@ export const MAX_COLORS = 256;
 
 export const DEFAULT_OPTIMIZE: OptimizeSettings = Object.freeze({
   enabled: false,
+  targetEnabled: true,
   targetBytes: 10 * 1024 * 1024,
-  lossy: 40,
+  lossy: 30,
   reduceColors: false,
   colors: 128,
 });
@@ -302,6 +305,7 @@ export const DEFAULT_OPTIMIZE: OptimizeSettings = Object.freeze({
 export function clampOptimize(patch: Partial<OptimizeSettings>): OptimizeSettings {
   return {
     enabled: patch.enabled ?? DEFAULT_OPTIMIZE.enabled,
+    targetEnabled: patch.targetEnabled ?? DEFAULT_OPTIMIZE.targetEnabled,
     targetBytes: Math.min(
       MAX_OPTIMIZE_TARGET,
       Math.max(

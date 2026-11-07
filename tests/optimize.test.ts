@@ -97,6 +97,22 @@ describe('optimizeGif', () => {
     expect(result.met).toBe(true);
   });
 
+  it('compresses below the target when the target is turned off', async () => {
+    const base = await baseGif();
+    const tiny = tinyGif();
+    const compress = vi.fn(async () => tiny);
+    const result = await optimizeGif(
+      base,
+      settings({ targetEnabled: false, targetBytes: base.length + 1, lossy: 40 }),
+      { compress },
+    );
+
+    expect(compress).toHaveBeenCalledTimes(1);
+    expect(result.targetBytes).toBeNull();
+    expect(result.met).toBeNull();
+    expect(result.bytes).toBe(tiny);
+  });
+
   it('raises lossy until the target is met', async () => {
     const base = await baseGif();
     const tiny = tinyGif();

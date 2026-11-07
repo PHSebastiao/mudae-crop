@@ -191,6 +191,7 @@ describe('animation editing settings', () => {
     expect(doc.resize).toBeNull();
     expect(doc.resizeLocked).toBe(true);
     expect(doc.optimize.enabled).toBe(false);
+    expect(doc.optimize.targetEnabled).toBe(true);
     expect(doc.optimize.targetBytes).toBe(10 * 1024 * 1024);
     expect(doc.optimize.lossy).toBe(40);
   });

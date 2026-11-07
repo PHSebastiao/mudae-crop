@@ -100,7 +100,7 @@ A custom Export width and height, with the Frame aspect locked by default. Unloc
 _Avoid_: scale, dimensions of the Frame
 
 **Optimize**:
-Lossy GIF compression with optional colour reduction, plus lossless duplicate-frame merging, aimed at a target file size. It never changes the Source or the Trim.
+Lossy GIF compression with optional colour reduction, plus lossless duplicate-frame merging, optionally aimed at a target file size. It never changes the Source or the Trim.
 
 _Avoid_: compress (when you mean the target-size step), reduce quality
 
