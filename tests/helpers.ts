@@ -10,6 +10,7 @@ import {
 } from '../src/core/document';
 import { sourceRect } from '../src/core/geometry';
 import type { ExportEntry, UploadEntry } from '../src/core/history';
+import type { EncodableCanvas, ExportAdapter } from '../src/core/export';
 import type { RenderContext } from '../src/core/render';
 
 export function makeSource(
@@ -68,6 +69,45 @@ export function makeAnimatedSource(
     animation: { frames, loopCount },
   };
 }
+
+/** A fixture animation whose frames are painted per frame for real texture. */
+export function makePaintedAnimation(
+  width: number,
+  height: number,
+  frameCount: number,
+  paint: (ctx: SKRSContext2D, frameIndex: number) => void,
+  delayMs = 100,
+  loopCount = 0,
+): Source {
+  const frames = Array.from({ length: frameCount }, (_, index) => {
+    const canvas = createCanvas(width, height);
+    paint(canvas.getContext('2d'), index);
+    return {
+      image: canvas as unknown as CanvasImageSource,
+      delayMs,
+    };
+  });
+  return {
+    name: 'painted.gif',
+    path: null,
+    width,
+    height,
+    format: 'gif',
+    bytes: 4096,
+    image: frames[0].image,
+    animation: { frames, loopCount },
+  };
+}
+
+/** The node-canvas Export adapter, shared by the Export and size tests. */
+export const testExportAdapter: ExportAdapter = {
+  createCanvas(width: number, height: number): EncodableCanvas {
+    return createCanvas(width, height) as unknown as EncodableCanvas;
+  },
+  async encodePng(canvas: EncodableCanvas): Promise<Uint8Array> {
+    return new Uint8Array((canvas as unknown as Canvas).toBuffer('image/png'));
+  },
+};
 
 export function makeDoc(source: Source | null): DocumentState {
   return {

@@ -43,12 +43,14 @@ import {
   sourceUrlFrom,
 } from './core/download';
 import {
+  estimateExportSize,
   exportKindFor,
   prepareFrame as prepareExportFrame,
   renderGif,
   renderPng,
   ExportError,
   type RenderProgress,
+  type SizeEstimate,
 } from './core/export';
 import type { OptimizeResult } from './core/optimize';
 import {
@@ -144,11 +146,13 @@ export default function App() {
   } | null>(null);
   const [renderProgress, setRenderProgress] = useState<RenderProgress | null>(null);
   const [optimizeResult, setOptimizeResult] = useState<OptimizeResult | null>(null);
+  const [sizeEstimate, setSizeEstimate] = useState<SizeEstimate | null>(null);
   const [frameIndex, setFrameIndex] = useState(0);
   const [frameVersion, setFrameVersion] = useState(0);
   const [playing, setPlaying] = useState(false);
   const docRef = useRef(doc);
   docRef.current = doc;
+  const estimateVersionRef = useRef(0);
   const runningRef = useRef(false);
   const cancelDownloadRef = useRef<(() => void) | null>(null);
   const cancelRenderRef = useRef<AbortController | null>(null);
@@ -296,6 +300,35 @@ export default function App() {
     doc.trimEnabled,
     paletteVersion,
   ]);
+
+  // The Export panel shows a size before writing the file. A still is encoded
+  // for real; a GIF encodes a few evenly spaced frames and extrapolates. The
+  // readout follows Trim, scale, format and Optimize, debounced so a drag does
+  // not re-encode on every pointer move. While a render runs it reuses the last
+  // readout instead of competing for the canvas.
+  useEffect(() => {
+    if (!doc.source) {
+      // Invalidate an estimate already in flight so it cannot land afterwards.
+      estimateVersionRef.current += 1;
+      setSizeEstimate(null);
+      return;
+    }
+    // A render owns the canvas while it runs; keep the last readout instead.
+    if (busy) return;
+    const version = estimateVersionRef.current + 1;
+    estimateVersionRef.current = version;
+    const format = exportKindFor(doc.source, settings.exportFormat).format;
+    const timer = setTimeout(() => {
+      void estimateExportSize(doc, browserExportAdapter, { format, frameIndex })
+        .then((next) => {
+          if (estimateVersionRef.current === version) setSizeEstimate(next);
+        })
+        .catch(() => {
+          if (estimateVersionRef.current === version) setSizeEstimate(null);
+        });
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [doc, settings.exportFormat, frameIndex, busy]);
 
   const activeTrim = useMemo(
     () => effectiveTrim(doc),
@@ -1374,6 +1407,7 @@ export default function App() {
           cooldownSeconds={cooldownSeconds}
           appendPostId={appendPostId}
           optimizeResult={optimizeResult}
+          sizeEstimate={sizeEstimate}
           onExport={handleExport}
           onExportScale={changeExportScale}
           onExportFormat={changeExportFormat}

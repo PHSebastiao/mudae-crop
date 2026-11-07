@@ -182,6 +182,18 @@ describe('palette', () => {
     expect(trimmed).toContain('#2B9C8F');
     expect(trimmed).toContain('#23202C');
   });
+
+  it('reflects frames past the first sixty, not only the opening frame', () => {
+    // 100 frames with a single distinct last frame: only sampling the whole
+    // animation with an even spread can surface that late colour.
+    const colors = Array.from({ length: 100 }, (_, index) =>
+      index === 99 ? '#FF0000' : '#00FF00',
+    );
+    const source = makeAnimatedSource(20, 20, colors, Array(100).fill(100));
+    const doc: DocumentState = { ...makeDoc(source), frame: SQUARE_FRAME };
+
+    expect(hexes(extractPalette(doc, adapter))).toContain('#FF0000');
+  });
 });
 
 describe('vibrant accents', () => {

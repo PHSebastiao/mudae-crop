@@ -89,6 +89,30 @@ describe('uploadStill', () => {
     expect(Array.from(request.file?.bytes ?? [])).toEqual([1, 2, 3, 4]);
   });
 
+  it('uploads an animated GIF as image/gif under its own file name', async () => {
+    const { transport, requests } = script([
+      ok(post('post123', [image('img1', 1, 'https://cdn.imgchest.com/files/img1.gif')]), 201),
+    ]);
+    const gif: UploadFile = {
+      name: 'card.gif',
+      contentType: 'image/gif',
+      bytes: new Uint8Array([0x47, 0x49, 0x46, 0x38, 0x39, 0x61]),
+    };
+
+    const outcome = await uploadStill({ ...base, file: gif, transport });
+
+    expect(outcome.link).toBe('https://cdn.imgchest.com/files/img1.gif');
+    expect(requests).toHaveLength(1);
+    expect(requests[0].file).toMatchObject({
+      field: 'images[]',
+      name: 'card.gif',
+      contentType: 'image/gif',
+    });
+    expect(Array.from(requests[0].file?.bytes ?? [])).toEqual([
+      0x47, 0x49, 0x46, 0x38, 0x39, 0x61,
+    ]);
+  });
+
   it('appends to an existing Post only after validating it', async () => {
     const { transport, requests } = script([
       ok(post('post123', [image('old', 1)])),

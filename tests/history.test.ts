@@ -69,6 +69,17 @@ describe('history', () => {
     expect(parseHistory(serializeHistory(history))).toEqual(history);
   });
 
+  it('keeps the GIF format of an uploaded animation', () => {
+    const gif = makeUploadEntry(1, {
+      format: 'gif',
+      link: 'https://cdn.imgchest.com/files/motion.gif',
+    });
+
+    const [entry] = parseHistory(serializeHistory([gif]));
+
+    expect(entry).toMatchObject({ kind: 'upload', format: 'gif' });
+  });
+
   it('formats a valid date and ignores an invalid one', () => {
     expect(formatHistoryDate('not a date')).toBe('');
     expect(formatHistoryDate(makeUploadEntry(1).createdAt)).toMatch(

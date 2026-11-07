@@ -7,6 +7,7 @@ import {
   type DocumentState,
   type Source,
 } from './document';
+import { sampleTrimIndices } from './animation';
 import { GifWriter, type GifEncodeFrame } from './gif';
 import {
   OptimizeCancelledError,
@@ -70,6 +71,42 @@ export async function prepareFrame(
   if (source?.video) await source.video.seekToFrame(frameIndex);
 }
 
+/** How many GIF frames a size estimate encodes before extrapolating. */
+export const MAX_ESTIMATE_FRAMES = 8;
+
+/** Above this many output pixels a GIF estimate is too slow to run per edit. */
+export const MAX_ESTIMATE_PIXELS = 2_000_000;
+
+export interface SizeEstimate {
+  readonly bytes: number;
+  /** True when the whole Export was encoded, not extrapolated or capped. */
+  readonly exact: boolean;
+}
+
+export interface SizeEstimateOptions {
+  readonly format: ExportFileFormat;
+  readonly frameIndex?: number;
+}
+
+/** Render one Frame and pack it exactly as the GIF writer consumes it. */
+function renderedGifFrame(
+  ctx: RenderContext,
+  doc: DocumentState,
+  size: { width: number; height: number },
+  frameIndex: number,
+): GifEncodeFrame {
+  renderFrame(ctx, doc, {
+    outputWidth: size.width,
+    outputHeight: size.height,
+    frameIndex,
+  });
+  const image = ctx.getImageData(0, 0, size.width, size.height);
+  return {
+    pixels: new Uint8ClampedArray(image.data),
+    delayMs: effectiveDelayMs(doc.source, frameIndex, doc.speed),
+  };
+}
+
 export interface PngExportOptions {
   readonly frameIndex?: number;
   /** Video Sources need this seek before the synchronous render. */
@@ -98,6 +135,65 @@ export async function renderPng(
     frameIndex: options.frameIndex ?? 0,
   });
   return adapter.encodePng(canvas);
+}
+
+/**
+ * Estimate the Export's file size without writing it. A still PNG is encoded
+ * for real. A GIF encodes up to MAX_ESTIMATE_FRAMES evenly spaced frames and
+ * scales by the active Trim length; every frame carries its own palette and
+ * LZW data, so the cost is close to additive. An enabled Optimize caps the
+ * estimate at its target (the panel shows it as "≤"), because the optimizer
+ * can miss the goal; the estimate is never called exact then. A video Source
+ * samples the frame currently on screen, since seeking every sample would
+ * flicker Preview.
+ */
+export async function estimateExportSize(
+  doc: DocumentState,
+  adapter: ExportAdapter,
+  options: SizeEstimateOptions,
+): Promise<SizeEstimate> {
+  const source = doc.source;
+  if (!source) throw new ExportError('Não há Source para exportar.');
+
+  if (options.format === 'png') {
+    const bytes = await renderPng(doc, adapter, { frameIndex: options.frameIndex ?? 0 });
+    return { bytes: bytes.length, exact: true };
+  }
+
+  const trim = effectiveTrim(doc);
+  if (!trim) throw new ExportError('A Source não é animada.');
+
+  const size = outputSize(doc);
+  if (size.width * size.height > MAX_ESTIMATE_PIXELS) {
+    throw new ExportError(
+      'Export grande demais para estimar; o tamanho aparece ao exportar.',
+    );
+  }
+
+  const total = trimFrameCount(source, trim);
+  const indices = sampleTrimIndices(source, trim, MAX_ESTIMATE_FRAMES);
+  const canvas = adapter.createCanvas(size.width, size.height);
+  const ctx = canvas.getContext('2d');
+  const writer = new GifWriter({
+    width: size.width,
+    height: size.height,
+    loopCount: source.video ? 0 : (source.animation?.loopCount ?? null),
+  });
+  for (const [slot, frameIndex] of indices.entries()) {
+    writer.addFrame(renderedGifFrame(ctx, doc, size, frameIndex));
+    // Keep the window responsive while a large GIF is measured.
+    if (slot + 1 < indices.length) await yieldToUi();
+  }
+
+  const sampled = writer.finish();
+  const whole = indices.length >= total;
+  const rawBytes = whole ? sampled.length : Math.round((sampled.length * total) / indices.length);
+
+  if (doc.optimize.enabled) {
+    const target = doc.optimize.targetEnabled ? doc.optimize.targetBytes : null;
+    return { bytes: target === null ? rawBytes : Math.min(rawBytes, target), exact: false };
+  }
+  return { bytes: rawBytes, exact: whole };
 }
 
 export interface RenderProgress {
@@ -157,16 +253,7 @@ export async function renderGif(
     if (options.signal?.aborted) throw cancelledError();
     const frameIndex = trim.start + offset;
     await prepareFrame(source, frameIndex);
-    renderFrame(ctx, doc, {
-      outputWidth: size.width,
-      outputHeight: size.height,
-      frameIndex,
-    });
-    const image = ctx.getImageData(0, 0, size.width, size.height);
-    const frame: GifEncodeFrame = {
-      pixels: new Uint8ClampedArray(image.data),
-      delayMs: effectiveDelayMs(source, frameIndex, doc.speed),
-    };
+    const frame = renderedGifFrame(ctx, doc, size, frameIndex);
 
     if (doc.optimize.enabled) {
       // Stream the previous frame out and keep only one in memory while

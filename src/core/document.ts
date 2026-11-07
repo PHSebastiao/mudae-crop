@@ -1,5 +1,6 @@
 import { normalizeHexColor } from './color';
 import { MAX_MEDIA_BYTES } from './limits';
+import { MUDAE_SIZE_GUIDANCE_BYTES } from './size';
 
 export type ImageFormat = 'png' | 'jpg' | 'gif' | 'webp' | 'apng' | 'mp4' | 'mov' | 'webm';
 
@@ -296,7 +297,7 @@ export const MAX_COLORS = 256;
 export const DEFAULT_OPTIMIZE: OptimizeSettings = Object.freeze({
   enabled: false,
   targetEnabled: true,
-  targetBytes: 10 * 1024 * 1024,
+  targetBytes: MUDAE_SIZE_GUIDANCE_BYTES,
   lossy: 30,
   reduceColors: false,
   colors: 128,

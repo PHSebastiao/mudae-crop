@@ -193,7 +193,7 @@ describe('animation editing settings', () => {
     expect(doc.optimize.enabled).toBe(false);
     expect(doc.optimize.targetEnabled).toBe(true);
     expect(doc.optimize.targetBytes).toBe(10 * 1024 * 1024);
-    expect(doc.optimize.lossy).toBe(40);
+    expect(doc.optimize.lossy).toBe(30);
   });
 
   it('toggles Trim without losing the saved range', () => {

@@ -10,7 +10,7 @@ import {
   type ExportScale,
   type OptimizeSettings,
 } from '../core/document';
-import { exportKindFor } from '../core/export';
+import { exportKindFor, type SizeEstimate } from '../core/export';
 import { formatHistoryDate, type ExportEntry, type HistoryEntry } from '../core/history';
 import type { HistoryPreviewLoader } from '../core/historyPreview';
 import { isPostId } from '../core/imagechest';
@@ -18,7 +18,9 @@ import type { OptimizeResult } from '../core/optimize';
 import type { Settings } from '../core/settings';
 import { formatBytes } from '../core/download';
 import {
+  MUDAE_SIZE_GUIDANCE_BYTES,
   aspectMatches,
+  exceedsSizeGuidance,
   exceedsSource,
   formatAspect,
 } from '../core/size';
@@ -35,6 +37,7 @@ interface ExportPanelProps {
   readonly cooldownSeconds: number;
   readonly appendPostId: string;
   readonly optimizeResult: OptimizeResult | null;
+  readonly sizeEstimate: SizeEstimate | null;
   readonly onExport: () => void;
   readonly onExportScale: (scale: ExportScale) => void;
   readonly onExportFormat: (format: 'png' | 'gif') => void;
@@ -126,7 +129,7 @@ function ExportRow({ entry, preview, root, onCopyText, onRevealPath }: ExportRow
           {entry.path}
         </span>
         <span className="history-meta">
-          {format} · {entry.width}×{entry.height}
+          {format} · {entry.width}×{entry.height} · {formatBytes(entry.size)}
         </span>
         <span className="history-meta">{formatHistoryDate(entry.createdAt)}</span>
         <span className="history-actions">
@@ -157,6 +160,7 @@ export function ExportPanel({
   cooldownSeconds,
   appendPostId,
   optimizeResult,
+  sizeEstimate,
   onExport,
   onExportScale,
   onExportFormat,
@@ -192,6 +196,28 @@ export function ExportPanel({
       ? 'Exportando…'
       : `Exportar ${format}`;
   const optimize = doc.optimize;
+  const estimatedBytes = sizeEstimate?.bytes ?? null;
+  // Optimize can miss its target, so a capped estimate is an upper bound, not
+  // a promise. Everything extrapolated is marked with "~".
+  const cappedByTarget =
+    kind.format === 'gif' &&
+    optimize.enabled &&
+    optimize.targetEnabled &&
+    sizeEstimate !== null &&
+    !sizeEstimate.exact &&
+    estimatedBytes === optimize.targetBytes;
+  const estimateLabel =
+    estimatedBytes === null
+      ? null
+      : cappedByTarget
+        ? `≤ ${formatBytes(estimatedBytes)}`
+        : `${sizeEstimate?.exact ? '' : '~'}${formatBytes(estimatedBytes)}`;
+  const estimateTitle = doc.source?.video
+    ? 'Estimativa pelo frame atual; um vídeo em movimento pode ficar maior'
+    : sizeEstimate?.exact
+      ? 'Tamanho do arquivo'
+      : 'Tamanho estimado; a otimização pode mudar o resultado';
+  const overGuidance = exceedsSizeGuidance(estimatedBytes);
   const [optimizeOpen, setOptimizeOpen] = useState(false);
   const listRef = useRef<HTMLUListElement | null>(null);
 
@@ -213,8 +239,19 @@ export function ExportPanel({
           <span className={ratioMatches ? '' : 'warn'}>
             {ratioMatches ? 'proporção da carta' : 'esticada'}
           </span>
-          {optimizeResult && <span>arquivo {formatBytes(optimizeResult.size)}</span>}
+          {estimateLabel && <span title={estimateTitle}>{estimateLabel}</span>}
+          {optimizeResult && <span>resultado {formatBytes(optimizeResult.size)}</span>}
         </div>
+
+        {overGuidance && (
+          <p className="panel-hint warn">
+            {estimateLabel} passa dos {formatBytes(MUDAE_SIZE_GUIDANCE_BYTES)} recomendados
+            pelo Mudae.
+            {kind.format === 'gif'
+              ? ' Otimize o GIF para reduzir; o upload continua liberado.'
+              : ' O upload continua liberado; reduza a escala para um arquivo menor.'}
+          </p>
+        )}
 
         <div className="toggle" role="group" aria-label="Formato do Export">
           <button
@@ -257,6 +294,7 @@ export function ExportPanel({
             onClick={() => onExportScale(2)}
             role="radio"
             aria-checked={!custom && doc.exportScale === 2}
+            title="Renderiza a Source em 2×"
           >
             <span>Carta 2×</span>
             <span className="dims">
@@ -332,6 +370,13 @@ export function ExportPanel({
           </p>
         )}
 
+        {animated && kind.format === 'gif' && !custom && doc.exportScale === 2 && (
+          <p className="panel-hint">
+            2× renderiza a Source maior; o GIF pode passar de{' '}
+            {formatBytes(MUDAE_SIZE_GUIDANCE_BYTES)}.
+          </p>
+        )}
+
         <button
           type="button"
           className="big primary"
@@ -395,7 +440,8 @@ export function ExportPanel({
                       </div>
                     ) : (
                       <p className="panel-hint">
-                        sem alvo — aplica a compressão escolhida, mesmo abaixo de 10 MB
+                        sem alvo — aplica a compressão escolhida, mesmo abaixo de{' '}
+                        {formatBytes(MUDAE_SIZE_GUIDANCE_BYTES)}
                       </p>
                     )}
                     <div className="row">
@@ -532,7 +578,8 @@ export function ExportPanel({
                       {entry.link.replace(/^https:\/\//, '')}
                     </span>
                     <span className="history-meta">
-                      {entry.format.toUpperCase()} · Post {entry.postId}
+                      {entry.format.toUpperCase()} · Post {entry.postId} ·{' '}
+                      {formatBytes(entry.size)}
                     </span>
                     <span className="history-meta">{formatHistoryDate(entry.createdAt)}</span>
                     <span className="history-actions">
