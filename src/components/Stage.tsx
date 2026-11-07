@@ -31,6 +31,7 @@ interface StageProps {
   /** True while the Pad eyedropper is armed. */
   readonly picking: boolean;
   readonly onPickColor: (hex: string) => void;
+  readonly onPickMiss: (reason: 'outside' | 'transparent') => void;
 }
 
 export function Stage({
@@ -41,6 +42,7 @@ export function Stage({
   busy,
   picking,
   onPickColor,
+  onPickMiss,
 }: StageProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const backdropRef = useRef<HTMLCanvasElement>(null);
@@ -123,6 +125,7 @@ export function Stage({
     const onWheel = (event: WheelEvent) => {
       if (!doc.source) return;
       event.preventDefault();
+      if (picking) return;
       const frameCanvas = frameRef.current;
       if (!frameCanvas) return;
       const rect = frameCanvas.getBoundingClientRect();
@@ -135,7 +138,7 @@ export function Stage({
     };
     element.addEventListener('wheel', onWheel, { passive: false });
     return () => element.removeEventListener('wheel', onWheel);
-  }, [doc.source, onZoomAt, scale]);
+  }, [doc.source, onZoomAt, picking, scale]);
 
   function framePixelAt(
     clientX: number,
@@ -164,10 +167,16 @@ export function Stage({
     if (picking) {
       const point = framePixelAt(event.clientX, event.clientY);
       const frameCanvas = frameRef.current;
-      if (!point || !frameCanvas) return;
+      if (!point || !frameCanvas) {
+        onPickMiss('outside');
+        return;
+      }
       const context = frameCanvas.getContext('2d');
       const pixel = context?.getImageData(point.sx, point.sy, 1, 1).data;
-      if (!pixel || pixel[3] === 0) return;
+      if (!pixel || pixel[3] === 0) {
+        onPickMiss('transparent');
+        return;
+      }
       event.preventDefault();
       onPickColor(toHexColor({ r: pixel[0], g: pixel[1], b: pixel[2] }));
       return;

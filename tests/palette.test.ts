@@ -221,3 +221,14 @@ describe('vibrant accents', () => {
     expect(withWhiteFirst(many)).toHaveLength(MAX_PALETTE);
   });
 });
+
+describe('white-first filtering', () => {
+  it('drops a near-white palette color beside the fixed white', () => {
+    const ordered = withWhiteFirst([
+      { hex: '#FEFEFE', count: 10, share: 0.5 },
+      { hex: '#D94F6D', count: 10, share: 0.5 },
+    ]);
+
+    expect(ordered.map((color) => color.hex)).toEqual(['#FFFFFF', '#D94F6D']);
+  });
+});

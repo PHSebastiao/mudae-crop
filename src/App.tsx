@@ -124,6 +124,7 @@ export default function App() {
   const uploadRef = useRef<() => Promise<void>>(async () => undefined);
 
   const openSettings = useCallback(() => {
+    setPickTarget(null);
     setNoticeAction(null);
     setError(null);
     setSettingsOpen(true);
@@ -250,6 +251,7 @@ export default function App() {
   const applyCandidate = useCallback(
     async (candidate: SourceCandidate) => {
       const source = await loadSource(candidate, decodeWithBrowser);
+      setPickTarget(null);
       setDoc((current) => withSource(current, source));
       inform(`Source carregada: ${source.name}`);
     },
@@ -645,6 +647,7 @@ export default function App() {
   exportRef.current = handleExport;
 
   const applyFrame = useCallback((frame: Frame) => {
+    setPickTarget(null);
     setDoc((current) => {
       const next = withFrame(current, frame);
       // Rotated bounds and the mode scale move with the Frame, so keep the
@@ -679,7 +682,18 @@ export default function App() {
     (hex: string) => {
       setDoc((current) => withPadColor(current, hex));
       setPickTarget(null);
-      inform(`Pad color: ${hex}`);
+      inform(`Cor do Pad: ${hex}`);
+    },
+    [inform],
+  );
+
+  const pickPadMiss = useCallback(
+    (reason: 'outside' | 'transparent') => {
+      inform(
+        reason === 'transparent'
+          ? 'Essa área é transparente. Escolha outro ponto.'
+          : 'Clique dentro do Frame para pegar uma cor.',
+      );
     },
     [inform],
   );
@@ -710,6 +724,15 @@ export default function App() {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape' && pickTarget !== null) {
+        const target = event.target as HTMLElement | null;
+        if (
+          target &&
+          (target.tagName === 'INPUT' ||
+            target.tagName === 'TEXTAREA' ||
+            target.isContentEditable)
+        ) {
+          return;
+        }
         event.preventDefault();
         setPickTarget(null);
         return;
@@ -948,6 +971,7 @@ export default function App() {
           busy={busy}
           picking={pickTarget === 'pad'}
           onPickColor={pickPadColor}
+          onPickMiss={pickPadMiss}
         />
         <ExportPanel
           doc={doc}

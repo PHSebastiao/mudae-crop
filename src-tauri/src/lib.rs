@@ -254,6 +254,10 @@ fn config_path(app: &AppHandle, key: &str) -> Result<PathBuf, String> {
 /// `{RoamingAppData}/{identifier}`. Copy each file once on first read, so an
 /// update keeps the token and History. Best effort: a failed copy still lets
 /// the read return the legacy contents.
+fn legacy_config_path(root: &Path, identifier: &str, file: &str) -> PathBuf {
+    root.join(identifier).join(file)
+}
+
 fn migrate_legacy_config(
     app: &AppHandle,
     key: &str,
@@ -265,9 +269,7 @@ fn migrate_legacy_config(
     let Ok(legacy_root) = app.path().config_dir() else {
         return Ok(None);
     };
-    let legacy = legacy_root
-        .join(app.config().identifier.as_str())
-        .join(file);
+    let legacy = legacy_config_path(&legacy_root, app.config().identifier.as_str(), file);
     let Ok(contents) = std::fs::read_to_string(&legacy) else {
         return Ok(None);
     };
@@ -426,4 +428,29 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running mudae crop");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn config_keys_are_whitelisted() {
+        assert_eq!(config_file_name("settings"), Some("settings.json"));
+        assert_eq!(config_file_name("history"), Some("history.json"));
+        assert_eq!(config_file_name("uploads"), Some("uploads.json"));
+        assert_eq!(config_file_name("../settings"), None);
+        assert_eq!(config_file_name("other"), None);
+    }
+
+    #[test]
+    fn legacy_config_path_is_identifier_under_root() {
+        let root = Path::new("roaming");
+        assert_eq!(
+            legacy_config_path(root, "com.phsebastiao.mudaecrop", "settings.json"),
+            Path::new("roaming")
+                .join("com.phsebastiao.mudaecrop")
+                .join("settings.json")
+        );
+    }
 }

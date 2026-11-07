@@ -35,8 +35,6 @@ export interface RenderOptions {
   readonly scale: number;
   /** Palette sampling skips the Border; Preview and Export draw it. */
   readonly border?: boolean;
-  /** Palette sampling skips sharpening; Preview and Export apply it. */
-  readonly sharpness?: boolean;
 }
 
 export function prepareContext(ctx: RenderContext): void {
@@ -108,7 +106,7 @@ export function renderFrame(
   drawSource(ctx, doc, scale);
 
   // Enhancement runs on the rendered Crop, before the Border is drawn.
-  if (options.sharpness !== false && doc.sharpness > 0) {
+  if (doc.sharpness > 0) {
     const pixelsWide = Math.max(1, Math.round(width));
     const pixelsHigh = Math.max(1, Math.round(height));
     const image = ctx.getImageData(0, 0, pixelsWide, pixelsHigh);

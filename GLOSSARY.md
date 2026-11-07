@@ -64,6 +64,11 @@ An unsharp mask from 0 (off) to 100 applied to the rendered Crop before the Bord
 
 _Avoid_: sharpen, crispness, blur
 
+**Eyedropper**:
+The in-app tool that samples the rendered Frame pixel under the pointer for the Pad color, with a pixel magnifier.
+
+_Avoid_: color picker (when you mean the in-app sampler)
+
 **Preset**:
 A named Frame size with its default Export settings: Mudae (225×350) and Square (350×350).
 

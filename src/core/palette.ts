@@ -145,7 +145,10 @@ function selectSwatches(clusters: readonly SampleColor[]): SampleColor[] {
 /** Always show white first; it is the default Border and an easy reset. */
 export function withWhiteFirst(palette: readonly PaletteColor[]): PaletteColor[] {
   const rest = palette
-    .filter((color) => color.hex !== WHITE_SWATCH.hex)
+    .filter((color) => {
+      const rgb = parseHexColor(color.hex);
+      return !rgb || rgb.r < 250 || rgb.g < 250 || rgb.b < 250;
+    })
     .slice(0, MAX_PALETTE - 1);
   return [WHITE_SWATCH, ...rest];
 }
