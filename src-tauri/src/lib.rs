@@ -229,13 +229,11 @@ async fn stream_download(
 }
 
 /// Settings and History live as JSON files in the app config directory. Only
-/// the known keys map to files, so the front-end never chooses a path. `uploads`
-/// stays readable so the pre-export History file is not lost.
+/// the known keys map to files, so the front-end never chooses a path.
 fn config_file_name(key: &str) -> Option<&'static str> {
     match key {
         "settings" => Some("settings.json"),
         "history" => Some("history.json"),
-        "uploads" => Some("uploads.json"),
         _ => None,
     }
 }
@@ -250,44 +248,12 @@ fn config_path(app: &AppHandle, key: &str) -> Result<PathBuf, String> {
     Ok(dir.join(file))
 }
 
-/// Before the Local AppData override, config lived in
-/// `{RoamingAppData}/{identifier}`. Copy each file once on first read, so an
-/// update keeps the token and History. Best effort: a failed copy still lets
-/// the read return the legacy contents.
-fn legacy_config_path(root: &Path, identifier: &str, file: &str) -> PathBuf {
-    root.join(identifier).join(file)
-}
-
-fn migrate_legacy_config(
-    app: &AppHandle,
-    key: &str,
-    destination: &Path,
-) -> Result<Option<String>, String> {
-    let Some(file) = config_file_name(key) else {
-        return Ok(None);
-    };
-    let Ok(legacy_root) = app.path().config_dir() else {
-        return Ok(None);
-    };
-    let legacy = legacy_config_path(&legacy_root, app.config().identifier.as_str(), file);
-    let Ok(contents) = std::fs::read_to_string(&legacy) else {
-        return Ok(None);
-    };
-    if let Some(parent) = destination.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-    let _ = std::fs::write(destination, &contents);
-    Ok(Some(contents))
-}
-
 #[tauri::command]
 fn read_config(app: AppHandle, key: String) -> Result<Option<String>, String> {
     let path = config_path(&app, &key)?;
     match std::fs::read_to_string(&path) {
         Ok(contents) => Ok(Some(contents)),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            migrate_legacy_config(&app, &key, &path)
-        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(error) => Err(error.to_string()),
     }
 }
@@ -438,19 +404,8 @@ mod tests {
     fn config_keys_are_whitelisted() {
         assert_eq!(config_file_name("settings"), Some("settings.json"));
         assert_eq!(config_file_name("history"), Some("history.json"));
-        assert_eq!(config_file_name("uploads"), Some("uploads.json"));
+        assert_eq!(config_file_name("uploads"), None);
         assert_eq!(config_file_name("../settings"), None);
         assert_eq!(config_file_name("other"), None);
-    }
-
-    #[test]
-    fn legacy_config_path_is_identifier_under_root() {
-        let root = Path::new("roaming");
-        assert_eq!(
-            legacy_config_path(root, "com.phsebastiao.mudaecrop", "settings.json"),
-            Path::new("roaming")
-                .join("com.phsebastiao.mudaecrop")
-                .join("settings.json")
-        );
     }
 }

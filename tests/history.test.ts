@@ -35,30 +35,15 @@ describe('history', () => {
     ]);
   });
 
-  it('reads the legacy upload records written before local Exports', () => {
-    const legacy = {
-      link: 'https://cdn.imgchest.com/files/legacy.png',
-      postId: 'postlegacy',
-      imageId: 'legacy',
-      title: 'legacy · 225×350',
-      format: 'png',
-      size: 100,
-      uploadedAt: '2026-11-07T02:59:54.864Z',
-    };
-
-    const [entry] = parseHistory(JSON.stringify([legacy]));
-
-    expect(entry).toMatchObject({
-      kind: 'upload',
-      link: legacy.link,
-      postId: legacy.postId,
-      imageId: legacy.imageId,
-      createdAt: legacy.uploadedAt,
-    });
-  });
-
   it('drops an unknown entry kind', () => {
     expect(parseHistory(JSON.stringify([{ ...makeUploadEntry(1), kind: 'gif' }]))).toEqual([]);
+  });
+
+  it('drops an entry without a kind', () => {
+    const entry = { ...makeUploadEntry(1) } as Record<string, unknown>;
+    delete entry.kind;
+
+    expect(parseHistory(JSON.stringify([entry]))).toEqual([]);
   });
 
   it('puts the newest entry first and caps the list at 50', () => {

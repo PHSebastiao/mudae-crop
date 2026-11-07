@@ -47,15 +47,9 @@ function fileNameFromPath(path: string): string {
 function readBase(data: Record<string, unknown>): HistoryEntryBase | null {
   const title = typeof data.title === 'string' ? data.title.trim() : '';
   const size = typeof data.size === 'number' && Number.isFinite(data.size) ? data.size : 0;
-  // Legacy records used `uploadedAt` and had no `kind`.
-  const stamp =
-    typeof data.createdAt === 'string'
-      ? data.createdAt
-      : typeof data.uploadedAt === 'string'
-        ? data.uploadedAt
-        : '';
-  if (!title || Number.isNaN(new Date(stamp).getTime())) return null;
-  return { title, format: asFormat(data.format), size, createdAt: stamp };
+  const createdAt = typeof data.createdAt === 'string' ? data.createdAt : '';
+  if (!title || Number.isNaN(new Date(createdAt).getTime())) return null;
+  return { title, format: asFormat(data.format), size, createdAt };
 }
 
 function readEntry(value: unknown): HistoryEntry | null {
@@ -77,8 +71,8 @@ function readEntry(value: unknown): HistoryEntry | null {
     return { ...base, kind: 'export', path, fileName, width, height };
   }
 
-  // Missing `kind` is a legacy upload record; an unknown kind is dropped.
-  if (data.kind !== undefined && data.kind !== 'upload') return null;
+  // An unknown or missing kind is dropped; only upload/export are real entries.
+  if (data.kind !== 'upload') return null;
   const link = typeof data.link === 'string' ? data.link : '';
   if (!isImageChestLink(link)) return null;
   const postId = typeof data.postId === 'string' ? data.postId : '';

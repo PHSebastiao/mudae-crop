@@ -8,13 +8,8 @@ import { parseSettings, serializeSettings, type Settings } from './settings';
 export const SETTINGS_KEY = 'settings';
 /** Holds every History entry: uploads and local Exports. */
 export const HISTORY_KEY = 'history';
-/** The pre-export History file; read once so existing uploads survive. */
-export const LEGACY_UPLOADS_KEY = 'uploads';
 
-export type ConfigKey =
-  | typeof SETTINGS_KEY
-  | typeof HISTORY_KEY
-  | typeof LEGACY_UPLOADS_KEY;
+export type ConfigKey = typeof SETTINGS_KEY | typeof HISTORY_KEY;
 
 /**
  * The small storage seam: the desktop app writes JSON files in the app config
@@ -35,9 +30,7 @@ export async function saveSettings(store: ConfigStore, settings: Settings): Prom
 }
 
 export async function loadHistory(store: ConfigStore): Promise<HistoryEntry[]> {
-  const current = await store.read(HISTORY_KEY);
-  if (current !== null) return parseHistory(current);
-  return parseHistory(await store.read(LEGACY_UPLOADS_KEY));
+  return parseHistory(await store.read(HISTORY_KEY));
 }
 
 export async function saveHistory(
