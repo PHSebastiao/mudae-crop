@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { toHexColor } from '../core/color';
 import type { DocumentState } from '../core/document';
 import { drawSource, renderFrame } from '../core/render';
 
@@ -14,9 +15,20 @@ interface StageProps {
   readonly onZoomAt: (point: { x: number; y: number }, factor: number) => void;
   readonly onOpen: () => void;
   readonly busy: boolean;
+  /** True while the Pad eyedropper is armed. */
+  readonly picking: boolean;
+  readonly onPickColor: (hex: string) => void;
 }
 
-export function Stage({ doc, onPan, onZoomAt, onOpen, busy }: StageProps) {
+export function Stage({
+  doc,
+  onPan,
+  onZoomAt,
+  onOpen,
+  busy,
+  picking,
+  onPickColor,
+}: StageProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const backdropRef = useRef<HTMLCanvasElement>(null);
   const frameRef = useRef<HTMLCanvasElement>(null);
@@ -112,6 +124,29 @@ export function Stage({ doc, onPan, onZoomAt, onOpen, busy }: StageProps) {
 
   function handlePointerDown(event: ReactPointerEvent<HTMLDivElement>) {
     if (!doc.source) return;
+
+    if (picking) {
+      const frameCanvas = frameRef.current;
+      if (!frameCanvas) return;
+      const rect = frameCanvas.getBoundingClientRect();
+      if (
+        event.clientX < rect.left ||
+        event.clientX >= rect.right ||
+        event.clientY < rect.top ||
+        event.clientY >= rect.bottom
+      ) {
+        return;
+      }
+      const x = Math.floor(((event.clientX - rect.left) / rect.width) * frameCanvas.width);
+      const y = Math.floor(((event.clientY - rect.top) / rect.height) * frameCanvas.height);
+      const context = frameCanvas.getContext('2d');
+      const pixel = context?.getImageData(x, y, 1, 1).data;
+      if (!pixel || pixel[3] === 0) return;
+      event.preventDefault();
+      onPickColor(toHexColor({ r: pixel[0], g: pixel[1], b: pixel[2] }));
+      return;
+    }
+
     event.currentTarget.setPointerCapture(event.pointerId);
     dragRef.current = { id: event.pointerId, x: event.clientX, y: event.clientY };
     setDragging(true);
@@ -136,7 +171,9 @@ export function Stage({ doc, onPan, onZoomAt, onOpen, busy }: StageProps) {
   return (
     <div
       ref={hostRef}
-      className={`stage${doc.source ? ' has-source' : ''}${dragging ? ' dragging' : ''}`}
+      className={`stage${doc.source ? ' has-source' : ''}${dragging ? ' dragging' : ''}${
+        picking ? ' picking' : ''
+      }`}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={endDrag}
@@ -183,7 +220,11 @@ export function Stage({ doc, onPan, onZoomAt, onOpen, busy }: StageProps) {
               {doc.source.format.toUpperCase()} · {doc.source.width}×{doc.source.height}
             </span>
           </div>
-          <div className="stage-hint">arraste para mover · roda do mouse para zoom</div>
+          <div className="stage-hint">
+            {picking
+              ? 'clique na imagem para pegar a cor · Esc cancela'
+              : 'arraste para mover · roda do mouse para zoom'}
+          </div>
         </>
       )}
     </div>

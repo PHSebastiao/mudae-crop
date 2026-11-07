@@ -427,6 +427,12 @@ button {
   cursor: default;
 }
 
+.rail-pick {
+  margin-top: 2px;
+  font-size: 9.5px;
+  text-align: left;
+}
+
 .inline-link {
   color: #c3d2ee;
   text-decoration: underline;
@@ -457,6 +463,11 @@ button {
 
 .stage.has-source {
   cursor: grab;
+}
+
+.stage.picking,
+.stage.picking.has-source {
+  cursor: crosshair;
 }
 
 .stage.dragging {

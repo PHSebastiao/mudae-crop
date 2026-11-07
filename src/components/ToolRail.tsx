@@ -15,6 +15,8 @@ interface ToolRailProps {
   readonly onRotate: () => void;
   readonly onResetCrop: () => void;
   readonly onSharpness: (sharpness: number) => void;
+  readonly onPickPadColor: () => void;
+  readonly pickingPad: boolean;
 }
 
 export function ToolRail({
@@ -26,6 +28,8 @@ export function ToolRail({
   onRotate,
   onResetCrop,
   onSharpness,
+  onPickPadColor,
+  pickingPad,
 }: ToolRailProps) {
   const hasSource = doc.source !== null;
   const mode = doc.crop.mode;
@@ -116,6 +120,7 @@ export function ToolRail({
               value={doc.padColor}
               onChange={(event) => onPadColor(event.target.value)}
               aria-label="Cor do Pad"
+              title="Para pegar uma cor da imagem, use “pegar cor da imagem”"
               disabled={!hasSource}
             />
             <HexInput
@@ -130,6 +135,14 @@ export function ToolRail({
         {hasSource && doc.crop.mode === 'fit' && (
           <p className="rail-hint">Pad color só aparece fora do Fit.</p>
         )}
+        <button
+          type="button"
+          className="link rail-pick"
+          onClick={onPickPadColor}
+          disabled={!hasSource}
+        >
+          {pickingPad ? 'clique na imagem · Esc cancela' : 'pegar cor da imagem'}
+        </button>
         <button type="button" className="link" onClick={onResetCrop} disabled={!hasSource}>
           redefinir Crop
         </button>

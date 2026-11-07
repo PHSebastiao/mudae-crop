@@ -105,6 +105,7 @@ export default function App() {
   const [appendPostId, setAppendPostId] = useState('');
   const [palette, setPalette] = useState<readonly PaletteColor[]>([]);
   const [paletteVersion, setPaletteVersion] = useState(0);
+  const [pickTarget, setPickTarget] = useState<'pad' | null>(null);
   const [cooldownSeconds, setCooldownSeconds] = useState(0);
   const [downloadProgress, setDownloadProgress] = useState<{
     received: number;
@@ -670,6 +671,19 @@ export default function App() {
     setDoc((current) => withPadColor(current, padColor));
   }, []);
 
+  const togglePickPad = useCallback(() => {
+    setPickTarget((current) => (current === 'pad' ? null : 'pad'));
+  }, []);
+
+  const pickPadColor = useCallback(
+    (hex: string) => {
+      setDoc((current) => withPadColor(current, hex));
+      setPickTarget(null);
+      inform(`Pad color: ${hex}`);
+    },
+    [inform],
+  );
+
   const changeSharpness = useCallback((sharpness: number) => {
     setDoc((current) => withSharpness(current, sharpness));
   }, []);
@@ -695,6 +709,11 @@ export default function App() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && pickTarget !== null) {
+        event.preventDefault();
+        setPickTarget(null);
+        return;
+      }
       if (settingsOpen) return;
       if (!(event.ctrlKey || event.metaKey)) return;
       const key = event.key.toLowerCase();
@@ -714,7 +733,7 @@ export default function App() {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [handleOpen, openSettings, settingsOpen]);
+  }, [handleOpen, openSettings, pickTarget, settingsOpen]);
 
   useEffect(() => {
     const onPaste = (event: ClipboardEvent) => {
@@ -908,6 +927,8 @@ export default function App() {
           onRotate={rotate}
           onResetCrop={reset}
           onSharpness={changeSharpness}
+          onPickPadColor={togglePickPad}
+          pickingPad={pickTarget === 'pad'}
         />
         <Stage
           doc={doc}
@@ -925,6 +946,8 @@ export default function App() {
           }
           onOpen={handleOpen}
           busy={busy}
+          picking={pickTarget === 'pad'}
+          onPickColor={pickPadColor}
         />
         <ExportPanel
           doc={doc}
