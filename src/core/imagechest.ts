@@ -288,7 +288,9 @@ export async function testConnection(
 
   const response = await send(transport, {
     method: 'GET',
-    path: '/v1/users/me',
+    // The live API uses the singular `/user/me`; the docs page lists
+    // `/users/me`, which 404s.
+    path: '/v1/user/me',
     token: clean,
   });
   const failure = failureFor(response);

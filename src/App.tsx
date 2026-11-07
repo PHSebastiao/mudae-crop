@@ -941,7 +941,6 @@ export default function App() {
           onCommitAppendPostId={commitAppendPostId}
           onUpload={handleUpload}
           onOpenSettings={openSettings}
-          onOpenApiKeyPage={() => void openLink(IMAGE_CHEST_API_KEY_URL)}
           onCopyText={(value) => void copyValue(value)}
           onOpenLink={(value) => void openLink(value)}
           onRevealPath={(value) => void revealHistoryFile(value)}

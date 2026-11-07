@@ -171,7 +171,7 @@ describe('uploadStill', () => {
 
     expect(account.name).toBe('LunarLandr');
     expect(requests[0].method).toBe('GET');
-    expect(requests[0].path).toBe('/v1/users/me');
+    expect(requests[0].path).toBe('/v1/user/me');
   });
 });
 
