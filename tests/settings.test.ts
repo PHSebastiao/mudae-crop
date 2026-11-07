@@ -58,6 +58,10 @@ describe('settings', () => {
     expect(loaded.exportScale).toBe(1);
   });
 
+  it('falls back a legacy JPG format to PNG', () => {
+    expect(parseSettings(JSON.stringify({ exportFormat: 'jpg' })).exportFormat).toBe('png');
+  });
+
   it('keeps a saved token empty when it was cleared', () => {
     const loaded = parseSettings(
       JSON.stringify({ ...DEFAULT_SETTINGS, token: '' }),

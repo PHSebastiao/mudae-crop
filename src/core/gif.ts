@@ -6,6 +6,7 @@
  */
 
 import type { Rgb } from './color';
+import { MIN_FRAME_DELAY_MS } from './document';
 
 export type GifErrorCode = 'corrupt' | 'unsupported' | 'cancelled';
 
@@ -53,7 +54,7 @@ export interface GifEncodeHooks {
 }
 
 /** The GIF timing floor, shared by decode, playback and encode. */
-export const MIN_GIF_DELAY_MS = 20;
+export const MIN_GIF_DELAY_MS = MIN_FRAME_DELAY_MS;
 
 interface ColorCount extends Rgb {
   readonly count: number;
@@ -673,6 +674,93 @@ function writeColorTable(writer: Writer, palette: readonly Rgb[], entries: numbe
 }
 
 /**
+ * Incremental GIF writer. Frames are quantized and written one at a time, so a
+ * long video Export never holds every RGBA frame in memory.
+ */
+export class GifWriter {
+  private readonly writer = new Writer();
+  private readonly width: number;
+  private readonly height: number;
+  private readonly loopCount: number | null;
+  private started = false;
+  private ended = false;
+
+  constructor(options: GifEncodeOptions) {
+    this.width = Math.max(1, Math.round(options.width));
+    this.height = Math.max(1, Math.round(options.height));
+    this.loopCount = options.loopCount;
+  }
+
+  addFrame(frame: GifEncodeFrame): void {
+    if (this.ended) throw new GifError('corrupt', 'O GIF já foi finalizado.');
+    if (frame.pixels.length < this.width * this.height * 4) {
+      throw new GifError('corrupt', 'Quadro menor que a dimensão do GIF.');
+    }
+    const quantized = quantize(frame.pixels, 256);
+    if (!this.started) {
+      this.writeHeader(quantized.palette);
+      this.started = true;
+    }
+
+    const { palette, indices, transparentIndex } = quantized;
+    const minCodeSize = Math.max(2, Math.ceil(Math.log2(Math.max(2, palette.length))));
+    const tableSize = 1 << minCodeSize;
+
+    this.writer.byte(0x21);
+    this.writer.byte(0xf9);
+    this.writer.byte(4);
+    this.writer.byte(0x04 | (transparentIndex === null ? 0 : 0x01));
+    this.writer.uint16(delayCentiseconds(frame.delayMs));
+    this.writer.byte(transparentIndex ?? 0);
+    this.writer.byte(0);
+
+    this.writer.byte(0x2c);
+    this.writer.uint16(0);
+    this.writer.uint16(0);
+    this.writer.uint16(this.width);
+    this.writer.uint16(this.height);
+    this.writer.byte(0x80 | (minCodeSize - 1));
+    writeColorTable(this.writer, palette, tableSize);
+    this.writer.byte(minCodeSize);
+    writeSubBlocks(this.writer, lzwEncode(indices, minCodeSize));
+  }
+
+  finish(): Uint8Array {
+    if (!this.started) {
+      throw new GifError('corrupt', 'Não há quadros para codificar.');
+    }
+    if (!this.ended) {
+      this.writer.byte(0x3b);
+      this.ended = true;
+    }
+    return this.writer.finish();
+  }
+
+  private writeHeader(palette: readonly Rgb[]): void {
+    this.writer.ascii('GIF89a');
+    this.writer.uint16(this.width);
+    this.writer.uint16(this.height);
+    // A global table keeps every decoder happy; each image still carries a
+    // local table, which is the one it actually uses.
+    this.writer.byte(0xf7); // global table, 256 entries
+    this.writer.byte(0);
+    this.writer.byte(0);
+    writeColorTable(this.writer, palette, 256);
+
+    if (this.loopCount !== null) {
+      this.writer.byte(0x21);
+      this.writer.byte(0xff);
+      this.writer.byte(11);
+      this.writer.ascii('NETSCAPE2.0');
+      this.writer.byte(3);
+      this.writer.byte(1);
+      this.writer.uint16(Math.min(65535, Math.max(0, Math.round(this.loopCount))));
+      this.writer.byte(0);
+    }
+  }
+}
+
+/**
  * Encode fully rendered frames as an animated GIF. Each frame gets its own
  * local palette, delays use the 20 ms floor, and the loop count is written to
  * the Netscape extension so the result loops like the Source. Quantization is
@@ -683,75 +771,17 @@ export async function encodeGif(
   options: GifEncodeOptions,
   hooks: GifEncodeHooks = {},
 ): Promise<Uint8Array> {
-  const width = Math.max(1, Math.round(options.width));
-  const height = Math.max(1, Math.round(options.height));
-  if (frames.length === 0) {
-    throw new GifError('corrupt', 'Não há quadros para codificar.');
-  }
-
-  const quantized: Quantized[] = [];
+  const writer = new GifWriter(options);
   for (let index = 0; index < frames.length; index += 1) {
     if (hooks.signal?.aborted) {
       throw new GifError('cancelled', 'Codificação cancelada.');
     }
-    const frame = frames[index];
-    if (frame.pixels.length < width * height * 4) {
-      throw new GifError('corrupt', 'Quadro menor que a dimensão do GIF.');
-    }
-    quantized.push(quantize(frame.pixels, 256));
+    writer.addFrame(frames[index]);
     hooks.onProgress?.(index + 1, frames.length);
     // Let the progress notice paint and the cancel button respond.
     if (index + 1 < frames.length) {
       await new Promise((resolve) => setTimeout(resolve, 0));
     }
   }
-
-  const writer = new Writer();
-  writer.ascii('GIF89a');
-  writer.uint16(width);
-  writer.uint16(height);
-  // A global table keeps every decoder happy; each image still carries a local
-  // table, which is the one it actually uses.
-  writer.byte(0xf7); // global table, 256 entries
-  writer.byte(0);
-  writer.byte(0);
-  writeColorTable(writer, quantized[0].palette, 256);
-
-  if (options.loopCount !== null) {
-    writer.byte(0x21);
-    writer.byte(0xff);
-    writer.byte(11);
-    writer.ascii('NETSCAPE2.0');
-    writer.byte(3);
-    writer.byte(1);
-    writer.uint16(Math.min(65535, Math.max(0, Math.round(options.loopCount))));
-    writer.byte(0);
-  }
-
-  frames.forEach((frame, index) => {
-    const { palette, indices, transparentIndex } = quantized[index];
-    const minCodeSize = Math.max(2, Math.ceil(Math.log2(Math.max(2, palette.length))));
-    const tableSize = 1 << minCodeSize;
-
-    writer.byte(0x21);
-    writer.byte(0xf9);
-    writer.byte(4);
-    writer.byte(0x04 | (transparentIndex === null ? 0 : 0x01));
-    writer.uint16(delayCentiseconds(frame.delayMs));
-    writer.byte(transparentIndex ?? 0);
-    writer.byte(0);
-
-    writer.byte(0x2c);
-    writer.uint16(0);
-    writer.uint16(0);
-    writer.uint16(width);
-    writer.uint16(height);
-    writer.byte(0x80 | (minCodeSize - 1));
-    writeColorTable(writer, palette, tableSize);
-    writer.byte(minCodeSize);
-    writeSubBlocks(writer, lzwEncode(indices, minCodeSize));
-  });
-
-  writer.byte(0x3b);
   return writer.finish();
 }

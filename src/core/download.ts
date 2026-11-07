@@ -1,12 +1,13 @@
 import type { ImageFormat } from './document';
 import { detectFormat, type SourceCandidate } from './import';
+import { MAX_MEDIA_BYTES } from './limits';
 
 /**
  * The download ceiling matches Image Chest's 30 MB per-file limit, so a fetched
  * Source never exceeds what the upload path accepts. The native transport
  * enforces the same ceiling while streaming.
  */
-export const MAX_DOWNLOAD_BYTES = 30 * 1024 * 1024;
+export const MAX_DOWNLOAD_BYTES = MAX_MEDIA_BYTES;
 
 const SIZE_MESSAGE = 'O download passa de 30 MB. Use um arquivo menor ou otimize o GIF antes.';
 const CANCELLED_MESSAGE = 'Download cancelado.';
@@ -106,13 +107,16 @@ export function sourceUrlFrom(text: string): URL | null {
   }
 }
 
-const KNOWN_EXTENSION = /\.(png|jpe?g|gif|webp|apng)$/i;
+const KNOWN_EXTENSION = /\.(png|jpe?g|gif|webp|apng|mp4|m4v|mov|webm)$/i;
 const CONTENT_EXTENSION: Record<ImageFormat, string> = {
   png: 'png',
   jpg: 'jpg',
   gif: 'gif',
   webp: 'webp',
   apng: 'png',
+  mp4: 'mp4',
+  mov: 'mov',
+  webm: 'webm',
 };
 const FORMAT_EXTENSIONS: Record<ImageFormat, string[]> = {
   png: ['png'],
@@ -120,6 +124,9 @@ const FORMAT_EXTENSIONS: Record<ImageFormat, string[]> = {
   gif: ['gif'],
   webp: ['webp'],
   apng: ['png', 'apng'],
+  mp4: ['mp4', 'm4v'],
+  mov: ['mov'],
+  webm: ['webm'],
 };
 
 /**
@@ -180,8 +187,8 @@ function httpMessage(url: URL, status: number): string {
 
 function notImageMessage(url: URL, type: string | null): string {
   return type
-    ? `O link não aponta para uma imagem (${type}). Use um link direto para PNG, JPG, GIF ou WebP.`
-    : `O link ${hostOf(url)} não devolveu um PNG, JPG, GIF ou WebP. Use um link direto para a imagem.`;
+    ? `O link não aponta para uma imagem ou vídeo (${type}). Use um link direto para PNG, JPG, GIF, WebP, MP4, MOV ou WebM.`
+    : `O link ${hostOf(url)} não devolveu uma imagem ou vídeo reconhecido. Use um link direto para o arquivo.`;
 }
 
 function cancelledError(): DownloadError {

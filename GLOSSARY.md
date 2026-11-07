@@ -5,7 +5,7 @@ A local desktop editor that turns a Source image or animation into a Mudae card:
 ## Language
 
 **Source**:
-The image or animation the user brings in, from a file, the clipboard, a drop, or a URL. Never modified by editing.
+The image, animation or video the user brings in, from a file, the clipboard, a drop, or a URL. Never modified by editing.
 
 _Avoid_: input, asset, original, image (when you mean the Source)
 
@@ -15,12 +15,17 @@ One fully composited still inside an animated Source, with its own delay. Not th
 _Avoid_: frame (when you mean an animation frame), image, layer
 
 **Trim**:
-The inclusive range of animation frames a Preview and Export use, set by a start and an end frame.
+The inclusive range of animation frames a Preview and Export use, set by a start and an end frame. It applies only while the trim toggle is on.
 
 _Avoid_: cut, crop (when you mean Trim), range
 
+**Speed**:
+A multiplier on every frame delay, from 0.25× to 4×. Preview and Export run at the same speed.
+
+_Avoid_: FPS, rate, playback speed
+
 **Frame**:
-The fixed output rectangle the Crop lands in: 225×350 (Mudae), 350×225 (Mudae landscape), or 350×350 (Square), multiplied by the Export scale.
+The fixed output rectangle the Crop lands in: 225×350 (Mudae), 350×225 (Mudae landscape), or 350×350 (Square). The Export is the Frame at 1×/2× or at a custom Resize.
 
 _Avoid_: canvas, output box, viewport
 
@@ -65,7 +70,7 @@ A solid stroke drawn on top of the Crop, inside the Frame edge, aligned to the F
 _Avoid_: stroke, outline, frame line
 
 **Palette**:
-The colors judged relevant in the Crop, extracted across every frame of an animation, offered as swatches that set the Border color.
+The colors judged relevant in the Crop, extracted across every frame of an image animation. A video Source samples the frame currently on screen.
 
 _Avoid_: colors, swatches, dominant colors
 
@@ -85,9 +90,19 @@ A named Frame size with its default Export settings: Mudae (225×350) and Square
 _Avoid_: ratio, template, format
 
 **Export**:
-The rendered file produced from the current Crop: PNG or JPG for a still, GIF for an animation.
+The rendered file produced from the current Crop: PNG for a still or a selected frame, GIF for an animation.
 
 _Avoid_: save, output, result
+
+**Resize**:
+A custom Export width and height, with the Frame aspect locked by default. Unlocking it deliberately stretches only the output raster, never the Crop.
+
+_Avoid_: scale, dimensions of the Frame
+
+**Optimize**:
+Lossy GIF compression with optional colour reduction, plus lossless duplicate-frame merging, aimed at a target file size. It never changes the Source or the Trim.
+
+_Avoid_: compress (when you mean the target-size step), reduce quality
 
 **Post**:
 An Image Chest gallery created by an upload, holding one or more Exports and yielding direct `cdn.imgchest.com` links.

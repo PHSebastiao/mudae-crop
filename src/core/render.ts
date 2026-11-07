@@ -32,7 +32,10 @@ export interface RenderContext {
 
 export interface RenderOptions {
   /** Output scale relative to the Frame: 1 for a 1× Export, display scale for Preview. */
-  readonly scale: number;
+  readonly scale?: number;
+  /** Explicit output raster; overrides the uniform scale, and allows a stretched resize. */
+  readonly outputWidth?: number;
+  readonly outputHeight?: number;
   /** Palette sampling skips the Border; Preview and Export draw it. */
   readonly border?: boolean;
   /** Absolute frame of an animated Source; ignored for a still. */
@@ -53,7 +56,8 @@ export function prepareContext(ctx: RenderContext): void {
 export function drawSource(
   ctx: RenderContext,
   doc: DocumentState,
-  scale: number,
+  scaleX: number,
+  scaleY: number,
   originX = 0,
   originY = 0,
   frameIndex = 0,
@@ -64,10 +68,10 @@ export function drawSource(
   const rect = sourceRect(doc);
   prepareContext(ctx);
 
-  const x = originX + rect.x * scale;
-  const y = originY + rect.y * scale;
-  const width = rect.width * scale;
-  const height = rect.height * scale;
+  const x = originX + rect.x * scaleX;
+  const y = originY + rect.y * scaleY;
+  const width = rect.width * scaleX;
+  const height = rect.height * scaleY;
 
   if (doc.crop.rotation === 0) {
     ctx.drawImage(image, x, y, width, height);
@@ -79,10 +83,10 @@ export function drawSource(
   ctx.rotate((doc.crop.rotation * Math.PI) / 180);
   ctx.drawImage(
     image,
-    -(doc.source.width * scale) / 2,
-    -(doc.source.height * scale) / 2,
-    doc.source.width * scale,
-    doc.source.height * scale,
+    -(doc.source.width * scaleX) / 2,
+    -(doc.source.height * scaleY) / 2,
+    doc.source.width * scaleX,
+    doc.source.height * scaleY,
   );
   ctx.restore();
 }
@@ -96,9 +100,17 @@ export function renderFrame(
   doc: DocumentState,
   options: RenderOptions,
 ): void {
-  const { scale } = options;
-  const width = doc.frame.width * scale;
-  const height = doc.frame.height * scale;
+  const scale = options.scale ?? 1;
+  const width =
+    options.outputWidth ?? (options.outputHeight
+      ? (options.outputHeight * doc.frame.width) / doc.frame.height
+      : doc.frame.width * scale);
+  const height =
+    options.outputHeight ?? (options.outputWidth
+      ? (options.outputWidth * doc.frame.height) / doc.frame.width
+      : doc.frame.height * scale);
+  const scaleX = width / doc.frame.width;
+  const scaleY = height / doc.frame.height;
   ctx.clearRect(0, 0, width, height);
 
   // Fit always covers, so it keeps its alpha. Every other mode may leave an
@@ -108,7 +120,7 @@ export function renderFrame(
     ctx.fillRect(0, 0, width, height);
   }
 
-  drawSource(ctx, doc, scale, 0, 0, options.frameIndex ?? 0);
+  drawSource(ctx, doc, scaleX, scaleY, 0, 0, options.frameIndex ?? 0);
 
   // Enhancement runs on the rendered Crop, before the Border is drawn.
   if (doc.sharpness > 0) {
@@ -120,13 +132,13 @@ export function renderFrame(
       image.width,
       image.height,
       doc.sharpness,
-      Math.max(1, Math.round(scale)),
+      Math.max(1, Math.round(Math.max(scaleX, scaleY))),
     );
     ctx.putImageData(image, 0, 0);
   }
 
   if (options.border !== false && doc.border.width > 0) {
-    drawBorder(ctx, doc, scale);
+    drawBorder(ctx, doc, width, height, (scaleX + scaleY) / 2);
   }
 }
 
@@ -135,10 +147,14 @@ export function renderFrame(
  * scale. It is drawn after the Source transform is restored, so rotation can
  * never tilt it.
  */
-function drawBorder(ctx: RenderContext, doc: DocumentState, scale: number): void {
+function drawBorder(
+  ctx: RenderContext,
+  doc: DocumentState,
+  width: number,
+  height: number,
+  scale: number,
+): void {
   const stroke = doc.border.width * scale;
-  const width = doc.frame.width * scale;
-  const height = doc.frame.height * scale;
   const inset = stroke / 2;
   ctx.save();
   ctx.strokeStyle = doc.border.color;

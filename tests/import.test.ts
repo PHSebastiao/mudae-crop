@@ -8,6 +8,7 @@ import {
   type Decoder,
 } from '../src/core/import';
 import { makeSource } from './helpers';
+import type { VideoSource } from '../src/core/document';
 
 function bytes(...head: number[]): Uint8Array {
   return new Uint8Array([...head, 0, 0, 0, 0]);
@@ -54,6 +55,16 @@ const GIF = bytes(0x47, 0x49, 0x46, 0x38);
 const WEBP = riffWebp();
 const BMP = bytes(0x42, 0x4d, 0x00);
 
+function mp4(brand = 'isom'): Uint8Array {
+  const output = new Uint8Array(24);
+  output[3] = 0x18;
+  output.set([0x66, 0x74, 0x79, 0x70], 4);
+  output.set([...brand].map((char) => char.charCodeAt(0)), 8);
+  return output;
+}
+
+const WEBM = new Uint8Array([0x1a, 0x45, 0xdf, 0xa3, 0x01, 0x00, 0x00, 0x00]);
+
 const decodes: Decoder = async () => {
   const canvas = createCanvas(10, 10);
   return { image: canvas as unknown as CanvasImageSource, width: 10, height: 10 };
@@ -69,6 +80,12 @@ describe('format detection', () => {
 
   it('recognises an APNG by its acTL chunk', () => {
     expect(detectFormat(apng())).toBe('apng');
+  });
+
+  it('recognises MP4, MOV and WebM containers', () => {
+    expect(detectFormat(mp4())).toBe('mp4');
+    expect(detectFormat(mp4('qt  '))).toBe('mov');
+    expect(detectFormat(WEBM)).toBe('webm');
   });
 
   it('rejects anything else, whatever the extension says', () => {
@@ -106,6 +123,29 @@ describe('loadSource', () => {
     expect(source.animation).toBeUndefined();
   });
 
+  it('keeps a video Source from the decoder', async () => {
+    const image = createCanvas(4, 4) as unknown as CanvasImageSource;
+    const video: VideoSource = {
+      frameCount: 24,
+      fps: 12,
+      durationMs: 2000,
+      image,
+      currentTimeMs: 0,
+      seekToFrame: async () => undefined,
+      seekToMs: async () => undefined,
+      play: () => undefined,
+      pause: () => undefined,
+      dispose: () => undefined,
+    };
+    const decoder: Decoder = async () => ({ image, width: 4, height: 4, video });
+
+    const source = await loadSource({ name: 'clip.mp4', path: null, bytes: mp4() }, decoder);
+
+    expect(source.format).toBe('mp4');
+    expect(source.video).toBe(video);
+    expect(source.animation).toBeUndefined();
+  });
+
   it('builds an animation from every decoded frame', async () => {
     const frame = {
       image: createCanvas(4, 4) as unknown as CanvasImageSource,
@@ -131,7 +171,7 @@ describe('loadSource', () => {
     await expect(attempt).rejects.toBeInstanceOf(ImportError);
     await expect(attempt).rejects.toMatchObject({
       code: 'unsupported',
-      message: 'Formato não suportado: .bmp. Use PNG, JPG, GIF, WebP ou APNG.',
+      message: 'Formato não suportado: .bmp. Use PNG, JPG, GIF, WebP, APNG, MP4, MOV ou WebM.',
     });
   });
 

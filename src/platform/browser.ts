@@ -1,9 +1,11 @@
 import type { AnimationFrame, ImageFormat } from '../core/document';
+import { isVideoFormat } from '../core/document';
 import type { DecodedImage, Decoder } from '../core/import';
 import { mimeFor } from '../core/import';
 import { decodeGif, MIN_GIF_DELAY_MS } from '../core/gif';
 import { ExportError, type EncodableCanvas, type ExportAdapter } from '../core/export';
 import type { PaletteAdapter } from '../core/palette';
+import { decodeVideoWithBrowser } from './video';
 
 /** The one place that turns image bytes into a Blob with the matching MIME. */
 export function blobOf(bytes: Uint8Array, format: ImageFormat): Blob {
@@ -149,6 +151,9 @@ export const decodeWithBrowser: Decoder = async (
   bytes: Uint8Array,
   format: ImageFormat,
 ): Promise<DecodedImage> => {
+  if (isVideoFormat(format)) {
+    return decodeVideoWithBrowser(bytes, format);
+  }
   if (format === 'gif') {
     return decodeGifForBrowser(bytes);
   }

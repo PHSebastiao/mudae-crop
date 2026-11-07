@@ -1,6 +1,31 @@
 import { normalizeHexColor } from './color';
+import { MAX_MEDIA_BYTES } from './limits';
 
-export type ImageFormat = 'png' | 'jpg' | 'gif' | 'webp' | 'apng';
+export type ImageFormat = 'png' | 'jpg' | 'gif' | 'webp' | 'apng' | 'mp4' | 'mov' | 'webm';
+
+export type VideoFormat = 'mp4' | 'mov' | 'webm';
+
+export function isVideoFormat(format: ImageFormat): format is VideoFormat {
+  return format === 'mp4' || format === 'mov' || format === 'webm';
+}
+
+/**
+ * A video-backed Source keeps the decoded file alive and draws frames on
+ * demand. Preview uses native playback; scrub and Export seek frame by frame.
+ */
+export interface VideoSource {
+  readonly frameCount: number;
+  readonly fps: number;
+  readonly durationMs: number;
+  /** The canvas holding the most recently drawn video frame. */
+  readonly image: CanvasImageSource | null;
+  readonly currentTimeMs: number;
+  seekToFrame(index: number): Promise<void>;
+  seekToMs(ms: number): Promise<void>;
+  play(rate: number): void;
+  pause(): void;
+  dispose(): void;
+}
 
 export interface AnimationFrame {
   /** A fully composited frame at the Source's dimensions. */
@@ -33,6 +58,8 @@ export interface Source {
   /** The first frame, used by still Sources and as an animation fallback. */
   readonly image: CanvasImageSource;
   readonly animation?: Animation;
+  /** Present for video Sources, which decode frames on demand. */
+  readonly video?: VideoSource;
 }
 
 /** The inclusive frame range an animation renders and exports. */
@@ -42,12 +69,16 @@ export interface Trim {
 }
 
 export function isAnimated(source: Source | null | undefined): boolean {
-  return (source?.animation?.frames.length ?? 0) > 1;
+  if (!source) return false;
+  if (source.video) return source.video.frameCount > 1;
+  return (source.animation?.frames.length ?? 0) > 1;
 }
 
 /** Total frames of an animated Source, 0 for a still. */
 export function animationFrameCount(source: Source | null | undefined): number {
-  return source?.animation?.frames.length ?? 0;
+  if (!source) return 0;
+  if (source.video) return source.video.frameCount;
+  return source.animation?.frames.length ?? 0;
 }
 
 /** The full range of a Source's animation, or null for a still. */
@@ -58,7 +89,7 @@ export function initialTrim(source: Source | null | undefined): Trim | null {
 /** Keep a Trim inside the Source's frames and in start ≤ end order. */
 export function clampTrim(source: Source | null | undefined, trim: Trim | null): Trim | null {
   if (!isAnimated(source)) return null;
-  const last = (source?.animation?.frames.length ?? 1) - 1;
+  const last = animationFrameCount(source) - 1;
   if (!trim) return { start: 0, end: last };
   const first = Math.min(last, Math.max(0, Math.round(trim.start)));
   const second = Math.min(last, Math.max(0, Math.round(trim.end)));
@@ -77,18 +108,48 @@ export function frameImage(
   frameIndex = 0,
 ): CanvasImageSource | null {
   if (!source) return null;
+  if (source.video) return source.video.image ?? source.image;
   const frames = source.animation?.frames;
   if (!frames || frames.length === 0) return source.image;
   const index = Math.min(frames.length - 1, Math.max(0, Math.round(frameIndex)));
   return frames[index].image;
 }
 
-/** The delay of an absolute animation index, with a sane still fallback. */
+/** The base delay of an absolute animation index, with a still fallback. */
 export function frameDelayMs(source: Source | null | undefined, frameIndex = 0): number {
+  if (source?.video) {
+    return source.video.fps > 0 ? 1000 / source.video.fps : 100;
+  }
   const frames = source?.animation?.frames;
   if (!frames || frames.length === 0) return 100;
   const index = Math.min(frames.length - 1, Math.max(0, Math.round(frameIndex)));
   return frames[index].delayMs;
+}
+
+export const MIN_FRAME_DELAY_MS = 20;
+export const MIN_SPEED = 0.25;
+export const MAX_SPEED = 4;
+
+export function clampSpeed(speed: number): number {
+  if (!Number.isFinite(speed)) return 1;
+  return Math.min(MAX_SPEED, Math.max(MIN_SPEED, Math.round(speed * 100) / 100));
+}
+
+/** The delay the Preview and Export actually use at a given speed. */
+export function effectiveDelayMs(
+  source: Source | null | undefined,
+  frameIndex: number,
+  speed = 1,
+): number {
+  const scaled = frameDelayMs(source, frameIndex) / clampSpeed(speed);
+  return Math.max(MIN_FRAME_DELAY_MS, Math.round(scaled));
+}
+
+/** The Trim that actually applies: the saved range only when enabled. */
+export function effectiveTrim(doc: DocumentState): Trim | null {
+  if (!isAnimated(doc.source)) return null;
+  if (!doc.trimEnabled) return clampTrim(doc.source, null);
+  return clampTrim(doc.source, doc.trim);
 }
 
 export type FrameId = 'mudae' | 'mudae-landscape' | 'square';
@@ -194,6 +255,72 @@ export function clampBorderWidth(width: number): number {
   return Math.min(MAX_BORDER_WIDTH, Math.max(0, Math.round(width)));
 }
 
+export interface ExportResize {
+  readonly width: number;
+  readonly height: number;
+}
+
+export const MIN_EXPORT_SIDE = 1;
+export const MAX_EXPORT_SIDE = 4096;
+
+export function clampExportSide(value: number): number {
+  if (!Number.isFinite(value)) return 1;
+  return Math.min(MAX_EXPORT_SIDE, Math.max(MIN_EXPORT_SIDE, Math.round(value)));
+}
+
+export function clampResize(resize: ExportResize): ExportResize {
+  return {
+    width: clampExportSide(resize.width),
+    height: clampExportSide(resize.height),
+  };
+}
+
+export interface OptimizeSettings {
+  readonly enabled: boolean;
+  readonly targetBytes: number;
+  /** Lossy GIF strength, 0 (off) to 200. */
+  readonly lossy: number;
+  readonly reduceColors: boolean;
+  readonly colors: number;
+}
+
+export const MIN_OPTIMIZE_TARGET = 64 * 1024;
+export const MAX_OPTIMIZE_TARGET = MAX_MEDIA_BYTES;
+export const MIN_LOSSY = 0;
+export const MAX_LOSSY = 200;
+export const MIN_COLORS = 2;
+export const MAX_COLORS = 256;
+
+export const DEFAULT_OPTIMIZE: OptimizeSettings = Object.freeze({
+  enabled: false,
+  targetBytes: 10 * 1024 * 1024,
+  lossy: 40,
+  reduceColors: false,
+  colors: 128,
+});
+
+export function clampOptimize(patch: Partial<OptimizeSettings>): OptimizeSettings {
+  return {
+    enabled: patch.enabled ?? DEFAULT_OPTIMIZE.enabled,
+    targetBytes: Math.min(
+      MAX_OPTIMIZE_TARGET,
+      Math.max(
+        MIN_OPTIMIZE_TARGET,
+        Math.round(patch.targetBytes ?? DEFAULT_OPTIMIZE.targetBytes),
+      ),
+    ),
+    lossy: Math.min(
+      MAX_LOSSY,
+      Math.max(MIN_LOSSY, Math.round(patch.lossy ?? DEFAULT_OPTIMIZE.lossy)),
+    ),
+    reduceColors: patch.reduceColors ?? DEFAULT_OPTIMIZE.reduceColors,
+    colors: Math.min(
+      MAX_COLORS,
+      Math.max(MIN_COLORS, Math.round(patch.colors ?? DEFAULT_OPTIMIZE.colors)),
+    ),
+  };
+}
+
 export interface DocumentState {
   readonly source: Source | null;
   readonly frame: Frame;
@@ -207,8 +334,17 @@ export interface DocumentState {
   /** Unsharp-mask strength from 0 (off) to 100. */
   readonly sharpness: number;
   readonly exportScale: ExportScale;
-  /** The active range of an animated Source; null for a still. */
+  /** A custom Export size; null follows the Frame × exportScale. */
+  readonly resize: ExportResize | null;
+  /** Keeps width and height proportional when the user edits one of them. */
+  readonly resizeLocked: boolean;
+  /** The saved range of an animated Source; null for a still. */
   readonly trim: Trim | null;
+  /** Whether the saved Trim applies to Preview and Export. */
+  readonly trimEnabled: boolean;
+  /** Playback and Export speed, 0.25×–4×. */
+  readonly speed: number;
+  readonly optimize: OptimizeSettings;
 }
 
 export function emptyDocument(): DocumentState {
@@ -221,7 +357,12 @@ export function emptyDocument(): DocumentState {
     border: DEFAULT_BORDER,
     sharpness: 0,
     exportScale: 1,
+    resize: null,
+    resizeLocked: true,
     trim: null,
+    trimEnabled: false,
+    speed: 1,
+    optimize: DEFAULT_OPTIMIZE,
   };
 }
 
@@ -231,11 +372,61 @@ export function emptyDocument(): DocumentState {
  * be processed quickly.
  */
 export function withSource(doc: DocumentState, source: Source): DocumentState {
-  return { ...doc, source, crop: FIT_CROP, trim: initialTrim(source) };
+  return {
+    ...doc,
+    source,
+    crop: FIT_CROP,
+    trim: initialTrim(source),
+    trimEnabled: false,
+  };
 }
 
 export function withTrim(doc: DocumentState, trim: Trim | null): DocumentState {
   return { ...doc, trim: clampTrim(doc.source, trim) };
+}
+
+export function withTrimEnabled(doc: DocumentState, trimEnabled: boolean): DocumentState {
+  if (!isAnimated(doc.source)) return { ...doc, trimEnabled: false };
+  return { ...doc, trimEnabled };
+}
+
+export function withSpeed(doc: DocumentState, speed: number): DocumentState {
+  const next = clampSpeed(speed);
+  return next === doc.speed ? doc : { ...doc, speed: next };
+}
+
+/** A custom size always follows the current Frame while the lock is on. */
+function resizeForFrame(
+  resize: ExportResize | null,
+  frame: Frame,
+  locked: boolean,
+): ExportResize | null {
+  if (!resize) return null;
+  const clamped = clampResize(resize);
+  if (!locked) return clamped;
+  return clampResize({
+    width: clamped.width,
+    height: Math.round((clamped.width * frame.height) / frame.width),
+  });
+}
+
+export function withResize(doc: DocumentState, resize: ExportResize | null): DocumentState {
+  return { ...doc, resize: resizeForFrame(resize, doc.frame, doc.resizeLocked) };
+}
+
+export function withResizeLocked(doc: DocumentState, resizeLocked: boolean): DocumentState {
+  return {
+    ...doc,
+    resizeLocked,
+    resize: resizeForFrame(doc.resize, doc.frame, resizeLocked),
+  };
+}
+
+export function withOptimize(
+  doc: DocumentState,
+  patch: Partial<OptimizeSettings>,
+): DocumentState {
+  return { ...doc, optimize: clampOptimize({ ...doc.optimize, ...patch }) };
 }
 
 export function withCrop(doc: DocumentState, crop: Crop): DocumentState {
@@ -243,7 +434,11 @@ export function withCrop(doc: DocumentState, crop: Crop): DocumentState {
 }
 
 export function withFrame(doc: DocumentState, frame: Frame): DocumentState {
-  return { ...doc, frame };
+  return {
+    ...doc,
+    frame,
+    resize: resizeForFrame(doc.resize, frame, doc.resizeLocked),
+  };
 }
 
 export function withPadColor(doc: DocumentState, padColor: string): DocumentState {
@@ -272,15 +467,13 @@ export function withSharpness(doc: DocumentState, sharpness: number): DocumentSt
 }
 
 export function withExportScale(doc: DocumentState, exportScale: ExportScale): DocumentState {
-  return { ...doc, exportScale };
+  return { ...doc, exportScale, resize: null };
 }
 
-export function outputSize(
-  doc: DocumentState,
-  scale: number = doc.exportScale,
-): { width: number; height: number } {
+export function outputSize(doc: DocumentState): { width: number; height: number } {
+  if (doc.resize) return doc.resize;
   return {
-    width: Math.round(doc.frame.width * scale),
-    height: Math.round(doc.frame.height * scale),
+    width: Math.round(doc.frame.width * doc.exportScale),
+    height: Math.round(doc.frame.height * doc.exportScale),
   };
 }

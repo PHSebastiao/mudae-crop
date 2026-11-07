@@ -1,10 +1,23 @@
 import { useEffect, useRef, useState, type RefObject } from 'react';
-import { outputSize, type DocumentState, type ExportScale } from '../core/document';
+import {
+  MAX_COLORS,
+  MAX_LOSSY,
+  MIN_COLORS,
+  MIN_LOSSY,
+  isAnimated,
+  outputSize,
+  type DocumentState,
+  type ExportScale,
+  type OptimizeSettings,
+} from '../core/document';
 import { exportKindFor } from '../core/export';
 import { formatHistoryDate, type ExportEntry, type HistoryEntry } from '../core/history';
 import type { HistoryPreviewLoader } from '../core/historyPreview';
 import { isPostId } from '../core/imagechest';
+import type { OptimizeResult } from '../core/optimize';
 import type { Settings } from '../core/settings';
+import { formatBytes } from '../core/download';
+import { NumberField } from './NumberField';
 
 interface ExportPanelProps {
   readonly doc: DocumentState;
@@ -16,8 +29,14 @@ interface ExportPanelProps {
   readonly preview: HistoryPreviewLoader;
   readonly cooldownSeconds: number;
   readonly appendPostId: string;
+  readonly optimizeResult: OptimizeResult | null;
   readonly onExport: () => void;
   readonly onExportScale: (scale: ExportScale) => void;
+  readonly onExportFormat: (format: 'png' | 'gif') => void;
+  readonly onResizeWidth: (width: number) => void;
+  readonly onResizeHeight: (height: number) => void;
+  readonly onResizeLocked: (locked: boolean) => void;
+  readonly onOptimize: (patch: Partial<OptimizeSettings>) => void;
   readonly onAppendPostId: (value: string) => void;
   readonly onCommitAppendPostId: () => void;
   readonly onUpload: () => void;
@@ -132,8 +151,14 @@ export function ExportPanel({
   preview,
   cooldownSeconds,
   appendPostId,
+  optimizeResult,
   onExport,
   onExportScale,
+  onExportFormat,
+  onResizeWidth,
+  onResizeHeight,
+  onResizeLocked,
+  onOptimize,
   onAppendPostId,
   onCommitAppendPostId,
   onUpload,
@@ -149,12 +174,16 @@ export function ExportPanel({
   const hasToken = settings.token.trim() !== '';
   const cooling = cooldownSeconds > 0;
   const uploadDisabled = !doc.source || busy || cooling || badPostId || !hasToken;
-  const format = exportKindFor(doc.source).label;
+  const kind = exportKindFor(doc.source, settings.exportFormat);
+  const format = kind.label;
+  const animated = isAnimated(doc.source);
+  const sizeLabel = doc.resize ? `${size.width}×${size.height}` : `${doc.exportScale}×`;
   const exportLabel = downloading
     ? 'Aguarde o link…'
     : busy && !uploading
       ? 'Exportando…'
-      : `Exportar ${format} ${doc.exportScale}×`;
+      : `Exportar ${format} ${sizeLabel}`;
+  const optimize = doc.optimize;
   const listRef = useRef<HTMLUListElement | null>(null);
 
   // Clearing the History, or the 50-entry cap evicting an old row, releases
@@ -170,29 +199,145 @@ export function ExportPanel({
         <div className="meta">
           <span>{format}</span>
           <span>
-            {doc.exportScale}× · {size.width}×{size.height}
+            {size.width}×{size.height}
           </span>
+        </div>
+        <div className="toggle" role="group" aria-label="Formato do Export">
+          <button
+            type="button"
+            className={kind.format === 'png' ? 'on' : ''}
+            onClick={() => onExportFormat('png')}
+          >
+            PNG
+          </button>
+          <button
+            type="button"
+            className={kind.format === 'gif' ? 'on' : ''}
+            onClick={() => onExportFormat('gif')}
+            disabled={!animated}
+            title={animated ? 'GIF animado' : 'A Source é estática'}
+          >
+            GIF
+          </button>
         </div>
         <div className="toggle" role="group" aria-label="Escala do Export">
           <button
             type="button"
-            className={doc.exportScale === 1 ? 'on' : ''}
+            className={doc.resize === null && doc.exportScale === 1 ? 'on' : ''}
             onClick={() => onExportScale(1)}
           >
             1×
           </button>
           <button
             type="button"
-            className={doc.exportScale === 2 ? 'on' : ''}
+            className={doc.resize === null && doc.exportScale === 2 ? 'on' : ''}
             onClick={() => onExportScale(2)}
           >
             2×
           </button>
         </div>
+        <div className="row">
+          <span className="key">largura</span>
+          <NumberField
+            value={size.width}
+            onCommit={onResizeWidth}
+            label="Largura do Export"
+            disabled={!doc.source}
+          />
+        </div>
+        <div className="row">
+          <span className="key">altura</span>
+          <NumberField
+            value={size.height}
+            onCommit={onResizeHeight}
+            label="Altura do Export"
+            disabled={!doc.source}
+          />
+        </div>
+        <button
+          type="button"
+          className="link"
+          onClick={() => onResizeLocked(!doc.resizeLocked)}
+          disabled={!doc.source}
+        >
+          {doc.resizeLocked ? 'proporção travada' : 'proporção livre'}
+        </button>
         <div className="meta">
           <span>tamanho</span>
-          <span>—</span>
+          <span>{optimizeResult ? formatBytes(optimizeResult.size) : '—'}</span>
         </div>
+        {animated && kind.format === 'gif' && (
+          <>
+            <div className="toggle" role="group" aria-label="Otimizar GIF">
+              <button
+                type="button"
+                className={optimize.enabled ? 'on' : ''}
+                onClick={() => onOptimize({ enabled: !optimize.enabled })}
+              >
+                otimizar
+              </button>
+            </div>
+            {optimize.enabled && (
+              <>
+                <div className="row">
+                  <span className="key">alvo MB</span>
+                  <NumberField
+                    value={optimize.targetBytes / (1024 * 1024)}
+                    onCommit={(mb) => onOptimize({ targetBytes: mb * 1024 * 1024 })}
+                    label="Alvo de tamanho em MB"
+                    precision={1}
+                  />
+                </div>
+                <div className="row">
+                  <span className="key">compressão</span>
+                  <span className="pill">{optimize.lossy}</span>
+                </div>
+                <input
+                  className="slider"
+                  type="range"
+                  min={MIN_LOSSY}
+                  max={MAX_LOSSY}
+                  step={5}
+                  value={optimize.lossy}
+                  onChange={(event) => onOptimize({ lossy: Number(event.target.value) })}
+                  aria-label="Compressão com perda"
+                />
+                <label className="row">
+                  <span className="key">reduzir cores</span>
+                  <input
+                    type="checkbox"
+                    checked={optimize.reduceColors}
+                    onChange={(event) => onOptimize({ reduceColors: event.target.checked })}
+                  />
+                </label>
+                {optimize.reduceColors && (
+                  <div className="row">
+                    <span className="key">cores</span>
+                    <NumberField
+                      value={optimize.colors}
+                      onCommit={(colors) => onOptimize({ colors })}
+                      label="Número de cores"
+                    />
+                  </div>
+                )}
+                <p className="panel-hint">
+                  {MIN_COLORS}–{MAX_COLORS} cores · perda até {MAX_LOSSY}
+                </p>
+              </>
+            )}
+            {optimizeResult && (
+              <p className={`panel-hint${optimizeResult.met ? '' : ' bad'}`}>
+                {optimizeResult.met ? 'alvo atingido' : 'alvo não atingido'} ·{' '}
+                {formatBytes(optimizeResult.size)} · perda {optimizeResult.lossy}
+                {optimizeResult.colors ? ` · ${optimizeResult.colors} cores` : ''}
+                {optimizeResult.droppedFrames > 0
+                  ? ` · ${optimizeResult.droppedFrames} repetidos`
+                  : ''}
+                {optimizeResult.error ? ` · ${optimizeResult.error}` : ''}
+              </p>
+            )}
+          </>
+        )}
         <button
           type="button"
           className="big primary"

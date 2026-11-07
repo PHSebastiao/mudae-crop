@@ -1,19 +1,23 @@
 import {
   clampTrim,
-  frameDelayMs,
+  effectiveDelayMs,
   isAnimated,
   trimFrameCount,
   type Source,
   type Trim,
 } from './document';
 
-/** One cycle of the active Trim, in milliseconds. */
-export function trimDurationMs(source: Source | null | undefined, trim: Trim | null): number {
+/** One cycle of the active Trim at the requested speed, in milliseconds. */
+export function trimDurationMs(
+  source: Source | null | undefined,
+  trim: Trim | null,
+  speed = 1,
+): number {
   const range = clampTrim(source, trim);
   if (!range || !isAnimated(source)) return 0;
   let total = 0;
   for (let index = range.start; index <= range.end; index += 1) {
-    total += frameDelayMs(source, index);
+    total += effectiveDelayMs(source, index, speed);
   }
   return total;
 }
@@ -53,4 +57,18 @@ export function sampleTrimIndices(
 export function formatDuration(ms: number): string {
   if (!Number.isFinite(ms) || ms <= 0) return '0,0 s';
   return `${(ms / 1000).toFixed(1).replace('.', ',')} s`;
+}
+
+/** Minutes and seconds, for long video durations. */
+export function formatClock(ms: number): string {
+  if (!Number.isFinite(ms) || ms <= 0) return '0:00';
+  const totalSeconds = Math.round(ms / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, '0')}`;
+}
+
+/** The GIF-style readout for short clips, clock style for long videos. */
+export function formatPlaybackDuration(ms: number): string {
+  return ms >= 60_000 ? formatClock(ms) : formatDuration(ms);
 }

@@ -1,4 +1,4 @@
-import type { AnimationFrame, ImageFormat, Source } from './document';
+import type { AnimationFrame, ImageFormat, Source, VideoSource } from './document';
 
 export type ImportErrorCode = 'unsupported' | 'corrupt' | 'empty';
 
@@ -20,6 +20,8 @@ export interface DecodedImage {
   readonly frames?: readonly AnimationFrame[];
   /** Raw Netscape loop field; null or absent means a single cycle. */
   readonly loopCount?: number | null;
+  /** Present for a video-backed Source. */
+  readonly video?: VideoSource;
 }
 
 export type Decoder = (bytes: Uint8Array, format: ImageFormat) => Promise<DecodedImage>;
@@ -36,6 +38,9 @@ const MIME: Record<ImageFormat, string> = {
   gif: 'image/gif',
   webp: 'image/webp',
   apng: 'image/apng',
+  mp4: 'video/mp4',
+  mov: 'video/quicktime',
+  webm: 'video/webm',
 };
 
 export function mimeFor(format: ImageFormat): string {
@@ -88,10 +93,28 @@ export function detectFormat(bytes: Uint8Array): ImageFormat | null {
   if (startsWith(bytes, [0x52, 0x49, 0x46, 0x46]) && startsWith(bytes, [0x57, 0x45, 0x42, 0x50], 8)) {
     return 'webp';
   }
+  if (startsWith(bytes, [0x66, 0x74, 0x79, 0x70], 4)) {
+    const brand = String.fromCharCode(...bytes.subarray(8, 12));
+    return brand === 'qt  ' ? 'mov' : 'mp4';
+  }
+  if (startsWith(bytes, [0x1a, 0x45, 0xdf, 0xa3])) {
+    return 'webm';
+  }
   return null;
 }
 
-const SUPPORTED_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'apng']);
+const SUPPORTED_EXTENSIONS = new Set([
+  'png',
+  'jpg',
+  'jpeg',
+  'gif',
+  'webp',
+  'apng',
+  'mp4',
+  'm4v',
+  'mov',
+  'webm',
+]);
 
 function extensionOf(name: string): string {
   const match = /\.([a-z0-9]+)$/i.exec(name);
@@ -101,8 +124,8 @@ function extensionOf(name: string): string {
 function unsupportedMessage(name: string): string {
   const ext = extensionOf(name);
   return ext
-    ? `Formato não suportado: .${ext}. Use PNG, JPG, GIF, WebP ou APNG.`
-    : 'Formato não suportado. Use PNG, JPG, GIF, WebP ou APNG.';
+    ? `Formato não suportado: .${ext}. Use PNG, JPG, GIF, WebP, APNG, MP4, MOV ou WebM.`
+    : 'Formato não suportado. Use PNG, JPG, GIF, WebP, APNG, MP4, MOV ou WebM.';
 }
 
 function corruptMessage(name: string): string {
@@ -145,7 +168,8 @@ export async function loadSource(candidate: SourceCandidate, decode: Decoder): P
   let decoded: DecodedImage;
   try {
     decoded = await decode(bytes, format);
-  } catch {
+  } catch (reason) {
+    if (reason instanceof ImportError) throw reason;
     throw new ImportError('corrupt', corruptMessage(name));
   }
 
@@ -167,6 +191,7 @@ export async function loadSource(candidate: SourceCandidate, decode: Decoder): P
     bytes: bytes.length,
     image: decoded.image,
     ...(animation ? { animation } : {}),
+    ...(decoded.video ? { video: decoded.video } : {}),
   };
 }
 

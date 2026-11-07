@@ -3,7 +3,7 @@ import { asRecord, parseJson } from './json';
 
 export const MAX_HISTORY = 50;
 
-export type HistoryFormat = 'png' | 'jpg' | 'gif';
+export type HistoryFormat = 'png' | 'gif';
 
 interface HistoryEntryBase {
   /** The automatic Post title: `<source stem> · <width>×<height>`. */
@@ -36,7 +36,7 @@ export interface ExportEntry extends HistoryEntryBase {
 export type HistoryEntry = UploadEntry | ExportEntry;
 
 function asFormat(value: unknown): HistoryFormat {
-  return value === 'jpg' || value === 'gif' || value === 'png' ? value : 'png';
+  return value === 'gif' ? 'gif' : 'png';
 }
 
 function fileNameFromPath(path: string): string {

@@ -2,7 +2,7 @@ import { createCanvas, type Canvas } from '@napi-rs/canvas';
 import { describe, expect, it, vi } from 'vitest';
 import { ExportError, exportKindFor, renderGif, type EncodableCanvas, type ExportAdapter } from '../src/core/export';
 import { decodeGif } from '../src/core/gif';
-import { withTrim } from '../src/core/document';
+import { DEFAULT_OPTIMIZE, withTrim, withTrimEnabled } from '../src/core/document';
 import { makeAnimatedSource, makeDoc, makeSource } from './helpers';
 
 const adapter: ExportAdapter = {
@@ -98,13 +98,15 @@ describe('GIF Export', () => {
       label: 'PNG',
       contentType: 'image/png',
     });
+    expect(exportKindFor(source, 'png').format).toBe('png');
+    expect(exportKindFor(makeSource(10, 10), 'gif').format).toBe('png');
     expect(exportKindFor(null).format).toBe('png');
   });
 
   it('exports the Frame dimensions and only the trimmed frames', async () => {
-    const doc = withTrim(makeDoc(source), { start: 1, end: 2 });
+    const doc = withTrimEnabled(withTrim(makeDoc(source), { start: 1, end: 2 }), true);
 
-    const bytes = await renderGif(doc, 1, adapter);
+    const bytes = await renderGif(doc, adapter);
     const decoded = decodeGif(bytes);
 
     expect(decoded.width).toBe(225);
@@ -114,9 +116,9 @@ describe('GIF Export', () => {
 
   it('preserves the delays with the 20 ms floor and the loop count', async () => {
     const short = makeAnimatedSource(225, 350, ['#D94F6D', '#2B9C8F'], [5, 250], 0);
-    const doc = withTrim(makeDoc(short), { start: 0, end: 1 });
+    const doc = withTrimEnabled(withTrim(makeDoc(short), { start: 0, end: 1 }), true);
 
-    const bytes = await renderGif(doc, 1, adapter);
+    const bytes = await renderGif(doc, adapter);
     const decoded = decodeGif(bytes);
 
     expect(decoded.frames.map((frame) => frame.delayMs)).toEqual([20, 250]);
@@ -132,19 +134,36 @@ describe('GIF Export', () => {
     });
   });
 
-  it('reports progress across rendering and encoding', async () => {
+  it('merges consecutive duplicate frames before encoding', async () => {
+    const duplicate = makeAnimatedSource(
+      225,
+      350,
+      ['#D94F6D', '#D94F6D', '#2B9C8F'],
+      [100, 50, 80],
+      0,
+    );
+    const doc = {
+      ...makeDoc(duplicate),
+      optimize: { ...DEFAULT_OPTIMIZE, enabled: true },
+    };
+
+    const decoded = decodeGif(await renderGif(doc, adapter));
+
+    expect(decoded.frames).toHaveLength(2);
+    expect(decoded.frames.map((frame) => frame.delayMs)).toEqual([150, 80]);
+    expect(decoded.loopCount).toBe(0);
+  });
+
+  it('reports progress across rendering and streaming encoding', async () => {
     const onProgress = vi.fn();
-    const doc = withTrim(makeDoc(source), { start: 0, end: 2 });
+    const doc = withTrimEnabled(withTrim(makeDoc(source), { start: 0, end: 2 }), true);
 
-    await renderGif(doc, 1, adapter, { onProgress });
+    await renderGif(doc, adapter, { onProgress });
 
-    expect(onProgress.mock.calls).toEqual([
-      [1, 6],
-      [2, 6],
-      [3, 6],
-      [4, 6],
-      [5, 6],
-      [6, 6],
+    expect(onProgress.mock.calls.map(([progress]) => progress)).toEqual([
+      { phase: 'render', done: 1, total: 3 },
+      { phase: 'render', done: 2, total: 3 },
+      { phase: 'render', done: 3, total: 3 },
     ]);
   });
 
@@ -152,7 +171,7 @@ describe('GIF Export', () => {
     const controller = new AbortController();
     controller.abort();
 
-    const attempt = renderGif(withTrim(makeDoc(source), { start: 0, end: 1 }), 1, adapter, {
+    const attempt = renderGif(withTrimEnabled(withTrim(makeDoc(source), { start: 0, end: 1 }), true), adapter, {
       signal: controller.signal,
     });
 
@@ -160,15 +179,14 @@ describe('GIF Export', () => {
     await expect(attempt).rejects.toMatchObject({ cancelled: true });
   });
 
-  it('can cancel during the encoding pass', async () => {
+  it('can cancel during the frame loop', async () => {
     const controller = new AbortController();
-    const doc = withTrim(makeDoc(source), { start: 0, end: 2 });
+    const doc = withTrimEnabled(withTrim(makeDoc(source), { start: 0, end: 2 }), true);
 
-    const attempt = renderGif(doc, 1, adapter, {
+    const attempt = renderGif(doc, adapter, {
       signal: controller.signal,
-      onProgress: (done) => {
-        // The first three calls are rendering; the fourth starts encoding.
-        if (done > 3) controller.abort();
+      onProgress: (progress) => {
+        if (progress.phase === 'render' && progress.done >= 2) controller.abort();
       },
     });
 
@@ -176,11 +194,11 @@ describe('GIF Export', () => {
   });
 
   it('refuses a still Source and an empty document', async () => {
-    await expect(renderGif(makeDoc(makeSource(10, 10)), 1, adapter)).rejects.toMatchObject({
+    await expect(renderGif(makeDoc(makeSource(10, 10)), adapter)).rejects.toMatchObject({
       message: 'A Source não é animada.',
     });
     await expect(
-      renderGif(makeDoc(null), 1, adapter),
+      renderGif(makeDoc(null), adapter),
     ).rejects.toMatchObject({ message: 'Não há Source para exportar.' });
   });
 });

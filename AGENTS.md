@@ -21,11 +21,11 @@ cargo check --manifest-path src-tauri/Cargo.toml
 
 ## Layout
 
-- `src/core/` is platform-free: no React, DOM calls or Tauri imports. Platform work arrives through injected seams (`RenderContext`, `Decoder`, `ExportAdapter`, `DownloadTransport`, `HistoryPreviewAdapter`).
+- `src/core/` is platform-free: no React, DOM calls or Tauri imports. Platform work arrives through injected seams (`RenderContext`, `Decoder`, `VideoSource`, `ExportAdapter`, `GifOptimizer`, `DownloadTransport`, `HistoryPreviewAdapter`).
 - `src/platform/` holds the Tauri and browser adapters; `src/App.tsx` wires them (and imports the Tauri path helpers directly).
 - `renderFrame()` in `src/core/render.ts` is the only Frame renderer; Preview and Export both call it, and the dimmed surround reuses `drawSource()`.
 - Rust commands live in `src-tauri/src/lib.rs`. A new command must also be added to `generate_handler!`; commands use `rename_all = "snake_case"`, so TS passes `download_id`. New plugins need a permission in `src-tauri/capabilities/default.json`.
-- The 30 MB ceiling is Image Chest's per-file limit: `src/core/download.ts` owns the front-end constant, `src/core/imagechest.ts` reuses it for uploads, and `lib.rs` enforces the download cap natively. The Export History thumbnail read reuses the same ceiling. Keep them equal.
+- The 30 MB ceiling is Image Chest's per-file limit: `src/core/limits.ts` owns the shared constant, `download.ts` and `imagechest.ts` reuse it, the optimize target cap reuses it, and `lib.rs` enforces the download cap natively. The Export History thumbnail read reuses the same ceiling. Keep them equal.
 
 ## Conventions
 
@@ -35,7 +35,12 @@ cargo check --manifest-path src-tauri/Cargo.toml
 - Rotation is a canvas transform at draw time, with bounds swapped for 90°/270° (`rotatedBounds`). Never pre-rotate or resample bitmaps.
 - `fit` skips the `padColor` fill so uncovered alpha shows; every other mode paints `padColor` first.
 - `verbatimModuleSyntax` is on: type-only imports must use `import type` (and unused locals/params fail typecheck).
-- GIF trim/playback/Export and still WebP import are in place; waifu2x is a deliberate placeholder in this slice. ADR-0003 describes the target, not current behavior, so disabled controls are not bugs.
+- GIF trim/playback/speed/Export, video import and still WebP import are in place; waifu2x and frame-rate reduction are deliberate placeholders in this slice. ADR-0003 describes the waifu2x target, not current behavior, so disabled controls are not bugs.
+- The saved `trim` only applies while `trimEnabled` is on; Preview, Palette and Export all go through `effectiveTrim`. Speed scales every delay with `effectiveDelayMs`, keeping the 20 ms floor.
+- A video Source is backed by a `VideoSource`: the hidden `<video>` plays natively in Preview, while scrub and Export seek frame by frame. Never pre-extract the whole video; long files must stay bounded.
+- Export sizes come from `outputSize`: a custom `resize` or the Frame × 1×/2×. Unlocked aspect deliberately stretches only the final raster; the Crop still never distorts the Source.
+- Exports are PNG or GIF only. PNG of an animation uses the selected frame; GIF keeps trim, speed, resize and loop.
+- Optimize runs gifsicle WASM after our encoder: lossy LZW is the primary lever, color reduction is optional, duplicate frames are merged losslessly, and every candidate is decoded before it can replace the base.
 - Render order is Crop and Pad fill, then Sharpness, then Border. The Border width is in Frame pixels at 1× and multiplies by the render scale; it is drawn after the Source transform is restored, so rotation never tilts it.
 - The Palette renders the Crop at reduced resolution with `border: false`, then ranks the composited pixels by coverage while reserving slots for vibrant accents, so a small saturated area survives; the UI always prepends the fixed white swatch. It must never depend on the Border color.
 - The Pad eyedropper samples the rendered frame canvas at the click point and shows a 9×9 pixel magnifier near the pointer. The native `input type=color` eyedropper is unreliable in WebView2 (it closes the dialog and cannot sample outside it), so the in-app "pegar cor da imagem" path is the supported one.

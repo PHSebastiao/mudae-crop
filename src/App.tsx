@@ -3,8 +3,9 @@ import { downloadDir, join } from '@tauri-apps/api/path';
 import {
   animationFrameCount,
   clampBorderWidth,
+  effectiveDelayMs,
+  effectiveTrim,
   emptyDocument,
-  frameDelayMs,
   frameFor,
   isAnimated,
   orientationOf,
@@ -16,19 +17,24 @@ import {
   withCrop,
   withExportScale,
   withFrame,
+  withOptimize,
   withPadColor,
+  withResize,
+  withResizeLocked,
   withSharpness,
   withSource,
+  withSpeed,
   withTrim,
+  withTrimEnabled,
   type DocumentState,
   type ExportScale,
   type Frame,
+  type OptimizeSettings,
   type ScaleMode,
   type Trim,
 } from './core/document';
 import { normalizeHexColor } from './core/color';
-import { MIN_GIF_DELAY_MS } from './core/gif';
-import { trimDurationMs } from './core/animation';
+import { formatPlaybackDuration, trimDurationMs } from './core/animation';
 import {
   DownloadError,
   downloadErrorMessage,
@@ -36,7 +42,15 @@ import {
   formatBytes,
   sourceUrlFrom,
 } from './core/download';
-import { exportKindFor, renderGif, renderPng, ExportError } from './core/export';
+import {
+  exportKindFor,
+  prepareFrame as prepareExportFrame,
+  renderGif,
+  renderPng,
+  ExportError,
+  type RenderProgress,
+} from './core/export';
+import type { OptimizeResult } from './core/optimize';
 import {
   applyScaleMode,
   clampCrop,
@@ -64,9 +78,10 @@ import {
 } from './core/imagechest';
 import { exportFileName, postTitle } from './core/naming';
 import { loadHistory, loadSettings, saveHistory, saveSettings } from './core/config';
-import { DEFAULT_SETTINGS, type Settings } from './core/settings';
+import { DEFAULT_SETTINGS, type ExportFormat, type Settings } from './core/settings';
 import { browserExportAdapter, browserPaletteAdapter, decodeWithBrowser } from './platform/browser';
 import { configStore } from './platform/config';
+import { gifsicleOptimizer } from './platform/gifOptimizer';
 import { tauriImageChestTransport } from './platform/imagechest';
 import { historyPreviewAdapter, readExportBytes } from './platform/historyPreview';
 import { copyText, openExternal, revealInExplorer } from './platform/system';
@@ -122,11 +137,10 @@ export default function App() {
     received: number;
     total: number | null;
   } | null>(null);
-  const [renderProgress, setRenderProgress] = useState<{
-    done: number;
-    total: number;
-  } | null>(null);
+  const [renderProgress, setRenderProgress] = useState<RenderProgress | null>(null);
+  const [optimizeResult, setOptimizeResult] = useState<OptimizeResult | null>(null);
   const [frameIndex, setFrameIndex] = useState(0);
+  const [frameVersion, setFrameVersion] = useState(0);
   const [playing, setPlaying] = useState(false);
   const docRef = useRef(doc);
   docRef.current = doc;
@@ -267,30 +281,94 @@ export default function App() {
       }
     }, 150);
     return () => clearTimeout(timer);
-  }, [doc.source, doc.frame, doc.crop, doc.padColor, doc.sharpness, doc.trim, paletteVersion]);
+  }, [
+    doc.source,
+    doc.frame,
+    doc.crop,
+    doc.padColor,
+    doc.sharpness,
+    doc.trim,
+    doc.trimEnabled,
+    paletteVersion,
+  ]);
+
+  const activeTrim = useMemo(
+    () => effectiveTrim(doc),
+    [doc.source, doc.trim, doc.trimEnabled],
+  );
 
   // Keep the visible frame inside a Trim that just moved, and never play a still.
   useEffect(() => {
-    if (!isAnimated(doc.source) || !doc.trim) {
+    const trim = effectiveTrim(docRef.current);
+    if (!trim) {
       setPlaying(false);
       setFrameIndex(0);
       return;
     }
-    setFrameIndex((current) =>
-      Math.min(doc.trim!.end, Math.max(doc.trim!.start, current)),
-    );
-  }, [doc.source, doc.trim]);
+    setFrameIndex((current) => Math.min(trim.end, Math.max(trim.start, current)));
+  }, [doc.source, doc.trim, doc.trimEnabled]);
 
-  // Playback advances at the current frame's own delay and loops inside the Trim.
+  // Seeking while paused is what makes scrub, Trim and PNG export agree.
   useEffect(() => {
-    if (!playing || !isAnimated(doc.source) || !doc.trim) return;
-    const trim = doc.trim;
+    const video = doc.source?.video;
+    if (!video || playing) return;
+    let alive = true;
+    void video.seekToFrame(frameIndex).then(() => {
+      if (alive) setFrameVersion((value) => value + 1);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [doc.source, frameIndex, playing]);
+
+  // GIF playback advances at the frame's own delay, scaled by the speed.
+  useEffect(() => {
+    const source = doc.source;
+    const trim = activeTrim;
+    if (!playing || !source || source.video || !trim) return;
     const current = Math.min(trim.end, Math.max(trim.start, frameIndex));
     const timer = setTimeout(() => {
       setFrameIndex(current >= trim.end ? trim.start : current + 1);
-    }, Math.max(MIN_GIF_DELAY_MS, frameDelayMs(doc.source, current)));
+    }, effectiveDelayMs(source, current, doc.speed));
     return () => clearTimeout(timer);
-  }, [playing, frameIndex, doc.source, doc.trim]);
+  }, [activeTrim, playing, frameIndex, doc.source, doc.speed]);
+
+  // Video preview uses native playback; rAF only moves the in-app playhead.
+  useEffect(() => {
+    const video = doc.source?.video;
+    const trim = activeTrim;
+    if (!playing || !video || !trim) {
+      video?.pause();
+      return;
+    }
+    video.play(doc.speed);
+    let frame = 0;
+    let cancelled = false;
+    const tick = () => {
+      const endMs = Math.min(video.durationMs, ((trim.end + 1) / video.fps) * 1000);
+      const startMs = (trim.start / video.fps) * 1000;
+      if (video.currentTimeMs >= endMs - 1) {
+        void video.seekToMs(startMs).then(() => {
+          if (!cancelled) video.play(doc.speed);
+        });
+      }
+      setFrameIndex(
+        Math.min(
+          trim.end,
+          Math.max(trim.start, Math.floor((video.currentTimeMs / 1000) * video.fps)),
+        ),
+      );
+      frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(frame);
+      video.pause();
+    };
+  }, [activeTrim, playing, doc.source, doc.speed]);
+
+  useEffect(() => () => docRef.current.source?.video?.dispose(), []);
 
   const refuseBecauseBusy = useCallback(() => {
     fail('Termine a operação em andamento antes de importar outra Source.');
@@ -299,9 +377,11 @@ export default function App() {
   const applyCandidate = useCallback(
     async (candidate: SourceCandidate) => {
       const source = await loadSource(candidate, decodeWithBrowser);
+      docRef.current.source?.video?.dispose();
       setPickTarget(null);
       setPlaying(false);
       setFrameIndex(0);
+      setOptimizeResult(null);
       setDoc((current) => withSource(current, source));
       inform(`Source carregada: ${source.name}`);
     },
@@ -414,28 +494,41 @@ export default function App() {
   }, [fail, importPath]);
 
   const renderForExport = useCallback(
-    async (current: DocumentState, controller: AbortController): Promise<Uint8Array> => {
-      if (!isAnimated(current.source)) {
-        return renderPng(current, current.exportScale, browserExportAdapter);
+    async (
+      current: DocumentState,
+      controller: AbortController,
+      selectedFrame: number,
+    ): Promise<Uint8Array> => {
+      const kind = exportKindFor(current.source, settingsRef.current.exportFormat);
+      if (kind.format === 'png') {
+        return renderPng(current, browserExportAdapter, {
+          frameIndex: selectedFrame,
+          prepare: () => prepareExportFrame(current.source, selectedFrame),
+        });
       }
       setRenderProgress({
+        phase: 'render',
         done: 0,
-        total: trimFrameCount(current.source, current.trim) * 2,
+        total: trimFrameCount(current.source, effectiveTrim(current)),
       });
-      return renderGif(current, current.exportScale, browserExportAdapter, {
+      return renderGif(current, browserExportAdapter, {
         signal: controller.signal,
-        onProgress: (done, total) => setRenderProgress({ done, total }),
+        onProgress: setRenderProgress,
+        optimizer: gifsicleOptimizer,
+        onOptimized: setOptimizeResult,
       });
     },
     [],
   );
 
   const renderWithProgress = useCallback(
-    async (current: DocumentState): Promise<Uint8Array> => {
+    async (current: DocumentState, selectedFrame: number): Promise<Uint8Array> => {
       const controller = new AbortController();
       cancelRenderRef.current = controller;
+      setPlaying(false);
+      setOptimizeResult(null);
       try {
-        return await renderForExport(current, controller);
+        return await renderForExport(current, controller, selectedFrame);
       } finally {
         cancelRenderRef.current = null;
         setRenderProgress(null);
@@ -456,7 +549,7 @@ export default function App() {
       return;
     }
     if (!beginRun()) return;
-    const kind = exportKindFor(current.source);
+    const kind = exportKindFor(current.source, settingsRef.current.exportFormat);
     const extension = kind.format;
     const label = kind.label;
     try {
@@ -476,13 +569,13 @@ export default function App() {
         throw new Error('o Export não pode sobrescrever a Source. Escolha outro nome.');
       }
 
-      const bytes = await renderWithProgress(current);
+      const bytes = await renderWithProgress(current, frameIndex);
       await writeFileBytes(path, bytes);
 
       // Remember the folder the user actually saved into, so the next dialog
       // opens there instead of Downloads.
       const folder = folderOf(path) || settingsRef.current.saveFolder;
-      persistSettings({ saveFolder: folder, exportFormat: extension });
+      persistSettings({ saveFolder: folder });
 
       const size = outputSize(current);
       const entry: ExportEntry = {
@@ -508,7 +601,16 @@ export default function App() {
       setRenderProgress(null);
       endRun();
     }
-  }, [beginRun, endRun, fail, inform, persistHistory, persistSettings, renderWithProgress]);
+  }, [
+    beginRun,
+    endRun,
+    fail,
+    frameIndex,
+    inform,
+    persistHistory,
+    persistSettings,
+    renderWithProgress,
+  ]);
 
   const uploadFailure = useCallback(
     (reason: unknown) => {
@@ -567,7 +669,7 @@ export default function App() {
     }
     if (!beginRun()) return;
 
-    const kind = exportKindFor(current.source);
+    const kind = exportKindFor(current.source, settingsRef.current.exportFormat);
     const extension = kind.format;
     const contentType = kind.contentType;
 
@@ -576,7 +678,7 @@ export default function App() {
     setStatus(null);
     setNoticeAction(null);
     try {
-      const bytes = await renderWithProgress(current);
+      const bytes = await renderWithProgress(current, frameIndex);
       const size = outputSize(current);
       const title = postTitle(current.source.name, size.width, size.height);
       const outcome = await uploadStill({
@@ -610,7 +712,6 @@ export default function App() {
         createdAt: new Date().toISOString(),
       };
       persistHistory(appendHistory(historyRef.current, record));
-      persistSettings({ exportFormat: extension });
       inform(
         copied
           ? `Link copiado: ${outcome.link}`
@@ -632,10 +733,10 @@ export default function App() {
     cooldownSeconds,
     endRun,
     fail,
+    frameIndex,
     inform,
     openSettings,
     persistHistory,
-    persistSettings,
     renderWithProgress,
     uploadFailure,
   ]);
@@ -810,7 +911,20 @@ export default function App() {
 
   const changeTrim = useCallback((trim: Trim | null) => {
     setPlaying(false);
+    setOptimizeResult(null);
     setDoc((current) => withTrim(current, trim));
+  }, []);
+
+  const changeTrimEnabled = useCallback((trimEnabled: boolean) => {
+    setPlaying(false);
+    setOptimizeResult(null);
+    setDoc((current) => withTrimEnabled(current, trimEnabled));
+  }, []);
+
+  const changeSpeed = useCallback((speed: number) => {
+    setPlaying(false);
+    setOptimizeResult(null);
+    setDoc((current) => withSpeed(current, speed));
   }, []);
 
   const togglePlay = useCallback(() => {
@@ -822,13 +936,53 @@ export default function App() {
     setFrameIndex(index);
   }, []);
 
+  const changeResizeWidth = useCallback((width: number) => {
+    setOptimizeResult(null);
+    setDoc((current) => {
+      const size = outputSize(current);
+      return withResize(current, {
+        width,
+        height: current.resize?.height ?? size.height,
+      });
+    });
+  }, []);
+
+  const changeResizeHeight = useCallback((height: number) => {
+    setOptimizeResult(null);
+    setDoc((current) => {
+      const size = outputSize(current);
+      const width = current.resizeLocked
+        ? Math.round((height * current.frame.width) / current.frame.height)
+        : (current.resize?.width ?? size.width);
+      return withResize(current, { width, height });
+    });
+  }, []);
+
+  const changeResizeLocked = useCallback((resizeLocked: boolean) => {
+    setDoc((current) => withResizeLocked(current, resizeLocked));
+  }, []);
+
+  const changeOptimize = useCallback((patch: Partial<OptimizeSettings>) => {
+    setOptimizeResult(null);
+    setDoc((current) => withOptimize(current, patch));
+  }, []);
+
   const recalcPalette = useCallback(() => {
     setPaletteVersion((value) => value + 1);
   }, []);
 
   const changeExportScale = useCallback(
     (exportScale: ExportScale) => {
+      setOptimizeResult(null);
       persistSettings({ exportScale });
+    },
+    [persistSettings],
+  );
+
+  const changeExportFormat = useCallback(
+    (exportFormat: ExportFormat) => {
+      setOptimizeResult(null);
+      persistSettings({ exportFormat });
     },
     [persistSettings],
   );
@@ -899,7 +1053,7 @@ export default function App() {
       if (!data) return;
 
       for (const item of data.items) {
-        if (item.kind !== 'file' || !item.type.startsWith('image/')) continue;
+        if (item.kind !== 'file' || !/^(image|video)\//.test(item.type)) continue;
         const file = item.getAsFile();
         if (!file) return;
         event.preventDefault();
@@ -976,7 +1130,13 @@ export default function App() {
   const sourceChip = doc.source
     ? `${doc.source.format.toUpperCase()} · ${doc.source.width}×${doc.source.height} · ${formatBytes(
         doc.source.bytes,
-      )} · ${sourceAnimated ? `animado ${animationFrameCount(doc.source)}f` : 'estático'}`
+      )} · ${
+        doc.source.video
+          ? `vídeo ${doc.source.video.fps} fps · ${formatPlaybackDuration(doc.source.video.durationMs)}`
+          : sourceAnimated
+            ? `animado ${animationFrameCount(doc.source)}f`
+            : 'estático'
+      }`
     : 'sem Source';
 
   const clearNotice = () => {
@@ -1065,7 +1225,7 @@ export default function App() {
       ) : renderProgress ? (
         <div className="notice download render" role="status">
           <span>
-            Processando GIF…{' '}
+            {renderProgress.phase === 'render' ? 'Renderizando' : 'Otimizando'} GIF…{' '}
             {renderProgress.total > 0
               ? Math.min(100, Math.round((renderProgress.done / renderProgress.total) * 100))
               : 0}
@@ -1104,12 +1264,14 @@ export default function App() {
           onSharpness={changeSharpness}
           onPickPadColor={togglePickPad}
           onTrim={changeTrim}
+          onSpeed={changeSpeed}
           pickingPad={pickTarget === 'pad'}
         />
         <div className="stage-column">
           <Stage
             doc={doc}
             frameIndex={frameIndex}
+            frameVersion={frameVersion}
             onPan={(dx, dy) =>
               setDoc((current) =>
                 current.source ? withCrop(current, panBy(current, current.crop, dx, dy)) : current,
@@ -1128,16 +1290,19 @@ export default function App() {
             onPickColor={pickPadColor}
             onPickMiss={pickPadMiss}
           />
-          {sourceAnimated && doc.trim && (
+          {sourceAnimated && (
             <Timeline
               frameIndex={frameIndex}
-              trim={doc.trim}
-              totalFrames={animationFrameCount(doc.source)}
-              durationMs={trimDurationMs(doc.source, doc.trim)}
+              frameCount={animationFrameCount(doc.source)}
+              trim={activeTrim ?? { start: 0, end: 0 }}
+              trimEnabled={doc.trimEnabled}
+              durationMs={trimDurationMs(doc.source, activeTrim, doc.speed)}
               playing={playing}
               disabled={busy}
               onScrub={scrubFrame}
               onTogglePlay={togglePlay}
+              onTrimEnabled={changeTrimEnabled}
+              onTrimChange={changeTrim}
             />
           )}
         </div>
@@ -1151,8 +1316,14 @@ export default function App() {
           preview={historyPreview}
           cooldownSeconds={cooldownSeconds}
           appendPostId={appendPostId}
+          optimizeResult={optimizeResult}
           onExport={handleExport}
           onExportScale={changeExportScale}
+          onExportFormat={changeExportFormat}
+          onResizeWidth={changeResizeWidth}
+          onResizeHeight={changeResizeHeight}
+          onResizeLocked={changeResizeLocked}
+          onOptimize={changeOptimize}
           onAppendPostId={changeAppendPostId}
           onCommitAppendPostId={commitAppendPostId}
           onUpload={handleUpload}

@@ -15,11 +15,17 @@ import {
   withCrop,
   withExportScale,
   withFrame,
+  withOptimize,
   withPadColor,
+  withResize,
+  withResizeLocked,
   withSharpness,
   withSource,
+  withSpeed,
+  withTrim,
+  withTrimEnabled,
 } from '../src/core/document';
-import { makeDoc, makeSource } from './helpers';
+import { makeAnimatedSource, makeDoc, makeSource } from './helpers';
 
 describe('document', () => {
   it('starts empty with the Mudae frame, a Fit crop and a 1× Export', () => {
@@ -122,7 +128,12 @@ describe('Border and sharpness', () => {
 
 describe('Frame presets', () => {
   it('gives each Preset and orientation its exact Frame', () => {
-    expect(frameFor('mudae', 'portrait')).toEqual({ id: 'mudae', label: 'Mudae 225×350', width: 225, height: 350 });
+    expect(frameFor('mudae', 'portrait')).toEqual({
+      id: 'mudae',
+      label: 'Mudae 225×350',
+      width: 225,
+      height: 350,
+    });
     expect(frameFor('mudae', 'landscape')).toEqual({
       id: 'mudae-landscape',
       label: 'Mudae landscape 350×225',
@@ -164,8 +175,73 @@ describe('export size', () => {
     expect(outputSize(square)).toEqual({ width: 700, height: 700 });
   });
 
-  it('uses an explicit scale when one is given', () => {
+  it('uses the document Export scale when there is no custom size', () => {
     const doc = makeDoc(makeSource(450, 700));
-    expect(outputSize(doc, 1)).toEqual({ width: 225, height: 350 });
+    expect(outputSize(doc)).toEqual({ width: 225, height: 350 });
+  });
+});
+
+describe('animation editing settings', () => {
+  const animated = makeAnimatedSource(10, 10, ['#FF0000', '#00FF00', '#0000FF']);
+
+  it('starts with Trim off, 1× speed, no resize and optimize off', () => {
+    const doc = emptyDocument();
+    expect(doc.trimEnabled).toBe(false);
+    expect(doc.speed).toBe(1);
+    expect(doc.resize).toBeNull();
+    expect(doc.resizeLocked).toBe(true);
+    expect(doc.optimize.enabled).toBe(false);
+    expect(doc.optimize.targetBytes).toBe(10 * 1024 * 1024);
+    expect(doc.optimize.lossy).toBe(40);
+  });
+
+  it('toggles Trim without losing the saved range', () => {
+    const doc = withTrim(withSource(makeDoc(null), animated), { start: 1, end: 2 });
+    expect(doc.trimEnabled).toBe(false);
+    expect(withTrimEnabled(doc, true).trim).toEqual({ start: 1, end: 2 });
+    expect(withTrimEnabled(doc, true).trimEnabled).toBe(true);
+    expect(withTrimEnabled(makeDoc(makeSource(10, 10)), true).trimEnabled).toBe(false);
+  });
+
+  it('clamps the speed to 0,25×–4× and rounds to two decimals', () => {
+    const doc = makeDoc(animated);
+    expect(withSpeed(doc, 9).speed).toBe(4);
+    expect(withSpeed(doc, 0.1).speed).toBe(0.25);
+    expect(withSpeed(doc, 1.234).speed).toBe(1.23);
+    expect(withSpeed(doc, Number.NaN).speed).toBe(1);
+  });
+
+  it('keeps a custom size proportional while the lock is on', () => {
+    const doc = makeDoc(makeSource(225, 350));
+    const locked = withResize(doc, { width: 400, height: 200 });
+    expect(locked.resize).toEqual({ width: 400, height: 622 });
+    expect(outputSize(locked)).toEqual({ width: 400, height: 622 });
+
+    const free = withResize(withResizeLocked(doc, false), { width: 400, height: 200 });
+    expect(free.resize).toEqual({ width: 400, height: 200 });
+    expect(outputSize(free)).toEqual({ width: 400, height: 200 });
+
+    expect(withExportScale(locked, 2).resize).toBeNull();
+  });
+
+  it('follows the Frame aspect when the Frame changes while locked', () => {
+    const doc = withResize(makeDoc(makeSource(225, 350)), { width: 400, height: 622 });
+    const square = withFrame(doc, SQUARE_FRAME);
+    expect(square.resize).toEqual({ width: 400, height: 400 });
+  });
+
+  it('clamps optimize values and keeps the defaults field by field', () => {
+    const doc = withOptimize(makeDoc(makeSource(10, 10)), {
+      enabled: true,
+      lossy: 999,
+      colors: 1,
+      targetBytes: 1,
+    });
+    expect(doc.optimize).toMatchObject({
+      enabled: true,
+      lossy: 200,
+      colors: 2,
+      targetBytes: 64 * 1024,
+    });
   });
 });

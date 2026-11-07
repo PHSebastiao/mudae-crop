@@ -3,8 +3,8 @@ import { isPostId, type Privacy } from './imagechest';
 import { normalizeHexColor } from './color';
 import { asRecord, parseJson } from './json';
 
-/** Stills are PNG today; JPG and GIF are stored ahead of the Export format control. */
-export type ExportFormat = 'png' | 'jpg' | 'gif';
+/** The Export formats this slice can write. */
+export type ExportFormat = 'png' | 'gif';
 
 /**
  * Everything Settings owns across launches. A working document is never
@@ -28,7 +28,7 @@ export const DEFAULT_SETTINGS: Settings = Object.freeze({
   saveFolder: null,
   borderColor: DEFAULT_BORDER.color,
   borderWidth: DEFAULT_BORDER.width,
-  exportFormat: 'png',
+  exportFormat: 'gif',
   exportScale: 1,
 });
 
@@ -49,7 +49,7 @@ function readScale(value: unknown): ExportScale {
 }
 
 function readFormat(value: unknown): ExportFormat {
-  return value === 'jpg' || value === 'gif' ? value : 'png';
+  return value === 'gif' ? 'gif' : 'png';
 }
 
 function readBorderWidth(value: unknown): number {

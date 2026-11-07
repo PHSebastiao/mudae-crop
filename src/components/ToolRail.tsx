@@ -1,14 +1,16 @@
 import {
   MAX_SHARPNESS,
+  MAX_SPEED,
+  MIN_SPEED,
   animationFrameCount,
-  clampTrim,
+  effectiveTrim,
   isAnimated,
   trimFrameCount,
   type DocumentState,
   type ScaleMode,
   type Trim,
 } from '../core/document';
-import { formatDuration, trimDurationMs } from '../core/animation';
+import { formatPlaybackDuration, trimDurationMs } from '../core/animation';
 import { HexInput } from './HexInput';
 import { NumberField } from './NumberField';
 
@@ -23,6 +25,7 @@ interface ToolRailProps {
   readonly onSharpness: (sharpness: number) => void;
   readonly onPickPadColor: () => void;
   readonly onTrim: (trim: Trim | null) => void;
+  readonly onSpeed: (speed: number) => void;
   readonly pickingPad: boolean;
 }
 
@@ -37,17 +40,16 @@ export function ToolRail({
   onSharpness,
   onPickPadColor,
   onTrim,
+  onSpeed,
   pickingPad,
 }: ToolRailProps) {
   const hasSource = doc.source !== null;
   const mode = doc.crop.mode;
   const animated = isAnimated(doc.source);
   const frames = animationFrameCount(doc.source);
-  const last = Math.max(0, frames - 1);
-  const trim = clampTrim(doc.source, doc.trim) ?? { start: 0, end: 0 };
-  const trimmed = trimFrameCount(doc.source, doc.trim);
-  const setStart = (start: number) => onTrim({ start, end: Math.max(start, trim.end) });
-  const setEnd = (end: number) => onTrim({ start: Math.min(trim.start, end), end });
+  const trim = effectiveTrim(doc) ?? { start: 0, end: 0 };
+  const trimmed = trimFrameCount(doc.source, effectiveTrim(doc));
+  const speedLabel = `${doc.speed.toFixed(2).replace('.', ',')}×`;
 
   return (
     <aside className="rail">
@@ -185,40 +187,52 @@ export function ToolRail({
         <div className="label">GIF</div>
         <div className="row">
           <span className="key">quadros</span>
-          <span>
-            {animated ? `${trimmed} de ${frames}` : '—'}
-          </span>
+          <span>{animated ? `${trimmed} de ${frames}` : '—'}</span>
         </div>
         <div className="row">
           <span className="key">duração</span>
-          <span>{animated ? formatDuration(trimDurationMs(doc.source, doc.trim)) : '—'}</span>
+          <span>
+            {animated
+              ? formatPlaybackDuration(trimDurationMs(doc.source, effectiveTrim(doc), doc.speed))
+              : '—'}
+          </span>
         </div>
         <div className="row">
           <span className="key">trim</span>
-          <span>{animated ? `${trim.start + 1}–${trim.end + 1}` : '—'}</span>
+          <span>
+            {animated
+              ? `${trim.start + 1}–${trim.end + 1} · ${doc.trimEnabled ? 'on' : 'off'}`
+              : '—'}
+          </span>
+        </div>
+        <div className="row">
+          <span className="key">velocidade</span>
+          <span className="pill">{speedLabel}</span>
         </div>
         <input
           className="slider"
           type="range"
-          min={0}
-          max={last}
-          step={1}
-          value={trim.start}
-          onChange={(event) => setStart(Number(event.target.value))}
-          aria-label="Primeiro quadro do trim"
+          min={MIN_SPEED}
+          max={MAX_SPEED}
+          step={0.05}
+          value={doc.speed}
+          onChange={(event) => onSpeed(Number(event.target.value))}
+          aria-label="Velocidade do GIF"
           disabled={!animated}
         />
-        <input
-          className="slider"
-          type="range"
-          min={0}
-          max={last}
-          step={1}
-          value={trim.end}
-          onChange={(event) => setEnd(Number(event.target.value))}
-          aria-label="Último quadro do trim"
-          disabled={!animated}
-        />
+        <div className="toggle" role="group" aria-label="Velocidade do GIF">
+          {[0.5, 1, 2].map((speed) => (
+            <button
+              key={speed}
+              type="button"
+              className={Math.abs(doc.speed - speed) < 0.001 ? 'on' : ''}
+              onClick={() => onSpeed(speed)}
+              disabled={!animated}
+            >
+              {speed.toString().replace('.', ',')}×
+            </button>
+          ))}
+        </div>
         <button
           type="button"
           className="link"

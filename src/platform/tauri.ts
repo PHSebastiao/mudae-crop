@@ -12,7 +12,18 @@ import {
 } from '../core/download';
 import type { ExportFileFormat } from '../core/export';
 
-const IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'apng'];
+const MEDIA_EXTENSIONS = [
+  'png',
+  'jpg',
+  'jpeg',
+  'gif',
+  'webp',
+  'apng',
+  'mp4',
+  'm4v',
+  'mov',
+  'webm',
+];
 
 export function isDesktop(): boolean {
   return isTauri();
@@ -27,8 +38,8 @@ export async function chooseSourceFile(): Promise<string | null> {
   const selected = await open({
     multiple: false,
     directory: false,
-    title: 'Abrir imagem',
-    filters: [{ name: 'Imagens', extensions: IMAGE_EXTENSIONS }],
+    title: 'Abrir imagem ou vídeo',
+    filters: [{ name: 'Imagens e vídeos', extensions: MEDIA_EXTENSIONS }],
   });
   return typeof selected === 'string' ? selected : null;
 }

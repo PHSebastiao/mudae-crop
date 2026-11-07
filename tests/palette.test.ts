@@ -176,7 +176,7 @@ describe('palette', () => {
     expect(palette).toContain('#23202C');
 
     const trimmed = hexes(
-      extractPalette({ ...doc, trim: { start: 1, end: 2 } }, adapter),
+      extractPalette({ ...doc, trim: { start: 1, end: 2 }, trimEnabled: true }, adapter),
     );
     expect(trimmed).not.toContain('#D94F6D');
     expect(trimmed).toContain('#2B9C8F');

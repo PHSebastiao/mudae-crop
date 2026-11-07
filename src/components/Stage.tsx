@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { toHexColor } from '../core/color';
 import { animationFrameCount, isAnimated, type DocumentState } from '../core/document';
+import { formatPlaybackDuration } from '../core/animation';
 import { formatBytes } from '../core/download';
 import { drawSource, renderFrame } from '../core/render';
 
@@ -25,6 +26,8 @@ interface StageProps {
   readonly doc: DocumentState;
   /** Absolute frame of an animated Source shown in the Frame. */
   readonly frameIndex: number;
+  /** Bumped after an async video seek so the canvas is redrawn. */
+  readonly frameVersion?: number;
   /** Delta in Frame pixels at 1×; the caller applies it to its latest Crop. */
   readonly onPan: (dx: number, dy: number) => void;
   /** Zoom multiplier around a Frame point; the caller applies it to its latest Crop. */
@@ -40,6 +43,7 @@ interface StageProps {
 export function Stage({
   doc,
   frameIndex,
+  frameVersion = 0,
   onPan,
   onZoomAt,
   onOpen,
@@ -109,7 +113,15 @@ export function Stage({
     backdropContext.clearRect(0, 0, backdrop.width, backdrop.height);
     if (!doc.source) return;
 
-    drawSource(backdropContext, doc, scale * dpr, PAD * dpr, PAD * dpr, frameIndex);
+    drawSource(
+      backdropContext,
+      doc,
+      scale * dpr,
+      scale * dpr,
+      PAD * dpr,
+      PAD * dpr,
+      frameIndex,
+    );
 
     // Dim everything the Crop leaves outside the Frame.
     const pad = PAD * dpr;
@@ -122,7 +134,7 @@ export function Stage({
     backdropContext.fillRect(0, pad + height, fullWidth, fullHeight - pad - height);
     backdropContext.fillRect(0, pad, pad, height);
     backdropContext.fillRect(pad + width, pad, fullWidth - pad - width, height);
-  }, [doc, scale, frameWidth, frameHeight, sceneWidth, sceneHeight, frameIndex]);
+  }, [doc, scale, frameWidth, frameHeight, sceneWidth, sceneHeight, frameIndex, frameVersion]);
 
   // The visible Frame includes the Border. The eyedropper should read the
   // image underneath it, matching the Palette's border:false sample.
@@ -144,13 +156,13 @@ export function Stage({
     }
     renderFrame(context, doc, { scale: scale * dpr, border: false, frameIndex });
     pickRef.current = canvas;
-  }, [doc, picking, scale, frameIndex]);
+  }, [doc, picking, scale, frameIndex, frameVersion]);
 
   // A notice or window resize changes the stage scale; the cached magnifier
   // cell and hex would be from the old frame.
   useEffect(() => {
     setMagnifier(null);
-  }, [doc, picking, scale, frameIndex]);
+  }, [doc, picking, scale, frameIndex, frameVersion]);
 
   useEffect(() => {
     const element = hostRef.current;
@@ -387,7 +399,7 @@ export function Stage({
           >
             <div className="empty-inner">
               <strong>Traga uma Source</strong>
-              <p>PNG, JPG, GIF, WebP ou APNG entra no Frame {doc.frame.label}.</p>
+              <p>PNG, JPG, GIF, WebP, APNG, MP4, MOV ou WebM entra no Frame {doc.frame.label}.</p>
               <button type="button" className="primary" onClick={onOpen} disabled={busy}>
                 Abrir arquivo…
               </button>
@@ -407,9 +419,11 @@ export function Stage({
             <span>
               {doc.source.format.toUpperCase()} · {doc.source.width}×{doc.source.height} ·{' '}
               {formatBytes(doc.source.bytes)} ·{' '}
-              {isAnimated(doc.source)
-                ? `animado ${animationFrameCount(doc.source)}f`
-                : 'estático'}
+              {doc.source.video
+                ? `vídeo ${doc.source.video.fps} fps · ${formatPlaybackDuration(doc.source.video.durationMs)}`
+                : isAnimated(doc.source)
+                  ? `animado ${animationFrameCount(doc.source)}f`
+                  : 'estático'}
             </span>
           </div>
           <div className="stage-hint">

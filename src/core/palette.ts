@@ -1,6 +1,6 @@
 import { parseHexColor, toHexColor, type Rgb } from './color';
 import { sampleTrimIndices } from './animation';
-import type { DocumentState } from './document';
+import { effectiveTrim, type DocumentState } from './document';
 import { renderFrame, type RenderContext } from './render';
 
 export const MIN_PALETTE = 4;
@@ -265,7 +265,13 @@ export function extractPalette(
   const accumulator: ColorCounts = { counts: new Map(), order: 0, sampled: 0 };
   const canvas = adapter.createCanvas(width, height);
   const ctx = canvas.getContext('2d');
-  for (const frameIndex of sampleTrimIndices(doc.source, doc.trim, MAX_SAMPLE_FRAMES)) {
+  // Video frames arrive asynchronously through the player's canvas; the
+  // synchronous Palette samples the frame currently on screen instead of
+  // seeking the whole video.
+  const indices = doc.source.video
+    ? [effectiveTrim(doc)?.start ?? 0]
+    : sampleTrimIndices(doc.source, effectiveTrim(doc), MAX_SAMPLE_FRAMES);
+  for (const frameIndex of indices) {
     renderFrame(ctx, doc, { scale: frameScale, border: false, frameIndex });
     const image = ctx.getImageData(0, 0, width, height);
     countPixels(accumulator, image.data, image.width, image.height, pad);

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  effectiveDelayMs,
   frameDelayMs,
   frameImage,
   trimFrameCount,
@@ -7,7 +8,9 @@ import {
   withTrim,
 } from '../src/core/document';
 import {
+  formatClock,
   formatDuration,
+  formatPlaybackDuration,
   sampleTrimIndices,
   trimDurationMs,
   trimmedIndices,
@@ -48,6 +51,13 @@ describe('Animation trim', () => {
     expect(trimmedIndices(source, { start: 1, end: 2 })).toEqual([1, 2]);
   });
 
+  it('scales delays with the speed multiplier and keeps the 20 ms floor', () => {
+    expect(trimDurationMs(source, { start: 0, end: 3 }, 2)).toBe(150);
+    expect(trimDurationMs(source, { start: 0, end: 3 }, 0.5)).toBe(600);
+    expect(effectiveDelayMs(source, 2, 4)).toBe(20);
+    expect(effectiveDelayMs(source, 0, 2)).toBe(40);
+  });
+
   it('samples up to the limit, always keeping the first and last frame', () => {
     const long = makeAnimatedSource(2, 2, Array.from({ length: 20 }, () => '#000000'));
     const sampled = sampleTrimIndices(long, { start: 2, end: 19 }, 5);
@@ -68,5 +78,13 @@ describe('Animation trim', () => {
   it('formats a duration in seconds with a decimal comma', () => {
     expect(formatDuration(0)).toBe('0,0 s');
     expect(formatDuration(1250)).toBe('1,3 s');
+  });
+
+  it('formats long durations as minutes and seconds', () => {
+    expect(formatClock(0)).toBe('0:00');
+    expect(formatClock(65_000)).toBe('1:05');
+    expect(formatClock(3_661_000)).toBe('61:01');
+    expect(formatPlaybackDuration(9_500)).toBe('9,5 s');
+    expect(formatPlaybackDuration(65_000)).toBe('1:05');
   });
 });

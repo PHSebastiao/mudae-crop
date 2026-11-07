@@ -191,8 +191,7 @@ export function SettingsDialog({
           <div className="settings-row">
             <span className="settings-key">Formato</span>
             <span>
-              {settings.exportFormat.toUpperCase()} · o Export segue a Source (PNG para still,
-              GIF para animação)
+              {settings.exportFormat.toUpperCase()} · escolhido no painel Export; imagem estática força PNG
             </span>
           </div>
           <div className="settings-row">

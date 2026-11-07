@@ -1,6 +1,7 @@
 import { createCanvas, type Canvas, type SKRSContext2D } from '@napi-rs/canvas';
 import {
   DEFAULT_BORDER,
+  DEFAULT_OPTIMIZE,
   DEFAULT_PAD_COLOR,
   FIT_CROP,
   MUDAE_FRAME,
@@ -78,9 +79,16 @@ export function makeDoc(source: Source | null): DocumentState {
     border: DEFAULT_BORDER,
     sharpness: 0,
     exportScale: 1,
+    resize: null,
+    resizeLocked: true,
     trim: source?.animation
       ? { start: 0, end: source.animation.frames.length - 1 }
-      : null,
+      : source?.video
+        ? { start: 0, end: Math.max(0, source.video.frameCount - 1) }
+        : null,
+    trimEnabled: false,
+    speed: 1,
+    optimize: DEFAULT_OPTIMIZE,
   };
 }
 
