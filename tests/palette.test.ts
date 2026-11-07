@@ -18,7 +18,7 @@ import {
   type PaletteCanvas,
   type PaletteColor,
 } from '../src/core/palette';
-import { contextOf, makeDoc, makeSource } from './helpers';
+import { contextOf, makeAnimatedSource, makeDoc, makeSource } from './helpers';
 
 function rgba(pixels: Array<[number, number, number, number]>): Uint8ClampedArray {
   return new Uint8ClampedArray(pixels.flat());
@@ -164,6 +164,23 @@ describe('palette', () => {
     expect(hexes(extractPalette(withSharpness(doc, 80), adapter))).toEqual(
       hexes(extractPalette(doc, adapter)),
     );
+  });
+
+  it('samples every trimmed frame of an animation', () => {
+    const source = makeAnimatedSource(350, 350, ['#D94F6D', '#2B9C8F', '#23202C'], [100, 100, 100]);
+    const doc: DocumentState = { ...makeDoc(source), frame: SQUARE_FRAME };
+
+    const palette = hexes(extractPalette(doc, adapter));
+    expect(palette).toContain('#D94F6D');
+    expect(palette).toContain('#2B9C8F');
+    expect(palette).toContain('#23202C');
+
+    const trimmed = hexes(
+      extractPalette({ ...doc, trim: { start: 1, end: 2 } }, adapter),
+    );
+    expect(trimmed).not.toContain('#D94F6D');
+    expect(trimmed).toContain('#2B9C8F');
+    expect(trimmed).toContain('#23202C');
   });
 });
 

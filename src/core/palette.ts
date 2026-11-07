@@ -1,4 +1,5 @@
 import { parseHexColor, toHexColor, type Rgb } from './color';
+import { sampleTrimIndices } from './animation';
 import type { DocumentState } from './document';
 import { renderFrame, type RenderContext } from './render';
 
@@ -6,6 +7,8 @@ export const MIN_PALETTE = 4;
 export const MAX_PALETTE = 10;
 /** The reduced resolution the Palette is sampled at, on the longer axis. */
 export const MAX_SAMPLE_SIDE = 128;
+/** Animations are sampled at most this many evenly spaced frames. */
+export const MAX_SAMPLE_FRAMES = 60;
 
 /** The fixed white swatch the Border starts from, always first in the UI. */
 export const WHITE_SWATCH: PaletteColor = Object.freeze({
@@ -171,24 +174,20 @@ function mergeColors(colors: readonly SampleColor[], threshold: number): SampleC
   return sortByCoverage(merged);
 }
 
-/**
- * Palette from already-composited RGBA pixels. Fully transparent pixels are
- * ignored; semi-transparent ones are flattened over the Pad color first, which
- * is what the Export does. Coverage ranks the swatches.
- */
-export function paletteFromPixels(
+interface ColorCounts {
+  readonly counts: Map<number, SampleColor>;
+  order: number;
+  sampled: number;
+}
+
+function countPixels(
+  accumulator: ColorCounts,
   data: Uint8ClampedArray,
   width: number,
   height: number,
-  padColor: string,
-): PaletteColor[] {
+  pad: Rgb,
+): void {
   const pixels = Math.min(Math.floor(data.length / 4), width * height);
-  if (pixels <= 0) return [];
-  const pad = parseHexColor(padColor) ?? { r: 255, g: 255, b: 255 };
-
-  const counts = new Map<number, SampleColor>();
-  let order = 0;
-  let sampled = 0;
   for (let pixel = 0; pixel < pixels; pixel += 1) {
     const index = pixel * 4;
     const alpha = data[index + 3];
@@ -198,18 +197,20 @@ export function paletteFromPixels(
     const g = Math.round(data[index + 1] * a + pad.g * (1 - a));
     const b = Math.round(data[index + 2] * a + pad.b * (1 - a));
     const key = (r << 16) | (g << 8) | b;
-    const existing = counts.get(key);
+    const existing = accumulator.counts.get(key);
     if (existing) {
-      counts.set(key, { ...existing, count: existing.count + 1 });
+      accumulator.counts.set(key, { ...existing, count: existing.count + 1 });
     } else {
-      counts.set(key, { r, g, b, count: 1, order });
-      order += 1;
+      accumulator.counts.set(key, { r, g, b, count: 1, order: accumulator.order });
+      accumulator.order += 1;
     }
-    sampled += 1;
+    accumulator.sampled += 1;
   }
-  if (sampled === 0) return [];
+}
 
-  const colors = sortByCoverage([...counts.values()]);
+function paletteFromCounts(accumulator: ColorCounts): PaletteColor[] {
+  if (accumulator.sampled === 0) return [];
+  const colors = sortByCoverage([...accumulator.counts.values()]);
   let threshold = 30;
   let merged = mergeColors(colors, threshold);
   // Fewer than four swatches means the threshold was too aggressive. Relax it
@@ -222,14 +223,32 @@ export function paletteFromPixels(
   return selectSwatches(merged).map((color) => ({
     hex: toHexColor(color),
     count: color.count,
-    share: color.count / sampled,
+    share: color.count / accumulator.sampled,
   }));
+}
+
+/**
+ * Palette from already-composited RGBA pixels. Fully transparent pixels are
+ * ignored; semi-transparent ones are flattened over the Pad color first, which
+ * is what the Export does. Coverage ranks the swatches.
+ */
+export function paletteFromPixels(
+  data: Uint8ClampedArray,
+  width: number,
+  height: number,
+  padColor: string,
+): PaletteColor[] {
+  const pad = parseHexColor(padColor) ?? { r: 255, g: 255, b: 255 };
+  const accumulator: ColorCounts = { counts: new Map(), order: 0, sampled: 0 };
+  countPixels(accumulator, data, width, height, pad);
+  return paletteFromCounts(accumulator);
 }
 
 /**
  * Sample the rendered Crop at a reduced resolution, without the Border. The
  * Crop, Pad and Sharpness are all part of what the user sees, so the sample
- * follows them; the Border is chrome and must never enter the Palette.
+ * follows them; the Border is chrome and must never enter the Palette. An
+ * animation is sampled across its active Trim, at most 60 evenly spaced frames.
  */
 export function extractPalette(
   doc: DocumentState,
@@ -242,9 +261,14 @@ export function extractPalette(
   );
   const width = Math.max(1, Math.round(doc.frame.width * frameScale));
   const height = Math.max(1, Math.round(doc.frame.height * frameScale));
+  const pad = parseHexColor(doc.padColor) ?? { r: 255, g: 255, b: 255 };
+  const accumulator: ColorCounts = { counts: new Map(), order: 0, sampled: 0 };
   const canvas = adapter.createCanvas(width, height);
   const ctx = canvas.getContext('2d');
-  renderFrame(ctx, doc, { scale: frameScale, border: false });
-  const image = ctx.getImageData(0, 0, width, height);
-  return paletteFromPixels(image.data, image.width, image.height, doc.padColor);
+  for (const frameIndex of sampleTrimIndices(doc.source, doc.trim, MAX_SAMPLE_FRAMES)) {
+    renderFrame(ctx, doc, { scale: frameScale, border: false, frameIndex });
+    const image = ctx.getImageData(0, 0, width, height);
+    countPixels(accumulator, image.data, image.width, image.height, pad);
+  }
+  return paletteFromCounts(accumulator);
 }

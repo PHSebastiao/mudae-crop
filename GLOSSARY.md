@@ -9,6 +9,16 @@ The image or animation the user brings in, from a file, the clipboard, a drop, o
 
 _Avoid_: input, asset, original, image (when you mean the Source)
 
+**Animation frame**:
+One fully composited still inside an animated Source, with its own delay. Not the output Frame.
+
+_Avoid_: frame (when you mean an animation frame), image, layer
+
+**Trim**:
+The inclusive range of animation frames a Preview and Export use, set by a start and an end frame.
+
+_Avoid_: cut, crop (when you mean Trim), range
+
 **Frame**:
 The fixed output rectangle the Crop lands in: 225×350 (Mudae), 350×225 (Mudae landscape), or 350×350 (Square), multiplied by the Export scale.
 

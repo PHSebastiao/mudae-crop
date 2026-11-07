@@ -1,6 +1,22 @@
 import { normalizeHexColor } from './color';
 
-export type ImageFormat = 'png' | 'jpg' | 'gif';
+export type ImageFormat = 'png' | 'jpg' | 'gif' | 'webp' | 'apng';
+
+export interface AnimationFrame {
+  /** A fully composited frame at the Source's dimensions. */
+  readonly image: CanvasImageSource;
+  readonly delayMs: number;
+}
+
+export interface Animation {
+  /** Every frame, already composited and ready to draw. */
+  readonly frames: readonly AnimationFrame[];
+  /**
+   * The raw Netscape loop field: 0 loops forever, N repeats N times. Null means
+   * the file had no loop extension and plays a single cycle.
+   */
+  readonly loopCount: number | null;
+}
 
 /**
  * A decoded Source. The bitmap is kept as an opaque drawable so the core stays
@@ -12,7 +28,67 @@ export interface Source {
   readonly width: number;
   readonly height: number;
   readonly format: ImageFormat;
+  /** Byte size of the imported file or download, for the Source readout. */
+  readonly bytes: number;
+  /** The first frame, used by still Sources and as an animation fallback. */
   readonly image: CanvasImageSource;
+  readonly animation?: Animation;
+}
+
+/** The inclusive frame range an animation renders and exports. */
+export interface Trim {
+  readonly start: number;
+  readonly end: number;
+}
+
+export function isAnimated(source: Source | null | undefined): boolean {
+  return (source?.animation?.frames.length ?? 0) > 1;
+}
+
+/** Total frames of an animated Source, 0 for a still. */
+export function animationFrameCount(source: Source | null | undefined): number {
+  return source?.animation?.frames.length ?? 0;
+}
+
+/** The full range of a Source's animation, or null for a still. */
+export function initialTrim(source: Source | null | undefined): Trim | null {
+  return clampTrim(source, null);
+}
+
+/** Keep a Trim inside the Source's frames and in start ≤ end order. */
+export function clampTrim(source: Source | null | undefined, trim: Trim | null): Trim | null {
+  if (!isAnimated(source)) return null;
+  const last = (source?.animation?.frames.length ?? 1) - 1;
+  if (!trim) return { start: 0, end: last };
+  const first = Math.min(last, Math.max(0, Math.round(trim.start)));
+  const second = Math.min(last, Math.max(0, Math.round(trim.end)));
+  return { start: Math.min(first, second), end: Math.max(first, second) };
+}
+
+/** The number of frames in the active Trim, or 1 for a still. */
+export function trimFrameCount(source: Source | null | undefined, trim: Trim | null): number {
+  const range = clampTrim(source, trim);
+  return range ? range.end - range.start + 1 : 1;
+}
+
+/** The drawable frame at an absolute animation index, clamped to the Source. */
+export function frameImage(
+  source: Source | null | undefined,
+  frameIndex = 0,
+): CanvasImageSource | null {
+  if (!source) return null;
+  const frames = source.animation?.frames;
+  if (!frames || frames.length === 0) return source.image;
+  const index = Math.min(frames.length - 1, Math.max(0, Math.round(frameIndex)));
+  return frames[index].image;
+}
+
+/** The delay of an absolute animation index, with a sane still fallback. */
+export function frameDelayMs(source: Source | null | undefined, frameIndex = 0): number {
+  const frames = source?.animation?.frames;
+  if (!frames || frames.length === 0) return 100;
+  const index = Math.min(frames.length - 1, Math.max(0, Math.round(frameIndex)));
+  return frames[index].delayMs;
 }
 
 export type FrameId = 'mudae' | 'mudae-landscape' | 'square';
@@ -131,6 +207,8 @@ export interface DocumentState {
   /** Unsharp-mask strength from 0 (off) to 100. */
   readonly sharpness: number;
   readonly exportScale: ExportScale;
+  /** The active range of an animated Source; null for a still. */
+  readonly trim: Trim | null;
 }
 
 export function emptyDocument(): DocumentState {
@@ -143,16 +221,21 @@ export function emptyDocument(): DocumentState {
     border: DEFAULT_BORDER,
     sharpness: 0,
     exportScale: 1,
+    trim: null,
   };
 }
 
 /**
  * Replacing a Source keeps the Frame, Pad color, Border and Export settings
- * while resetting only the Crop, so a batch of similar images can be processed
- * quickly.
+ * while resetting only the Crop and the Trim, so a batch of similar images can
+ * be processed quickly.
  */
 export function withSource(doc: DocumentState, source: Source): DocumentState {
-  return { ...doc, source, crop: FIT_CROP };
+  return { ...doc, source, crop: FIT_CROP, trim: initialTrim(source) };
+}
+
+export function withTrim(doc: DocumentState, trim: Trim | null): DocumentState {
+  return { ...doc, trim: clampTrim(doc.source, trim) };
 }
 
 export function withCrop(doc: DocumentState, crop: Crop): DocumentState {

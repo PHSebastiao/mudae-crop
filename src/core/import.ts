@@ -1,4 +1,4 @@
-import type { ImageFormat, Source } from './document';
+import type { AnimationFrame, ImageFormat, Source } from './document';
 
 export type ImportErrorCode = 'unsupported' | 'corrupt' | 'empty';
 
@@ -16,6 +16,10 @@ export interface DecodedImage {
   readonly image: CanvasImageSource;
   readonly width: number;
   readonly height: number;
+  /** Present when the decoder recovered every frame of an animation. */
+  readonly frames?: readonly AnimationFrame[];
+  /** Raw Netscape loop field; null or absent means a single cycle. */
+  readonly loopCount?: number | null;
 }
 
 export type Decoder = (bytes: Uint8Array, format: ImageFormat) => Promise<DecodedImage>;
@@ -30,33 +34,64 @@ const MIME: Record<ImageFormat, string> = {
   png: 'image/png',
   jpg: 'image/jpeg',
   gif: 'image/gif',
+  webp: 'image/webp',
+  apng: 'image/apng',
 };
 
 export function mimeFor(format: ImageFormat): string {
   return MIME[format];
 }
 
+function startsWith(bytes: Uint8Array, signature: readonly number[], offset = 0): boolean {
+  if (bytes.length < offset + signature.length) return false;
+  return signature.every((value, index) => bytes[offset + index] === value);
+}
+
+/**
+ * A PNG with an `acTL` chunk before its image data is an APNG. The chunk walk
+ * stops at the first IDAT, so a text chunk that merely mentions "acTL" cannot
+ * turn a still into an animation.
+ */
+function isApng(bytes: Uint8Array): boolean {
+  let offset = 8;
+  while (offset + 8 <= bytes.length) {
+    const length =
+      ((bytes[offset] << 24) |
+        (bytes[offset + 1] << 16) |
+        (bytes[offset + 2] << 8) |
+        bytes[offset + 3]) >>>
+      0;
+    const type = String.fromCharCode(
+      bytes[offset + 4],
+      bytes[offset + 5],
+      bytes[offset + 6],
+      bytes[offset + 7],
+    );
+    if (type === 'acTL') return true;
+    if (type === 'IDAT' || type === 'IEND') return false;
+    offset += 12 + length;
+  }
+  return false;
+}
+
 /** Sniff the format from magic bytes, so a wrong extension cannot mislead us. */
 export function detectFormat(bytes: Uint8Array): ImageFormat | null {
-  if (bytes.length >= 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) {
-    return 'png';
+  if (startsWith(bytes, [0x89, 0x50, 0x4e, 0x47])) {
+    return isApng(bytes) ? 'apng' : 'png';
   }
-  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+  if (startsWith(bytes, [0xff, 0xd8, 0xff])) {
     return 'jpg';
   }
-  if (
-    bytes.length >= 6 &&
-    bytes[0] === 0x47 &&
-    bytes[1] === 0x49 &&
-    bytes[2] === 0x46 &&
-    bytes[3] === 0x38
-  ) {
+  if (startsWith(bytes, [0x47, 0x49, 0x46, 0x38])) {
     return 'gif';
+  }
+  if (startsWith(bytes, [0x52, 0x49, 0x46, 0x46]) && startsWith(bytes, [0x57, 0x45, 0x42, 0x50], 8)) {
+    return 'webp';
   }
   return null;
 }
 
-const SUPPORTED_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif']);
+const SUPPORTED_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'apng']);
 
 function extensionOf(name: string): string {
   const match = /\.([a-z0-9]+)$/i.exec(name);
@@ -66,8 +101,8 @@ function extensionOf(name: string): string {
 function unsupportedMessage(name: string): string {
   const ext = extensionOf(name);
   return ext
-    ? `Formato não suportado: .${ext}. Use PNG, JPG ou GIF.`
-    : 'Formato não suportado. Use PNG, JPG ou GIF.';
+    ? `Formato não suportado: .${ext}. Use PNG, JPG, GIF, WebP ou APNG.`
+    : 'Formato não suportado. Use PNG, JPG, GIF, WebP ou APNG.';
 }
 
 function corruptMessage(name: string): string {
@@ -90,8 +125,8 @@ function unrecognisedBytesError(name: string): ImportError {
 /**
  * Turn bytes into a Source. Any failure is thrown as an ImportError with a
  * specific message; callers keep the current document when that happens.
- * A GIF decodes to its first frame because the platform decoder only hands
- * back a single bitmap.
+ * Animated formats decode to every composited frame; a platform decoder that
+ * only hands back one bitmap still yields a valid still Source.
  */
 export async function loadSource(candidate: SourceCandidate, decode: Decoder): Promise<Source> {
   const { name, path, bytes } = candidate;
@@ -118,13 +153,20 @@ export async function loadSource(candidate: SourceCandidate, decode: Decoder): P
     throw new ImportError('corrupt', corruptMessage(name));
   }
 
+  const animation =
+    decoded.frames && decoded.frames.length > 1
+      ? { frames: decoded.frames, loopCount: decoded.loopCount ?? null }
+      : undefined;
+
   return {
     name,
     path,
     width: decoded.width,
     height: decoded.height,
     format,
+    bytes: bytes.length,
     image: decoded.image,
+    ...(animation ? { animation } : {}),
   };
 }
 

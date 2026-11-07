@@ -190,7 +190,10 @@ export function SettingsDialog({
           )}
           <div className="settings-row">
             <span className="settings-key">Formato</span>
-            <span>{settings.exportFormat === 'jpg' ? 'JPG' : 'PNG'} · nesta versão o Export é PNG</span>
+            <span>
+              {settings.exportFormat.toUpperCase()} · o Export segue a Source (PNG para still,
+              GIF para animação)
+            </span>
           </div>
           <div className="settings-row">
             <span className="settings-key">Escala</span>

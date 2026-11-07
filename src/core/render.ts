@@ -1,4 +1,4 @@
-import type { DocumentState } from './document';
+import { frameImage, type DocumentState } from './document';
 import { sourceRect } from './geometry';
 import { applyUnsharpMask } from './sharpen';
 
@@ -35,6 +35,8 @@ export interface RenderOptions {
   readonly scale: number;
   /** Palette sampling skips the Border; Preview and Export draw it. */
   readonly border?: boolean;
+  /** Absolute frame of an animated Source; ignored for a still. */
+  readonly frameIndex?: number;
 }
 
 export function prepareContext(ctx: RenderContext): void {
@@ -54,8 +56,11 @@ export function drawSource(
   scale: number,
   originX = 0,
   originY = 0,
+  frameIndex = 0,
 ): void {
   if (!doc.source) return;
+  const image = frameImage(doc.source, frameIndex);
+  if (!image) return;
   const rect = sourceRect(doc);
   prepareContext(ctx);
 
@@ -65,7 +70,7 @@ export function drawSource(
   const height = rect.height * scale;
 
   if (doc.crop.rotation === 0) {
-    ctx.drawImage(doc.source.image, x, y, width, height);
+    ctx.drawImage(image, x, y, width, height);
     return;
   }
 
@@ -73,7 +78,7 @@ export function drawSource(
   ctx.translate(x + width / 2, y + height / 2);
   ctx.rotate((doc.crop.rotation * Math.PI) / 180);
   ctx.drawImage(
-    doc.source.image,
+    image,
     -(doc.source.width * scale) / 2,
     -(doc.source.height * scale) / 2,
     doc.source.width * scale,
@@ -103,7 +108,7 @@ export function renderFrame(
     ctx.fillRect(0, 0, width, height);
   }
 
-  drawSource(ctx, doc, scale);
+  drawSource(ctx, doc, scale, 0, 0, options.frameIndex ?? 0);
 
   // Enhancement runs on the rendered Crop, before the Border is drawn.
   if (doc.sharpness > 0) {

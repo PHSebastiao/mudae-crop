@@ -106,12 +106,20 @@ export function sourceUrlFrom(text: string): URL | null {
   }
 }
 
-const KNOWN_EXTENSION = /\.(png|jpe?g|gif)$/i;
-const CONTENT_EXTENSION: Record<ImageFormat, string> = { png: 'png', jpg: 'jpg', gif: 'gif' };
+const KNOWN_EXTENSION = /\.(png|jpe?g|gif|webp|apng)$/i;
+const CONTENT_EXTENSION: Record<ImageFormat, string> = {
+  png: 'png',
+  jpg: 'jpg',
+  gif: 'gif',
+  webp: 'webp',
+  apng: 'png',
+};
 const FORMAT_EXTENSIONS: Record<ImageFormat, string[]> = {
   png: ['png'],
   jpg: ['jpg', 'jpeg'],
   gif: ['gif'],
+  webp: ['webp'],
+  apng: ['png', 'apng'],
 };
 
 /**
@@ -172,8 +180,8 @@ function httpMessage(url: URL, status: number): string {
 
 function notImageMessage(url: URL, type: string | null): string {
   return type
-    ? `O link não aponta para uma imagem (${type}). Use um link direto para PNG, JPG ou GIF.`
-    : `O link ${hostOf(url)} não devolveu um PNG, JPG ou GIF. Use um link direto para a imagem.`;
+    ? `O link não aponta para uma imagem (${type}). Use um link direto para PNG, JPG, GIF ou WebP.`
+    : `O link ${hostOf(url)} não devolveu um PNG, JPG, GIF ou WebP. Use um link direto para a imagem.`;
 }
 
 function cancelledError(): DownloadError {

@@ -222,7 +222,7 @@ describe('downloadSource', () => {
     ).rejects.toMatchObject({
       code: 'not-image',
       message:
-        'O link não aponta para uma imagem (text/html). Use um link direto para PNG, JPG ou GIF.',
+        'O link não aponta para uma imagem (text/html). Use um link direto para PNG, JPG, GIF ou WebP.',
     });
   });
 
@@ -237,7 +237,7 @@ describe('downloadSource', () => {
     ).rejects.toMatchObject({
       code: 'not-image',
       message:
-        'O link cdn.example.com não devolveu um PNG, JPG ou GIF. Use um link direto para a imagem.',
+        'O link cdn.example.com não devolveu um PNG, JPG, GIF ou WebP. Use um link direto para a imagem.',
     });
   });
 

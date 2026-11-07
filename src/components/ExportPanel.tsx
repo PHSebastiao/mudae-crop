@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import { outputSize, type DocumentState, type ExportScale } from '../core/document';
+import { exportKindFor } from '../core/export';
 import { formatHistoryDate, type ExportEntry, type HistoryEntry } from '../core/history';
 import type { HistoryPreviewLoader } from '../core/historyPreview';
 import { isPostId } from '../core/imagechest';
@@ -148,11 +149,12 @@ export function ExportPanel({
   const hasToken = settings.token.trim() !== '';
   const cooling = cooldownSeconds > 0;
   const uploadDisabled = !doc.source || busy || cooling || badPostId || !hasToken;
+  const format = exportKindFor(doc.source).label;
   const exportLabel = downloading
     ? 'Aguarde o link…'
     : busy && !uploading
       ? 'Exportando…'
-      : `Exportar PNG ${doc.exportScale}×`;
+      : `Exportar ${format} ${doc.exportScale}×`;
   const listRef = useRef<HTMLUListElement | null>(null);
 
   // Clearing the History, or the 50-entry cap evicting an old row, releases
@@ -166,7 +168,7 @@ export function ExportPanel({
       <section>
         <h4>Export</h4>
         <div className="meta">
-          <span>PNG</span>
+          <span>{format}</span>
           <span>
             {doc.exportScale}× · {size.width}×{size.height}
           </span>

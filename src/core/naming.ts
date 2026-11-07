@@ -1,5 +1,12 @@
-/** File name from the Source stem, preset and local timestamp. Pure so it can be tested. */
-export function exportFileName(sourceName: string, frameId: string, date: Date): string {
+import type { ExportFileFormat } from './export';
+
+/** File name from the Source stem, preset, local timestamp and format. Pure so it can be tested. */
+export function exportFileName(
+  sourceName: string,
+  frameId: string,
+  date: Date,
+  extension: ExportFileFormat = 'png',
+): string {
   const stem =
     sourceName
       .replace(/\.[^.]+$/, '')
@@ -15,7 +22,7 @@ export function exportFileName(sourceName: string, frameId: string, date: Date):
     String(date.getMinutes()).padStart(2, '0'),
     String(date.getSeconds()).padStart(2, '0'),
   ].join('');
-  return `${stem}-${frameId}-${stamp}.png`;
+  return `${stem}-${frameId}-${stamp}.${extension}`;
 }
 
 /**

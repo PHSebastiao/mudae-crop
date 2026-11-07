@@ -1,0 +1,186 @@
+import { createCanvas, type Canvas } from '@napi-rs/canvas';
+import { describe, expect, it, vi } from 'vitest';
+import { ExportError, exportKindFor, renderGif, type EncodableCanvas, type ExportAdapter } from '../src/core/export';
+import { decodeGif } from '../src/core/gif';
+import { withTrim } from '../src/core/document';
+import { makeAnimatedSource, makeDoc, makeSource } from './helpers';
+
+const adapter: ExportAdapter = {
+  createCanvas(width: number, height: number): EncodableCanvas {
+    return createCanvas(width, height) as unknown as EncodableCanvas;
+  },
+  async encodePng(canvas: EncodableCanvas): Promise<Uint8Array> {
+    return new Uint8Array((canvas as unknown as Canvas).toBuffer('image/png'));
+  },
+};
+
+/** Read dimensions, frame delays and the Netscape loop straight from the bytes. */
+function readGifMetadata(bytes: Uint8Array): {
+  width: number;
+  height: number;
+  delays: number[];
+  loopCount: number | null;
+} {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const width = view.getUint16(6, true);
+  const height = view.getUint16(8, true);
+  const packed = bytes[10];
+  let offset = 13;
+  if (packed & 0x80) offset += 3 * (1 << ((packed & 0x07) + 1));
+
+  const delays: number[] = [];
+  let loopCount: number | null = null;
+
+  const skipSubBlocks = () => {
+    let size = bytes[offset++];
+    while (size > 0) {
+      offset += size;
+      size = bytes[offset++];
+    }
+  };
+
+  while (offset < bytes.length) {
+    const marker = bytes[offset++];
+    if (marker === 0x3b) break;
+    if (marker === 0x21) {
+      const label = bytes[offset++];
+      if (label === 0xf9) {
+        const size = bytes[offset++];
+        const delay = view.getUint16(offset + 1, true) * 10;
+        if (size > 0) delays.push(delay);
+        offset += size + 1; // block bytes + terminator
+      } else if (label === 0xff) {
+        const size = bytes[offset++];
+        const identifier = String.fromCharCode(...bytes.subarray(offset, offset + size));
+        offset += size;
+        const blockSize = bytes[offset++];
+        if (identifier === 'NETSCAPE2.0' && blockSize === 3 && bytes[offset] === 1) {
+          loopCount = view.getUint16(offset + 1, true);
+        }
+        offset += blockSize;
+        if (bytes[offset] === 0) offset += 1;
+      } else {
+        skipSubBlocks();
+      }
+      continue;
+    }
+    if (marker === 0x2c) {
+      const imagePacked = bytes[offset + 8];
+      offset += 9;
+      if (imagePacked & 0x80) offset += 3 * (1 << ((imagePacked & 0x07) + 1));
+      offset += 1; // minimum code size
+      skipSubBlocks();
+      continue;
+    }
+    break;
+  }
+
+  return { width, height, delays, loopCount };
+}
+
+describe('GIF Export', () => {
+  const source = makeAnimatedSource(
+    225,
+    350,
+    ['#D94F6D', '#2B9C8F', '#F0D7A8', '#23202C'],
+    [80, 120, 40, 60],
+    2,
+  );
+
+  it('chooses GIF for an animation and PNG for a still', () => {
+    expect(exportKindFor(source)).toMatchObject({
+      format: 'gif',
+      label: 'GIF',
+      contentType: 'image/gif',
+    });
+    expect(exportKindFor(makeSource(10, 10))).toMatchObject({
+      format: 'png',
+      label: 'PNG',
+      contentType: 'image/png',
+    });
+    expect(exportKindFor(null).format).toBe('png');
+  });
+
+  it('exports the Frame dimensions and only the trimmed frames', async () => {
+    const doc = withTrim(makeDoc(source), { start: 1, end: 2 });
+
+    const bytes = await renderGif(doc, 1, adapter);
+    const decoded = decodeGif(bytes);
+
+    expect(decoded.width).toBe(225);
+    expect(decoded.height).toBe(350);
+    expect(decoded.frames).toHaveLength(2);
+  });
+
+  it('preserves the delays with the 20 ms floor and the loop count', async () => {
+    const short = makeAnimatedSource(225, 350, ['#D94F6D', '#2B9C8F'], [5, 250], 0);
+    const doc = withTrim(makeDoc(short), { start: 0, end: 1 });
+
+    const bytes = await renderGif(doc, 1, adapter);
+    const decoded = decodeGif(bytes);
+
+    expect(decoded.frames.map((frame) => frame.delayMs)).toEqual([20, 250]);
+    expect(decoded.loopCount).toBe(0);
+
+    // Also read the structures directly, so the assertion does not depend only
+    // on the project's own decoder.
+    expect(readGifMetadata(bytes)).toEqual({
+      width: 225,
+      height: 350,
+      delays: [20, 250],
+      loopCount: 0,
+    });
+  });
+
+  it('reports progress across rendering and encoding', async () => {
+    const onProgress = vi.fn();
+    const doc = withTrim(makeDoc(source), { start: 0, end: 2 });
+
+    await renderGif(doc, 1, adapter, { onProgress });
+
+    expect(onProgress.mock.calls).toEqual([
+      [1, 6],
+      [2, 6],
+      [3, 6],
+      [4, 6],
+      [5, 6],
+      [6, 6],
+    ]);
+  });
+
+  it('stops without bytes when the signal is already aborted', async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    const attempt = renderGif(withTrim(makeDoc(source), { start: 0, end: 1 }), 1, adapter, {
+      signal: controller.signal,
+    });
+
+    await expect(attempt).rejects.toBeInstanceOf(ExportError);
+    await expect(attempt).rejects.toMatchObject({ cancelled: true });
+  });
+
+  it('can cancel during the encoding pass', async () => {
+    const controller = new AbortController();
+    const doc = withTrim(makeDoc(source), { start: 0, end: 2 });
+
+    const attempt = renderGif(doc, 1, adapter, {
+      signal: controller.signal,
+      onProgress: (done) => {
+        // The first three calls are rendering; the fourth starts encoding.
+        if (done > 3) controller.abort();
+      },
+    });
+
+    await expect(attempt).rejects.toMatchObject({ cancelled: true });
+  });
+
+  it('refuses a still Source and an empty document', async () => {
+    await expect(renderGif(makeDoc(makeSource(10, 10)), 1, adapter)).rejects.toMatchObject({
+      message: 'A Source não é animada.',
+    });
+    await expect(
+      renderGif(makeDoc(null), 1, adapter),
+    ).rejects.toMatchObject({ message: 'Não há Source para exportar.' });
+  });
+});

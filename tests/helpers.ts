@@ -30,7 +30,41 @@ export function makeSource(
     width,
     height,
     format: 'png',
+    bytes: 1024,
     image: canvas as unknown as CanvasImageSource,
+  };
+}
+
+/**
+ * A fixture animation: one flat-colour canvas per entry in `colors`, with the
+ * given delays (default 100 ms) and Netscape loop count.
+ */
+export function makeAnimatedSource(
+  width: number,
+  height: number,
+  colors: readonly string[],
+  delays?: readonly number[],
+  loopCount = 0,
+): Source {
+  const frames = colors.map((color, index) => {
+    const canvas = createCanvas(width, height);
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = color;
+    ctx.fillRect(0, 0, width, height);
+    return {
+      image: canvas as unknown as CanvasImageSource,
+      delayMs: delays?.[index] ?? 100,
+    };
+  });
+  return {
+    name: 'fixture.gif',
+    path: null,
+    width,
+    height,
+    format: 'gif',
+    bytes: 2048,
+    image: frames[0].image,
+    animation: { frames, loopCount },
   };
 }
 
@@ -44,6 +78,9 @@ export function makeDoc(source: Source | null): DocumentState {
     border: DEFAULT_BORDER,
     sharpness: 0,
     exportScale: 1,
+    trim: source?.animation
+      ? { start: 0, end: source.animation.frames.length - 1 }
+      : null,
   };
 }
 

@@ -1,8 +1,14 @@
 import {
   MAX_SHARPNESS,
+  animationFrameCount,
+  clampTrim,
+  isAnimated,
+  trimFrameCount,
   type DocumentState,
   type ScaleMode,
+  type Trim,
 } from '../core/document';
+import { formatDuration, trimDurationMs } from '../core/animation';
 import { HexInput } from './HexInput';
 import { NumberField } from './NumberField';
 
@@ -16,6 +22,7 @@ interface ToolRailProps {
   readonly onResetCrop: () => void;
   readonly onSharpness: (sharpness: number) => void;
   readonly onPickPadColor: () => void;
+  readonly onTrim: (trim: Trim | null) => void;
   readonly pickingPad: boolean;
 }
 
@@ -29,10 +36,18 @@ export function ToolRail({
   onResetCrop,
   onSharpness,
   onPickPadColor,
+  onTrim,
   pickingPad,
 }: ToolRailProps) {
   const hasSource = doc.source !== null;
   const mode = doc.crop.mode;
+  const animated = isAnimated(doc.source);
+  const frames = animationFrameCount(doc.source);
+  const last = Math.max(0, frames - 1);
+  const trim = clampTrim(doc.source, doc.trim) ?? { start: 0, end: 0 };
+  const trimmed = trimFrameCount(doc.source, doc.trim);
+  const setStart = (start: number) => onTrim({ start, end: Math.max(start, trim.end) });
+  const setEnd = (end: number) => onTrim({ start: Math.min(trim.start, end), end });
 
   return (
     <aside className="rail">
@@ -166,16 +181,52 @@ export function ToolRail({
         <p className="rail-hint">unsharp mask · 0 desliga</p>
       </div>
 
-      <div className="group disabled-group">
+      <div className={animated ? 'group' : 'group disabled-group'}>
         <div className="label">GIF</div>
         <div className="row">
-          <span className="key">trim</span>
-          <span>—</span>
+          <span className="key">quadros</span>
+          <span>
+            {animated ? `${trimmed} de ${frames}` : '—'}
+          </span>
         </div>
         <div className="row">
-          <span className="key">frames</span>
-          <span>—</span>
+          <span className="key">duração</span>
+          <span>{animated ? formatDuration(trimDurationMs(doc.source, doc.trim)) : '—'}</span>
         </div>
+        <div className="row">
+          <span className="key">trim</span>
+          <span>{animated ? `${trim.start + 1}–${trim.end + 1}` : '—'}</span>
+        </div>
+        <input
+          className="slider"
+          type="range"
+          min={0}
+          max={last}
+          step={1}
+          value={trim.start}
+          onChange={(event) => setStart(Number(event.target.value))}
+          aria-label="Primeiro quadro do trim"
+          disabled={!animated}
+        />
+        <input
+          className="slider"
+          type="range"
+          min={0}
+          max={last}
+          step={1}
+          value={trim.end}
+          onChange={(event) => setEnd(Number(event.target.value))}
+          aria-label="Último quadro do trim"
+          disabled={!animated}
+        />
+        <button
+          type="button"
+          className="link"
+          onClick={() => onTrim(null)}
+          disabled={!animated}
+        >
+          redefinir trim
+        </button>
       </div>
     </aside>
   );

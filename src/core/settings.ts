@@ -3,8 +3,8 @@ import { isPostId, type Privacy } from './imagechest';
 import { normalizeHexColor } from './color';
 import { asRecord, parseJson } from './json';
 
-/** Stills are PNG today; JPG is stored ahead of the Export format control. */
-export type ExportFormat = 'png' | 'jpg';
+/** Stills are PNG today; JPG and GIF are stored ahead of the Export format control. */
+export type ExportFormat = 'png' | 'jpg' | 'gif';
 
 /**
  * Everything Settings owns across launches. A working document is never
@@ -49,7 +49,7 @@ function readScale(value: unknown): ExportScale {
 }
 
 function readFormat(value: unknown): ExportFormat {
-  return value === 'jpg' ? 'jpg' : 'png';
+  return value === 'jpg' || value === 'gif' ? value : 'png';
 }
 
 function readBorderWidth(value: unknown): number {

@@ -17,6 +17,12 @@ describe('Export file names', () => {
       'c-art-waifu-01-mudae-20261106-140509.png',
     );
   });
+
+  it('uses the GIF extension for an animated Export', () => {
+    expect(exportFileName('Loop.GIF', 'mudae', date, 'gif')).toBe(
+      'loop-mudae-20261106-140509.gif',
+    );
+  });
 });
 
 describe('Post titles', () => {

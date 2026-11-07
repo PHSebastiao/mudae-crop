@@ -10,8 +10,9 @@ import {
   type DownloadResult,
   type DownloadTransport,
 } from '../core/download';
+import type { ExportFileFormat } from '../core/export';
 
-const IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif'];
+const IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'apng'];
 
 export function isDesktop(): boolean {
   return isTauri();
@@ -32,11 +33,14 @@ export async function chooseSourceFile(): Promise<string | null> {
   return typeof selected === 'string' ? selected : null;
 }
 
-export async function chooseExportPath(defaultPath: string): Promise<string | null> {
+export async function chooseExportPath(
+  defaultPath: string,
+  format: ExportFileFormat = 'png',
+): Promise<string | null> {
   const selected = await save({
-    title: 'Exportar PNG',
+    title: format === 'gif' ? 'Exportar GIF' : 'Exportar PNG',
     defaultPath,
-    filters: [{ name: 'PNG', extensions: ['png'] }],
+    filters: [{ name: format.toUpperCase(), extensions: [format] }],
   });
   return selected ?? null;
 }

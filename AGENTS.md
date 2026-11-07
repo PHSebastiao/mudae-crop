@@ -35,7 +35,7 @@ cargo check --manifest-path src-tauri/Cargo.toml
 - Rotation is a canvas transform at draw time, with bounds swapped for 90°/270° (`rotatedBounds`). Never pre-rotate or resample bitmaps.
 - `fit` skips the `padColor` fill so uncovered alpha shows; every other mode paints `padColor` first.
 - `verbatimModuleSyntax` is on: type-only imports must use `import type` (and unused locals/params fail typecheck).
-- GIF trim/frames and waifu2x are deliberate placeholders in this slice. ADR-0002/0003 describe the target, not current behavior, so disabled controls are not bugs.
+- GIF trim/playback/Export and still WebP import are in place; waifu2x is a deliberate placeholder in this slice. ADR-0003 describes the target, not current behavior, so disabled controls are not bugs.
 - Render order is Crop and Pad fill, then Sharpness, then Border. The Border width is in Frame pixels at 1× and multiplies by the render scale; it is drawn after the Source transform is restored, so rotation never tilts it.
 - The Palette renders the Crop at reduced resolution with `border: false`, then ranks the composited pixels by coverage while reserving slots for vibrant accents, so a small saturated area survives; the UI always prepends the fixed white swatch. It must never depend on the Border color.
 - The Pad eyedropper samples the rendered frame canvas at the click point and shows a 9×9 pixel magnifier near the pointer. The native `input type=color` eyedropper is unreliable in WebView2 (it closes the dialog and cannot sample outside it), so the in-app "pegar cor da imagem" path is the supported one.
