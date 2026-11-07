@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { ExportScale } from '../core/document';
-import { PRIVACY_OPTIONS } from '../core/imagechest';
+import { IMAGE_CHEST_API_KEY_URL, PRIVACY_OPTIONS } from '../core/imagechest';
 import type { Settings } from '../core/settings';
 import { NumberField } from './NumberField';
 
@@ -18,6 +18,7 @@ interface SettingsDialogProps {
   readonly onClose: () => void;
   readonly onTestConnection: () => void;
   readonly onClearToken: () => void;
+  readonly onOpenApiKeyPage: () => void;
   readonly onChooseFolder: () => void;
   readonly onClearFolder: () => void;
 }
@@ -31,6 +32,7 @@ export function SettingsDialog({
   onClose,
   onTestConnection,
   onClearToken,
+  onOpenApiKeyPage,
   onChooseFolder,
   onClearFolder,
 }: SettingsDialogProps) {
@@ -97,6 +99,21 @@ export function SettingsDialog({
               aria-label="Token do Image Chest"
             />
           </label>
+          <p className="settings-hint">
+            O upload exige uma API key pessoal.{' '}
+            <a
+              className="inline-link"
+              href={IMAGE_CHEST_API_KEY_URL}
+              target="_blank"
+              rel="noreferrer"
+              onClick={(event) => {
+                event.preventDefault();
+                onOpenApiKeyPage();
+              }}
+            >
+              gerar um aqui
+            </a>
+          </p>
           <div className="settings-actions">
             <button type="button" onClick={commitToken} disabled={testing}>
               Salvar token

@@ -37,8 +37,8 @@ cargo check --manifest-path src-tauri/Cargo.toml
 - `verbatimModuleSyntax` is on: type-only imports must use `import type` (and unused locals/params fail typecheck).
 - GIF trim/frames and waifu2x are deliberate placeholders in this slice. ADR-0002/0003 describe the target, not current behavior, so disabled controls are not bugs.
 - Render order is Crop and Pad fill, then Sharpness, then Border. The Border width is in Frame pixels at 1× and multiplies by the render scale; it is drawn after the Source transform is restored, so rotation never tilts it.
-- The Palette renders the Crop at reduced resolution with `border: false, sharpness: false`, then ranks the composited pixels by coverage; it must never depend on the Border color.
-- Settings and History are JSON files (`settings.json`, `history.json`) in the app config directory, reached through the keyed `read_config`/`write_config` commands; the Rust side whitelists the keys and still reads the legacy `uploads.json`.
+- The Palette renders the Crop at reduced resolution with `border: false`, then ranks the composited pixels by coverage; it must never depend on the Border color.
+- Settings and History are JSON files (`settings.json`, `history.json`) in the app config directory; on Windows the `appDirectoriesOverride` points that directory at `%LOCALAPPDATA%\Mudae Crop`. `read_config` migrates the pre-override Roaming files on first read. The Rust side whitelists the keys and still reads the legacy `uploads.json`.
 - History entries are a discriminated union on `kind`: `upload` keeps the Post, direct link and thumbnail source; `export` keeps the absolute file path, dimensions and a reveal-in-Explorer action.
 - Image Chest requests go through the native `imagechest_request` command because the API does not answer CORS. The TS client owns request shape and link parsing; tests mock its transport.
 

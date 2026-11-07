@@ -17,6 +17,9 @@ export const PRIVACY_OPTIONS: ReadonlyArray<{ value: Privacy; label: string }> =
   { value: 'secret', label: 'Secreta (secret)' },
 ];
 
+/** Where Image Chest hands out the personal API token. */
+export const IMAGE_CHEST_API_KEY_URL = 'https://imgchest.com/profile/api';
+
 /** The Image Chest per-file ceiling; the same as the download ceiling. */
 export const MAX_UPLOAD_BYTES = MAX_DOWNLOAD_BYTES;
 

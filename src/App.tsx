@@ -46,6 +46,7 @@ import {
   type UploadEntry,
 } from './core/history';
 import {
+  IMAGE_CHEST_API_KEY_URL,
   ImageChestError,
   isPostId,
   testConnection,
@@ -612,7 +613,7 @@ export default function App() {
     [fail, inform],
   );
 
-  const openHistoryLink = useCallback(
+  const openLink = useCallback(
     async (value: string) => {
       try {
         await openExternal(value);
@@ -940,8 +941,9 @@ export default function App() {
           onCommitAppendPostId={commitAppendPostId}
           onUpload={handleUpload}
           onOpenSettings={openSettings}
+          onOpenApiKeyPage={() => void openLink(IMAGE_CHEST_API_KEY_URL)}
           onCopyText={(value) => void copyValue(value)}
-          onOpenLink={(value) => void openHistoryLink(value)}
+          onOpenLink={(value) => void openLink(value)}
           onRevealPath={(value) => void revealHistoryFile(value)}
           onClearHistory={clearHistory}
         />
@@ -967,6 +969,7 @@ export default function App() {
           onClose={() => setSettingsOpen(false)}
           onTestConnection={() => void testToken()}
           onClearToken={clearToken}
+          onOpenApiKeyPage={() => void openLink(IMAGE_CHEST_API_KEY_URL)}
           onChooseFolder={() => void chooseFolder()}
           onClearFolder={() => persistSettings({ saveFolder: null })}
         />

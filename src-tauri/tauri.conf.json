@@ -10,6 +10,9 @@
     "frontendDist": "../dist"
   },
   "app": {
+    "appDirectoriesOverride": {
+      "config": "$LOCALDATA/Mudae Crop"
+    },
     "windows": [
       {
         "title": "mudae crop",

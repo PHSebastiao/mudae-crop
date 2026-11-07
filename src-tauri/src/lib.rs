@@ -231,13 +231,17 @@ async fn stream_download(
 /// Settings and History live as JSON files in the app config directory. Only
 /// the known keys map to files, so the front-end never chooses a path. `uploads`
 /// stays readable so the pre-export History file is not lost.
+fn config_file_name(key: &str) -> Option<&'static str> {
+    match key {
+        "settings" => Some("settings.json"),
+        "history" => Some("history.json"),
+        "uploads" => Some("uploads.json"),
+        _ => None,
+    }
+}
+
 fn config_path(app: &AppHandle, key: &str) -> Result<PathBuf, String> {
-    let file = match key {
-        "settings" => "settings.json",
-        "history" => "history.json",
-        "uploads" => "uploads.json",
-        _ => return Err("Chave de configuração desconhecida.".into()),
-    };
+    let file = config_file_name(key).ok_or("Chave de configuração desconhecida.")?;
     let dir = app
         .path()
         .app_config_dir()
@@ -246,12 +250,42 @@ fn config_path(app: &AppHandle, key: &str) -> Result<PathBuf, String> {
     Ok(dir.join(file))
 }
 
+/// Before the Local AppData override, config lived in
+/// `{RoamingAppData}/{identifier}`. Copy each file once on first read, so an
+/// update keeps the token and History. Best effort: a failed copy still lets
+/// the read return the legacy contents.
+fn migrate_legacy_config(
+    app: &AppHandle,
+    key: &str,
+    destination: &Path,
+) -> Result<Option<String>, String> {
+    let Some(file) = config_file_name(key) else {
+        return Ok(None);
+    };
+    let Ok(legacy_root) = app.path().config_dir() else {
+        return Ok(None);
+    };
+    let legacy = legacy_root
+        .join(app.config().identifier.as_str())
+        .join(file);
+    let Ok(contents) = std::fs::read_to_string(&legacy) else {
+        return Ok(None);
+    };
+    if let Some(parent) = destination.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let _ = std::fs::write(destination, &contents);
+    Ok(Some(contents))
+}
+
 #[tauri::command]
 fn read_config(app: AppHandle, key: String) -> Result<Option<String>, String> {
     let path = config_path(&app, &key)?;
     match std::fs::read_to_string(&path) {
         Ok(contents) => Ok(Some(contents)),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            migrate_legacy_config(&app, &key, &path)
+        }
         Err(error) => Err(error.to_string()),
     }
 }

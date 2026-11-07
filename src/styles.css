@@ -433,6 +433,17 @@ button {
   cursor: default;
 }
 
+.inline-link {
+  color: #c3d2ee;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.inline-link:hover {
+  color: #e9e6ef;
+}
+
 /* Stage */
 
 .stage {
