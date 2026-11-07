@@ -1,8 +1,6 @@
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import {
-  MAX_COLORS,
   MAX_LOSSY,
-  MIN_COLORS,
   MIN_LOSSY,
   isAnimated,
   outputSize,
@@ -196,6 +194,10 @@ export function ExportPanel({
       ? 'Exportando…'
       : `Exportar ${format}`;
   const optimize = doc.optimize;
+  const optimizeGain =
+    optimizeResult && optimizeResult.baseSize > 0
+      ? Math.round((1 - optimizeResult.size / optimizeResult.baseSize) * 100)
+      : 0;
   const estimatedBytes = sizeEstimate?.bytes ?? null;
   // Optimize can miss its target, so a capped estimate is an upper bound, not
   // a promise. Everything extrapolated is marked with "~".
@@ -440,7 +442,7 @@ export function ExportPanel({
                       </div>
                     ) : (
                       <p className="panel-hint">
-                        sem alvo — aplica a compressão escolhida, mesmo abaixo de{' '}
+                        sem alvo — aplica a perda escolhida, mesmo abaixo de{' '}
                         {formatBytes(MUDAE_SIZE_GUIDANCE_BYTES)}
                       </p>
                     )}
@@ -458,6 +460,18 @@ export function ExportPanel({
                       onChange={(event) => onOptimize({ lossy: Number(event.target.value) })}
                       aria-label="Compressão com perda"
                     />
+                    <div className="toggle" role="group" aria-label="Intensidade da perda">
+                      {[30, 100, 200].map((lossy) => (
+                        <button
+                          key={lossy}
+                          type="button"
+                          className={optimize.lossy === lossy ? 'on' : ''}
+                          onClick={() => onOptimize({ lossy })}
+                        >
+                          {lossy === 30 ? 'leve' : lossy === 100 ? 'média' : 'máxima'}
+                        </button>
+                      ))}
+                    </div>
                     <label className="row">
                       <span className="key">reduzir cores</span>
                       <input
@@ -477,7 +491,7 @@ export function ExportPanel({
                       </div>
                     )}
                     <p className="panel-hint">
-                      {MIN_COLORS}–{MAX_COLORS} cores · perda até {MAX_LOSSY}
+                      sem reduzir cores, 100–200 comprime mais · perda até {MAX_LOSSY}
                     </p>
                   </>
                 )}
@@ -493,8 +507,17 @@ export function ExportPanel({
                   ? 'compressão aplicada'
                   : optimizeResult.met
                     ? 'alvo atingido'
-                    : 'alvo não atingido'}{' '}
-                · {formatBytes(optimizeResult.size)} · perda {optimizeResult.lossy}
+                    : 'alvo não atingido'}
+                {optimizeResult.size >= optimizeResult.baseSize ? (
+                  <> · sem ganho; original mantido</>
+                ) : (
+                  <>
+                    {' '}
+                    · {formatBytes(optimizeResult.baseSize)} →{' '}
+                    {formatBytes(optimizeResult.size)} (−{optimizeGain}%)
+                  </>
+                )}
+                {' '}· perda {optimizeResult.lossy}
                 {optimizeResult.colors ? ` · ${optimizeResult.colors} cores` : ''}
                 {optimizeResult.droppedFrames > 0
                   ? ` · ${optimizeResult.droppedFrames} repetidos`

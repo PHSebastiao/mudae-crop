@@ -23,6 +23,8 @@ export interface GifOptimizer {
 export interface OptimizeResult {
   readonly bytes: Uint8Array;
   readonly size: number;
+  /** Size of the re-encoded GIF before the optimizer ran. */
+  readonly baseSize: number;
   /** Null when the size target is turned off. */
   readonly targetBytes: number | null;
   /** Null when there is no target; otherwise whether the target was met. */
@@ -139,6 +141,7 @@ export async function optimizeGif(
     return {
       bytes: baseBytes,
       size: baseBytes.length,
+      baseSize: baseBytes.length,
       targetBytes: target,
       met: target === null ? null : baseBytes.length <= target,
       lossy: settings.lossy,
@@ -149,27 +152,15 @@ export async function optimizeGif(
     };
   }
 
-  if (target !== null && baseBytes.length <= target) {
-    return {
-      bytes: baseBytes,
-      size: baseBytes.length,
-      targetBytes: target,
-      met: true,
-      lossy: settings.lossy,
-      colors: null,
-      attempts: 0,
-      droppedFrames,
-    };
-  }
-
+  const alreadyUnderTarget = target !== null && baseBytes.length <= target;
   const lossyCandidates =
-    target === null
+    target === null || alreadyUnderTarget
       ? settings.lossy > 0
         ? [settings.lossy]
         : []
       : uniqueAscending([settings.lossy, 40, 60, 80, 100, 140, 180, 200], 200);
   const colorCandidates = settings.reduceColors
-    ? target === null
+    ? target === null || alreadyUnderTarget
       ? [settings.colors]
       : uniqueDescending([settings.colors, 128, 96, 64, 48, 32, 24, 16], 8).filter(
           (colors) => colors <= settings.colors,
@@ -188,7 +179,7 @@ export async function optimizeGif(
       const candidate = await optimizer.compress(baseBytes, {
         lossy,
         colors,
-        level: 1,
+        level: 3,
       });
       if (!isValidGif(candidate, width, height)) {
         error = 'O compressor devolveu um GIF inválido.';
@@ -198,6 +189,7 @@ export async function optimizeGif(
       bestBytes = candidate;
       bestLossy = lossy;
       bestColors = colors;
+      error = undefined;
       return true;
     } catch {
       error =
@@ -212,7 +204,7 @@ export async function optimizeGif(
     if (met()) break;
   }
 
-  if (colorCandidates.length > 0 && (target === null || !met())) {
+  if (colorCandidates.length > 0 && (target === null || alreadyUnderTarget || !met())) {
     for (const colors of colorCandidates) {
       if (hooks.signal?.aborted) throw new OptimizeCancelledError();
       await tryCompress(bestLossy, colors);
@@ -223,6 +215,7 @@ export async function optimizeGif(
   return {
     bytes: bestBytes,
     size: bestBytes.length,
+    baseSize: baseBytes.length,
     targetBytes: target,
     met: target === null ? null : bestBytes.length <= target,
     lossy: bestLossy,

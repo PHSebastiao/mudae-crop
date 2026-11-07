@@ -85,16 +85,59 @@ describe('optimizeGif', () => {
     expect(result.bytes).toBe(base);
   });
 
-  it('does not invoke the compressor when the base already fits', async () => {
+  it('applies the chosen pass even when the base is already under the target', async () => {
     const base = await baseGif();
-    const compress = vi.fn(async () => tinyGif());
+    const tiny = tinyGif();
+    const compress = vi.fn(async () => tiny);
     const result = await optimizeGif(base, settings({ lossy: 40, targetBytes: base.length + 1 }), {
       compress,
     });
 
-    expect(compress).not.toHaveBeenCalled();
-    expect(result.attempts).toBe(0);
+    expect(compress).toHaveBeenCalledTimes(1);
+    expect(result.attempts).toBe(1);
     expect(result.met).toBe(true);
+    expect(result.bytes).toBe(tiny);
+    expect(result.baseSize).toBe(base.length);
+  });
+
+  it('applies one colour pass under the target when that option is on', async () => {
+    const base = await baseGif();
+    const tiny = tinyGif();
+    const compress = vi.fn(async (_bytes: Uint8Array, options: { colors: number | null }) =>
+      options.colors === null ? base : tiny,
+    );
+
+    const result = await optimizeGif(
+      base,
+      settings({ targetEnabled: true, targetBytes: base.length + 1, reduceColors: true, colors: 128 }),
+      { compress } as GifOptimizer,
+    );
+
+    expect(compress).toHaveBeenCalledTimes(2);
+    expect(result.colors).toBe(128);
+    expect(result.bytes).toBe(tiny);
+    expect(result.met).toBe(true);
+  });
+
+  it('clears a failed attempt once a later candidate succeeds', async () => {
+    const base = await baseGif();
+    const tiny = tinyGif();
+    let calls = 0;
+    const compress = vi.fn(async () => {
+      calls += 1;
+      if (calls === 1) throw new Error('first attempt failed');
+      return tiny;
+    });
+
+    const result = await optimizeGif(
+      base,
+      settings({ targetEnabled: true, targetBytes: 1, lossy: 40 }),
+      { compress } as GifOptimizer,
+    );
+
+    expect(calls).toBeGreaterThan(1);
+    expect(result.error).toBeUndefined();
+    expect(result.bytes).toBe(tiny);
   });
 
   it('compresses below the target when the target is turned off', async () => {
