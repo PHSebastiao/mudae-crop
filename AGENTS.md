@@ -36,7 +36,8 @@ cargo check --manifest-path src-tauri/Cargo.toml
 - `fit` skips the `padColor` fill so uncovered alpha shows; every other mode paints `padColor` first.
 - `verbatimModuleSyntax` is on: type-only imports must use `import type` (and unused locals/params fail typecheck).
 - Border/Palette, GIF trim/frames and waifu2x are deliberate placeholders in this slice. ADR-0002/0003 describe the target, not current behavior, so disabled controls are not bugs.
-- Settings and upload history are JSON files (`settings.json`, `uploads.json`) in the app config directory, reached through the keyed `read_config`/`write_config` commands; the Rust side whitelists the keys.
+- Settings and History are JSON files (`settings.json`, `history.json`) in the app config directory, reached through the keyed `read_config`/`write_config` commands; the Rust side whitelists the keys and still reads the legacy `uploads.json`.
+- History entries are a discriminated union on `kind`: `upload` keeps the Post, direct link and thumbnail source; `export` keeps the absolute file path, dimensions and a reveal-in-Explorer action.
 - Image Chest requests go through the native `imagechest_request` command because the API does not answer CORS. The TS client owns request shape and link parsing; tests mock its transport.
 
 ## Agent skills

@@ -27,7 +27,12 @@ import {
 import { renderPng } from './core/export';
 import { clampCrop, panBy, resetCrop, rotate90, setScaleMode, zoomAt } from './core/geometry';
 import { importErrorMessage, loadSource, type SourceCandidate } from './core/import';
-import { appendUpload, type UploadRecord } from './core/history';
+import {
+  appendHistory,
+  type ExportEntry,
+  type HistoryEntry,
+  type UploadEntry,
+} from './core/history';
 import {
   ImageChestError,
   isPostId,
@@ -41,7 +46,7 @@ import { DEFAULT_SETTINGS, type Settings } from './core/settings';
 import { browserExportAdapter, decodeWithBrowser } from './platform/browser';
 import { configStore } from './platform/config';
 import { tauriImageChestTransport } from './platform/imagechest';
-import { copyText, openExternal } from './platform/system';
+import { copyText, openExternal, revealInExplorer } from './platform/system';
 import {
   chooseExportFolder,
   chooseExportPath,
@@ -80,7 +85,7 @@ export default function App() {
   const [uploading, setUploading] = useState(false);
   const [link, setLink] = useState('');
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
-  const [history, setHistory] = useState<readonly UploadRecord[]>([]);
+  const [history, setHistory] = useState<readonly HistoryEntry[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [testingToken, setTestingToken] = useState(false);
   const [tokenResult, setTokenResult] = useState<TokenTestResult | null>(null);
@@ -96,7 +101,7 @@ export default function App() {
   const cancelDownloadRef = useRef<(() => void) | null>(null);
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
-  const historyRef = useRef<readonly UploadRecord[]>(history);
+  const historyRef = useRef<readonly HistoryEntry[]>(history);
   historyRef.current = history;
   const appendPostIdRef = useRef(appendPostId);
   appendPostIdRef.current = appendPostId;
@@ -149,7 +154,7 @@ export default function App() {
   );
 
   const persistHistory = useCallback(
-    (next: readonly UploadRecord[]) => {
+    (next: readonly HistoryEntry[]) => {
       historyRef.current = next;
       setHistory(next);
       void saveHistory(configStore, next).catch((reason) => {
@@ -333,13 +338,25 @@ export default function App() {
       persistSettings({ saveFolder: folder, exportFormat: 'png' });
 
       const size = outputSize(current);
+      const entry: ExportEntry = {
+        kind: 'export',
+        path,
+        fileName: fileNameOf(path),
+        title: postTitle(current.source.name, size.width, size.height),
+        format: 'png',
+        size: bytes.length,
+        width: size.width,
+        height: size.height,
+        createdAt: new Date().toISOString(),
+      };
+      persistHistory(appendHistory(historyRef.current, entry));
       inform(`PNG ${size.width}×${size.height} exportado: ${fileNameOf(path)}`);
     } catch (reason) {
       fail(`Não foi possível exportar o PNG. ${messageOf(reason)}`);
     } finally {
       endRun();
     }
-  }, [beginRun, endRun, fail, inform, persistSettings]);
+  }, [beginRun, endRun, fail, inform, persistHistory, persistSettings]);
 
   const uploadFailure = useCallback(
     (reason: unknown) => {
@@ -426,16 +443,17 @@ export default function App() {
         copied = false;
       }
 
-      const record: UploadRecord = {
+      const record: UploadEntry = {
+        kind: 'upload',
         link: outcome.link,
         postId: outcome.postId,
         imageId: outcome.imageId,
         title,
         format: 'png',
         size: bytes.length,
-        uploadedAt: new Date().toISOString(),
+        createdAt: new Date().toISOString(),
       };
-      persistHistory(appendUpload(historyRef.current, record));
+      persistHistory(appendHistory(historyRef.current, record));
       persistSettings({ exportFormat: 'png' });
       inform(
         copied
@@ -529,13 +547,13 @@ export default function App() {
     }
   }, [persistSettings]);
 
-  const copyHistoryLink = useCallback(
+  const copyHistoryValue = useCallback(
     async (value: string) => {
       try {
         await copyText(value);
-        inform(`Link copiado: ${value}`);
+        inform(`Copiado: ${value}`);
       } catch (reason) {
-        fail(`Não foi possível copiar o link. ${messageOf(reason)}`);
+        fail(`Não foi possível copiar. ${messageOf(reason)}`);
       }
     },
     [fail, inform],
@@ -552,9 +570,20 @@ export default function App() {
     [fail],
   );
 
+  const revealHistoryFile = useCallback(
+    async (path: string) => {
+      try {
+        await revealInExplorer(path);
+      } catch (reason) {
+        fail(`Não foi possível abrir no Explorador. ${messageOf(reason)}`);
+      }
+    },
+    [fail],
+  );
+
   const clearHistory = useCallback(() => {
     persistHistory([]);
-    inform('Histórico de uploads limpo.');
+    inform('Histórico limpo.');
   }, [inform, persistHistory]);
 
   const exportRef = useRef(handleExport);
@@ -851,8 +880,9 @@ export default function App() {
           onCommitAppendPostId={commitAppendPostId}
           onUpload={handleUpload}
           onOpenSettings={openSettings}
-          onCopyLink={(value) => void copyHistoryLink(value)}
+          onCopyText={(value) => void copyHistoryValue(value)}
           onOpenLink={(value) => void openHistoryLink(value)}
+          onRevealPath={(value) => void revealHistoryFile(value)}
           onClearHistory={clearHistory}
         />
       </main>

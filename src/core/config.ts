@@ -1,14 +1,20 @@
 import {
   parseHistory,
   serializeHistory,
-  type UploadRecord,
+  type HistoryEntry,
 } from './history';
 import { parseSettings, serializeSettings, type Settings } from './settings';
 
 export const SETTINGS_KEY = 'settings';
-export const UPLOADS_KEY = 'uploads';
+/** Holds every History entry: uploads and local Exports. */
+export const HISTORY_KEY = 'history';
+/** The pre-export History file; read once so existing uploads survive. */
+export const LEGACY_UPLOADS_KEY = 'uploads';
 
-export type ConfigKey = typeof SETTINGS_KEY | typeof UPLOADS_KEY;
+export type ConfigKey =
+  | typeof SETTINGS_KEY
+  | typeof HISTORY_KEY
+  | typeof LEGACY_UPLOADS_KEY;
 
 /**
  * The small storage seam: the desktop app writes JSON files in the app config
@@ -28,13 +34,15 @@ export async function saveSettings(store: ConfigStore, settings: Settings): Prom
   await store.write(SETTINGS_KEY, serializeSettings(settings));
 }
 
-export async function loadHistory(store: ConfigStore): Promise<UploadRecord[]> {
-  return parseHistory(await store.read(UPLOADS_KEY));
+export async function loadHistory(store: ConfigStore): Promise<HistoryEntry[]> {
+  const current = await store.read(HISTORY_KEY);
+  if (current !== null) return parseHistory(current);
+  return parseHistory(await store.read(LEGACY_UPLOADS_KEY));
 }
 
 export async function saveHistory(
   store: ConfigStore,
-  records: readonly UploadRecord[],
+  entries: readonly HistoryEntry[],
 ): Promise<void> {
-  await store.write(UPLOADS_KEY, serializeHistory(records));
+  await store.write(HISTORY_KEY, serializeHistory(entries));
 }

@@ -7,7 +7,7 @@ import {
   type Source,
 } from '../src/core/document';
 import { sourceRect } from '../src/core/geometry';
-import type { UploadRecord } from '../src/core/history';
+import type { ExportEntry, UploadEntry } from '../src/core/history';
 import type { RenderContext } from '../src/core/render';
 
 export function makeSource(
@@ -63,18 +63,37 @@ export function pngSize(bytes: Uint8Array): { width: number; height: number } {
   return { width: view.getUint32(16), height: view.getUint32(20) };
 }
 
-export function makeUploadRecord(
+export function makeUploadEntry(
   index: number,
-  overrides: Partial<UploadRecord> = {},
-): UploadRecord {
+  overrides: Partial<UploadEntry> = {},
+): UploadEntry {
   return {
+    kind: 'upload',
     link: `https://cdn.imgchest.com/files/image${index}.png`,
     postId: `post${index}`,
     imageId: `image${index}`,
     title: `card ${index} · 225×350`,
     format: 'png',
     size: 1234,
-    uploadedAt: new Date(Date.UTC(2026, 0, 1, 0, index)).toISOString(),
+    createdAt: new Date(Date.UTC(2026, 0, 1, 0, index)).toISOString(),
+    ...overrides,
+  };
+}
+
+export function makeExportEntry(
+  index: number,
+  overrides: Partial<ExportEntry> = {},
+): ExportEntry {
+  return {
+    kind: 'export',
+    path: `C:\\Cards\\export${index}.png`,
+    fileName: `export${index}.png`,
+    title: `card ${index} · 225×350`,
+    format: 'png',
+    size: 4321,
+    width: 225,
+    height: 350,
+    createdAt: new Date(Date.UTC(2026, 0, 1, 1, index)).toISOString(),
     ...overrides,
   };
 }

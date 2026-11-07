@@ -19,3 +19,11 @@ export async function openExternal(url: string): Promise<void> {
   }
   window.open(url, '_blank', 'noopener,noreferrer');
 }
+
+/** Show a saved Export in the native file manager, selecting the file. */
+export async function revealInExplorer(path: string): Promise<void> {
+  if (!isTauri()) {
+    throw new Error('o Explorador só abre no app desktop');
+  }
+  await invoke('reveal_path', { path });
+}

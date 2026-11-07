@@ -228,11 +228,13 @@ async fn stream_download(
     Ok(bytes)
 }
 
-/// Settings and upload history live as JSON files in the app config directory.
-/// Only the two known keys map to files, so the front-end never chooses a path.
+/// Settings and History live as JSON files in the app config directory. Only
+/// the known keys map to files, so the front-end never chooses a path. `uploads`
+/// stays readable so the pre-export History file is not lost.
 fn config_path(app: &AppHandle, key: &str) -> Result<PathBuf, String> {
     let file = match key {
         "settings" => "settings.json",
+        "history" => "history.json",
         "uploads" => "uploads.json",
         _ => return Err("Chave de configuração desconhecida.".into()),
     };
@@ -360,6 +362,15 @@ fn open_external(app: AppHandle, url: String) -> Result<(), String> {
         .map_err(|error| error.to_string())
 }
 
+/// Reveal a saved Export in the system file manager, selecting the file.
+#[tauri::command]
+fn reveal_path(app: AppHandle, path: String) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    app.opener()
+        .reveal_item_in_dir(Path::new(&path))
+        .map_err(|error| error.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -376,7 +387,8 @@ pub fn run() {
             write_config,
             imagechest_request,
             copy_text,
-            open_external
+            open_external,
+            reveal_path
         ])
         .run(tauri::generate_context!())
         .expect("error while running mudae crop");

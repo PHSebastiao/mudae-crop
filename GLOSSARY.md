@@ -73,3 +73,8 @@ _Avoid_: save, output, result
 An Image Chest gallery created by an upload, holding one or more Exports and yielding direct `cdn.imgchest.com` links.
 
 _Avoid_: album, gallery, upload (when you mean the Post)
+
+**History**:
+The last 50 events kept for recovery: uploads with their Post and direct link, and local Exports with their file path.
+
+_Avoid_: log, feed, activity

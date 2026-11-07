@@ -1,5 +1,5 @@
 import { outputSize, type DocumentState, type ExportScale } from '../core/document';
-import { formatUploadDate, type UploadRecord } from '../core/history';
+import { formatHistoryDate, type HistoryEntry } from '../core/history';
 import { isPostId } from '../core/imagechest';
 import type { Settings } from '../core/settings';
 
@@ -9,7 +9,7 @@ interface ExportPanelProps {
   readonly downloading: boolean;
   readonly uploading: boolean;
   readonly settings: Settings;
-  readonly history: readonly UploadRecord[];
+  readonly history: readonly HistoryEntry[];
   readonly cooldownSeconds: number;
   readonly appendPostId: string;
   readonly onExport: () => void;
@@ -18,8 +18,9 @@ interface ExportPanelProps {
   readonly onCommitAppendPostId: () => void;
   readonly onUpload: () => void;
   readonly onOpenSettings: () => void;
-  readonly onCopyLink: (link: string) => void;
-  readonly onOpenLink: (link: string) => void;
+  readonly onCopyText: (value: string) => void;
+  readonly onOpenLink: (value: string) => void;
+  readonly onRevealPath: (path: string) => void;
   readonly onClearHistory: () => void;
 }
 
@@ -38,8 +39,9 @@ export function ExportPanel({
   onCommitAppendPostId,
   onUpload,
   onOpenSettings,
-  onCopyLink,
+  onCopyText,
   onOpenLink,
+  onRevealPath,
   onClearHistory,
 }: ExportPanelProps) {
   const size = outputSize(doc);
@@ -155,31 +157,61 @@ export function ExportPanel({
           </button>
         </div>
         {history.length === 0 ? (
-          <p className="panel-hint">Nenhum upload ainda.</p>
+          <p className="panel-hint">Nenhum upload ou Export ainda.</p>
         ) : (
           <ul className="history">
-            {history.map((record) => (
-              <li key={`${record.imageId}-${record.uploadedAt}`}>
-                <img src={record.link} alt="" loading="lazy" />
-                <div className="history-body">
-                  <span className="history-link" title={record.link}>
-                    {record.link.replace(/^https:\/\//, '')}
-                  </span>
-                  <span className="history-meta">
-                    {record.format.toUpperCase()} · Post {record.postId}
-                  </span>
-                  <span className="history-meta">{formatUploadDate(record.uploadedAt)}</span>
-                  <span className="history-actions">
-                    <button type="button" onClick={() => onCopyLink(record.link)}>
-                      copiar
-                    </button>
-                    <button type="button" onClick={() => onOpenLink(record.link)}>
-                      abrir
-                    </button>
-                  </span>
-                </div>
-              </li>
-            ))}
+            {history.map((entry) =>
+              entry.kind === 'upload' ? (
+                <li key={`upload-${entry.imageId}-${entry.createdAt}`}>
+                  <img src={entry.link} alt="" loading="lazy" />
+                  <div className="history-body">
+                    <span className="history-link" title={entry.link}>
+                      {entry.link.replace(/^https:\/\//, '')}
+                    </span>
+                    <span className="history-meta">
+                      {entry.format.toUpperCase()} · Post {entry.postId}
+                    </span>
+                    <span className="history-meta">{formatHistoryDate(entry.createdAt)}</span>
+                    <span className="history-actions">
+                      <button type="button" onClick={() => onCopyText(entry.link)}>
+                        copiar
+                      </button>
+                      <button type="button" onClick={() => onOpenLink(entry.link)}>
+                        abrir
+                      </button>
+                    </span>
+                  </div>
+                </li>
+              ) : (
+                <li key={`export-${entry.path}-${entry.createdAt}`}>
+                  <span className="history-file">{entry.format.toUpperCase()}</span>
+                  <div className="history-body">
+                    <span className="history-link" title={entry.path}>
+                      {entry.fileName}
+                    </span>
+                    <span className="history-meta" title={entry.path}>
+                      {entry.path}
+                    </span>
+                    <span className="history-meta">
+                      {entry.format.toUpperCase()} · {entry.width}×{entry.height}
+                    </span>
+                    <span className="history-meta">{formatHistoryDate(entry.createdAt)}</span>
+                    <span className="history-actions">
+                      <button type="button" onClick={() => onCopyText(entry.path)} title="Copiar caminho">
+                        copiar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onRevealPath(entry.path)}
+                        title="Abrir no Explorador"
+                      >
+                        explorador
+                      </button>
+                    </span>
+                  </div>
+                </li>
+              ),
+            )}
           </ul>
         )}
       </section>
