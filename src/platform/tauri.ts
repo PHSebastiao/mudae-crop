@@ -41,6 +41,22 @@ export async function chooseExportPath(defaultPath: string): Promise<string | nu
   return selected ?? null;
 }
 
+/** Pick the folder the Export save dialog should open in next time. */
+export async function chooseExportFolder(): Promise<string | null> {
+  const selected = await open({
+    directory: true,
+    multiple: false,
+    title: 'Pasta dos Exports',
+  });
+  return typeof selected === 'string' ? selected : null;
+}
+
+/** The folder part of a native path; empty when the path has no separator. */
+export function folderOf(path: string): string {
+  const index = Math.max(path.lastIndexOf('\\'), path.lastIndexOf('/'));
+  return index > 0 ? path.slice(0, index) : '';
+}
+
 export async function readFileBytes(path: string): Promise<Uint8Array> {
   const buffer = await invoke<ArrayBuffer>('read_file_bytes', { path });
   return new Uint8Array(buffer);

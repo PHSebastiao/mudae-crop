@@ -1,12 +1,12 @@
 use std::collections::{HashMap, VecDeque};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 use futures_util::StreamExt;
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 /// The download ceiling matches Image Chest's 30 MB per-file limit, so a fetched
 /// Source never exceeds what the upload path accepts. The front-end wrapper
@@ -228,16 +228,155 @@ async fn stream_download(
     Ok(bytes)
 }
 
+/// Settings and upload history live as JSON files in the app config directory.
+/// Only the two known keys map to files, so the front-end never chooses a path.
+fn config_path(app: &AppHandle, key: &str) -> Result<PathBuf, String> {
+    let file = match key {
+        "settings" => "settings.json",
+        "uploads" => "uploads.json",
+        _ => return Err("Chave de configuração desconhecida.".into()),
+    };
+    let dir = app
+        .path()
+        .app_config_dir()
+        .map_err(|error| error.to_string())?;
+    std::fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
+    Ok(dir.join(file))
+}
+
+#[tauri::command]
+fn read_config(app: AppHandle, key: String) -> Result<Option<String>, String> {
+    let path = config_path(&app, &key)?;
+    match std::fs::read_to_string(&path) {
+        Ok(contents) => Ok(Some(contents)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+#[tauri::command]
+fn write_config(app: AppHandle, key: String, contents: String) -> Result<(), String> {
+    if contents.len() > 1_048_576 {
+        return Err("Arquivo de configuração grande demais.".into());
+    }
+    let path = config_path(&app, &key)?;
+    // Write beside the target and rename, so a crash never leaves half a file.
+    let temporary = path.with_extension("json.tmp");
+    std::fs::write(&temporary, contents).map_err(|error| error.to_string())?;
+    std::fs::rename(&temporary, &path).map_err(|error| error.to_string())
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ImageChestReply {
+    status: u16,
+    body: String,
+    retry_after_seconds: Option<u64>,
+}
+
+/// One Image Chest API request on the native side, where CORS does not apply.
+/// The front-end still owns the request shape and the response interpretation;
+/// this command only carries the multipart body and reports the status.
+#[tauri::command(rename_all = "snake_case")]
+async fn imagechest_request(
+    method: String,
+    path: String,
+    token: String,
+    form: Option<HashMap<String, String>>,
+    file_field: Option<String>,
+    file_name: Option<String>,
+    file_type: Option<String>,
+    file_bytes: Option<Vec<u8>>,
+) -> Result<ImageChestReply, String> {
+    if !path.starts_with("/v1/") || path.contains("..") {
+        return Err("Caminho de API inválido.".into());
+    }
+    if token.trim().is_empty() {
+        return Err("Token do Image Chest vazio.".into());
+    }
+
+    let client = reqwest::Client::builder()
+        .user_agent("mudae-crop/0.1")
+        .connect_timeout(Duration::from_secs(20))
+        .timeout(Duration::from_secs(180))
+        .build()
+        .map_err(|error| error.to_string())?;
+
+    let url = format!("https://api.imgchest.com{path}");
+    let mut request = match method.as_str() {
+        "GET" => client.get(url),
+        "POST" => client.post(url),
+        _ => return Err("Método HTTP inválido.".into()),
+    }
+    .bearer_auth(token.trim());
+
+    if method == "POST" {
+        let mut multipart = reqwest::multipart::Form::new();
+        for (key, value) in form.unwrap_or_default() {
+            multipart = multipart.text(key, value);
+        }
+        if let (Some(field), Some(name), Some(bytes)) = (file_field, file_name, file_bytes) {
+            let mut part = reqwest::multipart::Part::bytes(bytes).file_name(name);
+            if let Some(mime) = file_type {
+                part = part.mime_str(&mime).map_err(|error| error.to_string())?;
+            }
+            multipart = multipart.part(field, part);
+        }
+        request = request.multipart(multipart);
+    }
+
+    let response = request.send().await.map_err(|error| error.to_string())?;
+    let status = response.status().as_u16();
+    let retry_after_seconds = response
+        .headers()
+        .get("retry-after")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.trim().parse::<u64>().ok());
+    let body = response.text().await.map_err(|error| error.to_string())?;
+
+    Ok(ImageChestReply {
+        status,
+        body,
+        retry_after_seconds,
+    })
+}
+
+#[tauri::command]
+fn copy_text(app: AppHandle, text: String) -> Result<(), String> {
+    use tauri_plugin_clipboard_manager::ClipboardExt;
+    app.clipboard()
+        .write_text(text)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn open_external(app: AppHandle, url: String) -> Result<(), String> {
+    if !(url.starts_with("https://") || url.starts_with("http://")) {
+        return Err("Só links http(s) podem ser abertos.".into());
+    }
+    use tauri_plugin_opener::OpenerExt;
+    app.opener()
+        .open_url(url, None::<&str>)
+        .map_err(|error| error.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_opener::init())
         .manage(Downloads::default())
         .invoke_handler(tauri::generate_handler![
             read_file_bytes,
             write_file_bytes,
             download_source,
-            cancel_download
+            cancel_download,
+            read_config,
+            write_config,
+            imagechest_request,
+            copy_text,
+            open_external
         ])
         .run(tauri::generate_context!())
         .expect("error while running mudae crop");

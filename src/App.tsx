@@ -27,12 +27,27 @@ import {
 import { renderPng } from './core/export';
 import { clampCrop, panBy, resetCrop, rotate90, setScaleMode, zoomAt } from './core/geometry';
 import { importErrorMessage, loadSource, type SourceCandidate } from './core/import';
-import { exportFileName } from './core/naming';
-import { browserExportAdapter, decodeWithBrowser } from './platform/browser';
+import { appendUpload, type UploadRecord } from './core/history';
 import {
+  ImageChestError,
+  isPostId,
+  testConnection,
+  uploadErrorMessage,
+  uploadStill,
+} from './core/imagechest';
+import { exportFileName, postTitle } from './core/naming';
+import { loadHistory, loadSettings, saveHistory, saveSettings } from './core/config';
+import { DEFAULT_SETTINGS, type Settings } from './core/settings';
+import { browserExportAdapter, decodeWithBrowser } from './platform/browser';
+import { configStore } from './platform/config';
+import { tauriImageChestTransport } from './platform/imagechest';
+import { copyText, openExternal } from './platform/system';
+import {
+  chooseExportFolder,
   chooseExportPath,
   chooseSourceFile,
   fileNameOf,
+  folderOf,
   isDesktop,
   readFileBytes,
   tauriDownloadTransport,
@@ -43,6 +58,12 @@ import { Stage } from './components/Stage';
 import { ToolRail } from './components/ToolRail';
 import { ExportPanel } from './components/ExportPanel';
 import { BorderBar } from './components/BorderBar';
+import { SettingsDialog, type TokenTestResult } from './components/SettingsDialog';
+
+interface NoticeAction {
+  readonly label: string;
+  readonly run: () => void;
+}
 
 function messageOf(error: unknown): string {
   if (typeof error === 'string') return error;
@@ -54,8 +75,17 @@ export default function App() {
   const [doc, setDoc] = useState<DocumentState>(emptyDocument);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
+  const [noticeAction, setNoticeAction] = useState<NoticeAction | null>(null);
   const [busy, setBusy] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [link, setLink] = useState('');
+  const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
+  const [history, setHistory] = useState<readonly UploadRecord[]>([]);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [testingToken, setTestingToken] = useState(false);
+  const [tokenResult, setTokenResult] = useState<TokenTestResult | null>(null);
+  const [appendPostId, setAppendPostId] = useState('');
+  const [cooldownSeconds, setCooldownSeconds] = useState(0);
   const [downloadProgress, setDownloadProgress] = useState<{
     received: number;
     total: number | null;
@@ -64,6 +94,31 @@ export default function App() {
   docRef.current = doc;
   const runningRef = useRef(false);
   const cancelDownloadRef = useRef<(() => void) | null>(null);
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
+  const historyRef = useRef<readonly UploadRecord[]>(history);
+  historyRef.current = history;
+  const appendPostIdRef = useRef(appendPostId);
+  appendPostIdRef.current = appendPostId;
+  const uploadRef = useRef<() => Promise<void>>(async () => undefined);
+
+  const openSettings = useCallback(() => {
+    setNoticeAction(null);
+    setError(null);
+    setSettingsOpen(true);
+  }, []);
+
+  const fail = useCallback((message: string, action: NoticeAction | null = null) => {
+    setError(message);
+    setStatus(null);
+    setNoticeAction(action);
+  }, []);
+
+  const inform = useCallback((message: string) => {
+    setError(null);
+    setStatus(message);
+    setNoticeAction(null);
+  }, []);
 
   const beginRun = useCallback(() => {
     if (runningRef.current) return false;
@@ -77,17 +132,69 @@ export default function App() {
     setBusy(false);
   }, []);
 
-  const refuseBecauseBusy = useCallback(() => {
-    setError('Termine a operação em andamento antes de importar outra Source.');
-    setStatus(null);
-  }, []);
+  const persistSettings = useCallback(
+    (patch: Partial<Settings>) => {
+      const next = { ...settingsRef.current, ...patch };
+      settingsRef.current = next;
+      setSettings(next);
+      if (patch.exportScale !== undefined) {
+        setDoc((current) => withExportScale(current, patch.exportScale as ExportScale));
+      }
+      if (patch.token !== undefined) setTokenResult(null);
+      void saveSettings(configStore, next).catch((reason) => {
+        fail(`Não foi possível salvar as Configurações. ${messageOf(reason)}`);
+      });
+    },
+    [fail],
+  );
 
-  const applyCandidate = useCallback(async (candidate: SourceCandidate) => {
-    const source = await loadSource(candidate, decodeWithBrowser);
-    setDoc((current) => withSource(current, source));
-    setError(null);
-    setStatus(`Source carregada: ${source.name}`);
-  }, []);
+  const persistHistory = useCallback(
+    (next: readonly UploadRecord[]) => {
+      historyRef.current = next;
+      setHistory(next);
+      void saveHistory(configStore, next).catch((reason) => {
+        fail(`Não foi possível salvar o Histórico. ${messageOf(reason)}`);
+      });
+    },
+    [fail],
+  );
+
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      const [savedSettings, savedHistory] = await Promise.all([
+        loadSettings(configStore),
+        loadHistory(configStore),
+      ]);
+      if (!alive) return;
+      settingsRef.current = savedSettings;
+      setSettings(savedSettings);
+      historyRef.current = savedHistory;
+      setHistory(savedHistory);
+      appendPostIdRef.current = savedSettings.appendPostId;
+      setAppendPostId(savedSettings.appendPostId);
+      setDoc((current) => withExportScale(current, savedSettings.exportScale));
+    })().catch((reason) => {
+      if (!alive) return;
+      fail(`Não foi possível ler as Configurações; usando os padrões. ${messageOf(reason)}`);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [fail]);
+
+  const refuseBecauseBusy = useCallback(() => {
+    fail('Termine a operação em andamento antes de importar outra Source.');
+  }, [fail]);
+
+  const applyCandidate = useCallback(
+    async (candidate: SourceCandidate) => {
+      const source = await loadSource(candidate, decodeWithBrowser);
+      setDoc((current) => withSource(current, source));
+      inform(`Source carregada: ${source.name}`);
+    },
+    [inform],
+  );
 
   const importCandidate = useCallback(
     async (candidate: SourceCandidate) => {
@@ -98,13 +205,12 @@ export default function App() {
       try {
         await applyCandidate(candidate);
       } catch (reason) {
-        setError(importErrorMessage(reason));
-        setStatus(null);
+        fail(importErrorMessage(reason));
       } finally {
         endRun();
       }
     },
-    [applyCandidate, beginRun, endRun, refuseBecauseBusy],
+    [applyCandidate, beginRun, endRun, fail, refuseBecauseBusy],
   );
 
   const importPath = useCallback(
@@ -119,28 +225,25 @@ export default function App() {
         try {
           bytes = await readFileBytes(path);
         } catch (reason) {
-          setError(`Não foi possível ler "${name}". ${messageOf(reason)}`);
-          setStatus(null);
+          fail(`Não foi possível ler "${name}". ${messageOf(reason)}`);
           return;
         }
         try {
           await applyCandidate({ name, path, bytes });
         } catch (reason) {
-          setError(importErrorMessage(reason));
-          setStatus(null);
+          fail(importErrorMessage(reason));
         }
       } finally {
         endRun();
       }
     },
-    [applyCandidate, beginRun, endRun, refuseBecauseBusy],
+    [applyCandidate, beginRun, endRun, fail, refuseBecauseBusy],
   );
 
   const importFromUrl = useCallback(
     async (raw: string) => {
       if (!isDesktop()) {
-        setError('Importar por link só funciona no app desktop.');
-        setStatus(null);
+        fail('Importar por link só funciona no app desktop.');
         return;
       }
       if (!beginRun()) {
@@ -152,6 +255,7 @@ export default function App() {
       cancelDownloadRef.current = () => controller.abort();
       setError(null);
       setStatus(null);
+      setNoticeAction(null);
       setDownloadProgress({ received: 0, total: null });
       try {
         const candidate = await downloadSource(raw, {
@@ -166,11 +270,9 @@ export default function App() {
         setLink('');
       } catch (reason) {
         if (reason instanceof DownloadError && reason.code === 'cancelled') {
-          setError(null);
-          setStatus('Download cancelado.');
+          inform('Download cancelado.');
         } else {
-          setError(downloadErrorMessage(reason));
-          setStatus(null);
+          fail(downloadErrorMessage(reason));
         }
       } finally {
         cancelDownloadRef.current = null;
@@ -178,7 +280,7 @@ export default function App() {
         endRun();
       }
     },
-    [applyCandidate, beginRun, endRun, refuseBecauseBusy],
+    [applyCandidate, beginRun, endRun, fail, inform, refuseBecauseBusy],
   );
 
   const cancelDownload = useCallback(() => {
@@ -189,21 +291,21 @@ export default function App() {
     if (runningRef.current) return;
     try {
       if (!isDesktop()) {
-        setError('Abrir arquivos só funciona no app desktop.');
+        fail('Abrir arquivos só funciona no app desktop.');
         return;
       }
       const path = await chooseSourceFile();
       if (path) await importPath(path);
     } catch (reason) {
-      setError(`Não foi possível abrir o diálogo de arquivos. ${messageOf(reason)}`);
+      fail(`Não foi possível abrir o diálogo de arquivos. ${messageOf(reason)}`);
     }
-  }, [importPath]);
+  }, [fail, importPath]);
 
   const handleExport = useCallback(async () => {
     const current = docRef.current;
     if (!current.source) return;
     if (!isDesktop()) {
-      setError('Exportar só funciona no app desktop.');
+      fail('Exportar só funciona no app desktop.');
       return;
     }
     if (!beginRun()) return;
@@ -211,9 +313,10 @@ export default function App() {
       const name = exportFileName(current.source.name, current.frame.id, new Date());
       let defaultPath = name;
       try {
-        defaultPath = await join(await downloadDir(), name);
+        const folder = settingsRef.current.saveFolder ?? (await downloadDir());
+        defaultPath = await join(folder, name);
       } catch {
-        // Without a known download folder the bare file name still works.
+        // Without a known folder the bare file name still works.
       }
       const chosen = await chooseExportPath(defaultPath);
       if (!chosen) return;
@@ -223,16 +326,236 @@ export default function App() {
       }
       const bytes = await renderPng(current, current.exportScale, browserExportAdapter);
       await writeFileBytes(path, bytes);
+
+      // Remember the folder the user actually saved into, so the next dialog
+      // opens there instead of Downloads.
+      const folder = folderOf(path) || settingsRef.current.saveFolder;
+      persistSettings({ saveFolder: folder, exportFormat: 'png' });
+
       const size = outputSize(current);
-      setError(null);
-      setStatus(`PNG ${size.width}×${size.height} exportado: ${fileNameOf(path)}`);
+      inform(`PNG ${size.width}×${size.height} exportado: ${fileNameOf(path)}`);
     } catch (reason) {
-      setError(`Não foi possível exportar o PNG. ${messageOf(reason)}`);
-      setStatus(null);
+      fail(`Não foi possível exportar o PNG. ${messageOf(reason)}`);
     } finally {
       endRun();
     }
-  }, [beginRun, endRun]);
+  }, [beginRun, endRun, fail, inform, persistSettings]);
+
+  const uploadFailure = useCallback(
+    (reason: unknown) => {
+      if (reason instanceof ImageChestError) {
+        if (reason.code === 'unauthorized' || reason.code === 'no-token') {
+          fail(reason.message, { label: 'Abrir Configurações', run: openSettings });
+          return;
+        }
+        if (reason.code === 'offline') {
+          fail(reason.message, {
+            label: 'Tentar de novo',
+            run: () => void uploadRef.current(),
+          });
+          return;
+        }
+        if (reason.code === 'rate-limited') {
+          setCooldownSeconds(reason.retryAfterSeconds ?? 30);
+          fail(reason.message);
+          return;
+        }
+        fail(reason.message);
+        return;
+      }
+      fail(uploadErrorMessage(reason));
+    },
+    [fail, openSettings],
+  );
+
+  const handleUpload = useCallback(async () => {
+    const current = docRef.current;
+    if (!current.source) return;
+    // A double click or a repeated Ctrl+Enter never starts a second upload.
+    if (runningRef.current) return;
+    if (!isDesktop()) {
+      fail('O upload só funciona no app desktop.');
+      return;
+    }
+
+    const saved = settingsRef.current;
+    if (!saved.token.trim()) {
+      fail('Salve o token do Image Chest em Configurações antes de subir.', {
+        label: 'Abrir Configurações',
+        run: openSettings,
+      });
+      return;
+    }
+
+    const requestedPost = appendPostIdRef.current.trim();
+    if (requestedPost && !isPostId(requestedPost)) {
+      fail('O Post id aceita só letras e números.');
+      return;
+    }
+    if (cooldownSeconds > 0) {
+      fail(`Aguarde ${cooldownSeconds}s antes de subir de novo.`);
+      return;
+    }
+    if (!beginRun()) return;
+
+    setUploading(true);
+    setError(null);
+    setStatus(null);
+    setNoticeAction(null);
+    try {
+      const size = outputSize(current);
+      const bytes = await renderPng(current, current.exportScale, browserExportAdapter);
+      const title = postTitle(current.source.name, size.width, size.height);
+      const outcome = await uploadStill({
+        transport: tauriImageChestTransport,
+        token: saved.token,
+        title,
+        privacy: saved.defaultPrivacy,
+        postId: requestedPost || null,
+        file: {
+          name: exportFileName(current.source.name, current.frame.id, new Date()),
+          contentType: 'image/png',
+          bytes,
+        },
+      });
+
+      let copied = true;
+      try {
+        await copyText(outcome.link);
+      } catch {
+        copied = false;
+      }
+
+      const record: UploadRecord = {
+        link: outcome.link,
+        postId: outcome.postId,
+        imageId: outcome.imageId,
+        title,
+        format: 'png',
+        size: bytes.length,
+        uploadedAt: new Date().toISOString(),
+      };
+      persistHistory(appendUpload(historyRef.current, record));
+      persistSettings({ exportFormat: 'png' });
+      inform(
+        copied
+          ? `Link copiado: ${outcome.link}`
+          : `Export no Post ${outcome.postId}. Não foi possível copiar; use o Histórico.`,
+      );
+    } catch (reason) {
+      uploadFailure(reason);
+    } finally {
+      setUploading(false);
+      endRun();
+    }
+  }, [
+    beginRun,
+    cooldownSeconds,
+    endRun,
+    fail,
+    inform,
+    openSettings,
+    persistHistory,
+    persistSettings,
+    uploadFailure,
+  ]);
+
+  uploadRef.current = handleUpload;
+
+  const cooling = cooldownSeconds > 0;
+  useEffect(() => {
+    if (!cooling) return;
+    const timer = setInterval(() => {
+      setCooldownSeconds((seconds) => Math.max(0, seconds - 1));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [cooling]);
+
+  const clearToken = useCallback(() => {
+    persistSettings({ token: '' });
+    setTokenResult({ ok: true, message: 'Token removido deste computador.' });
+    inform('Token do Image Chest removido.');
+  }, [inform, persistSettings]);
+
+  const chooseFolder = useCallback(async () => {
+    if (!isDesktop()) {
+      fail('A pasta só pode ser escolhida no app desktop.');
+      return;
+    }
+    try {
+      const folder = await chooseExportFolder();
+      if (!folder) return;
+      persistSettings({ saveFolder: folder });
+      inform(`Pasta dos Exports: ${folder}`);
+    } catch (reason) {
+      fail(`Não foi possível escolher a pasta. ${messageOf(reason)}`);
+    }
+  }, [fail, inform, persistSettings]);
+
+  const testToken = useCallback(async () => {
+    if (testingToken) return;
+    if (!isDesktop()) {
+      setTokenResult({ ok: false, message: 'Testar o token só funciona no app desktop.' });
+      return;
+    }
+    const token = settingsRef.current.token;
+    if (!token.trim()) {
+      setTokenResult({ ok: false, message: 'Cole o token antes de testar.' });
+      return;
+    }
+    setTestingToken(true);
+    setTokenResult(null);
+    try {
+      const account = await testConnection(tauriImageChestTransport, token);
+      setTokenResult({ ok: true, message: `Conectado como ${account.name}.` });
+    } catch (reason) {
+      setTokenResult({ ok: false, message: uploadErrorMessage(reason) });
+    } finally {
+      setTestingToken(false);
+    }
+  }, [testingToken]);
+
+  const changeAppendPostId = useCallback((value: string) => {
+    setAppendPostId(value);
+    appendPostIdRef.current = value;
+  }, []);
+
+  const commitAppendPostId = useCallback(() => {
+    const trimmed = appendPostIdRef.current.trim();
+    appendPostIdRef.current = trimmed;
+    setAppendPostId(trimmed);
+    if (trimmed !== settingsRef.current.appendPostId) {
+      persistSettings({ appendPostId: isPostId(trimmed) ? trimmed : '' });
+    }
+  }, [persistSettings]);
+
+  const copyHistoryLink = useCallback(
+    async (value: string) => {
+      try {
+        await copyText(value);
+        inform(`Link copiado: ${value}`);
+      } catch (reason) {
+        fail(`Não foi possível copiar o link. ${messageOf(reason)}`);
+      }
+    },
+    [fail, inform],
+  );
+
+  const openHistoryLink = useCallback(
+    async (value: string) => {
+      try {
+        await openExternal(value);
+      } catch (reason) {
+        fail(`Não foi possível abrir o link. ${messageOf(reason)}`);
+      }
+    },
+    [fail],
+  );
+
+  const clearHistory = useCallback(() => {
+    persistHistory([]);
+    inform('Histórico de uploads limpo.');
+  }, [inform, persistHistory]);
 
   const exportRef = useRef(handleExport);
   exportRef.current = handleExport;
@@ -266,9 +589,12 @@ export default function App() {
     setDoc((current) => withPadColor(current, padColor));
   }, []);
 
-  const changeExportScale = useCallback((exportScale: ExportScale) => {
-    setDoc((current) => withExportScale(current, exportScale));
-  }, []);
+  const changeExportScale = useCallback(
+    (exportScale: ExportScale) => {
+      persistSettings({ exportScale });
+    },
+    [persistSettings],
+  );
 
   const rotate = useCallback(() => {
     setDoc((current) => withCrop(current, rotate90(current, current.crop)));
@@ -280,6 +606,7 @@ export default function App() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if (settingsOpen) return;
       if (!(event.ctrlKey || event.metaKey)) return;
       const key = event.key.toLowerCase();
       if (key === 'o') {
@@ -288,11 +615,17 @@ export default function App() {
       } else if (key === 's') {
         event.preventDefault();
         void exportRef.current();
+      } else if (key === 'enter') {
+        event.preventDefault();
+        void uploadRef.current();
+      } else if (key === ',') {
+        event.preventDefault();
+        openSettings();
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [handleOpen]);
+  }, [handleOpen, openSettings, settingsOpen]);
 
   useEffect(() => {
     const onPaste = (event: ClipboardEvent) => {
@@ -343,10 +676,10 @@ export default function App() {
         dispose = stop;
       })
       .catch(() => {
-        setError('Não foi possível ativar o arrastar e soltar. Use Ctrl+O ou Ctrl+V.');
+        fail('Não foi possível ativar o arrastar e soltar. Use Ctrl+O ou Ctrl+V.');
       });
     return () => dispose?.();
-  }, [importPath]);
+  }, [fail, importPath]);
 
   // Browser-only fallback so `npm run dev` can exercise the same import path.
   // The desktop window receives OS drops through Tauri instead.
@@ -376,6 +709,12 @@ export default function App() {
   const sourceChip = doc.source
     ? `${doc.source.format.toUpperCase()} · ${doc.source.width}×${doc.source.height}`
     : 'sem Source';
+
+  const clearNotice = () => {
+    setError(null);
+    setStatus(null);
+    setNoticeAction(null);
+  };
 
   return (
     <div className="app">
@@ -429,6 +768,14 @@ export default function App() {
         <div className="topbar-right">
           <span className="chip">{sourceChip}</span>
           <span className="chip">waifu2x off</span>
+          <button
+            type="button"
+            className="chip chip-button"
+            onClick={openSettings}
+            title="Configurações (Ctrl+,)"
+          >
+            Configurações
+          </button>
         </div>
       </header>
 
@@ -450,14 +797,12 @@ export default function App() {
         (error || status) && (
           <div className={`notice${error ? ' error' : ''}`} role={error ? 'alert' : 'status'}>
             <span>{error ?? status}</span>
-            <button
-              type="button"
-              aria-label="Fechar aviso"
-              onClick={() => {
-                setError(null);
-                setStatus(null);
-              }}
-            >
+            {noticeAction && (
+              <button type="button" className="notice-action" onClick={noticeAction.run}>
+                {noticeAction.label}
+              </button>
+            )}
+            <button type="button" aria-label="Fechar aviso" onClick={clearNotice}>
               x
             </button>
           </div>
@@ -495,12 +840,39 @@ export default function App() {
           doc={doc}
           busy={busy}
           downloading={downloadProgress !== null}
+          uploading={uploading}
+          settings={settings}
+          history={history}
+          cooldownSeconds={cooldownSeconds}
+          appendPostId={appendPostId}
           onExport={handleExport}
           onExportScale={changeExportScale}
+          onAppendPostId={changeAppendPostId}
+          onCommitAppendPostId={commitAppendPostId}
+          onUpload={handleUpload}
+          onOpenSettings={openSettings}
+          onCopyLink={(value) => void copyHistoryLink(value)}
+          onOpenLink={(value) => void openHistoryLink(value)}
+          onClearHistory={clearHistory}
         />
       </main>
 
       <BorderBar />
+
+      {settingsOpen && (
+        <SettingsDialog
+          settings={settings}
+          desktop={isDesktop()}
+          testing={testingToken}
+          testResult={tokenResult}
+          onChange={persistSettings}
+          onClose={() => setSettingsOpen(false)}
+          onTestConnection={() => void testToken()}
+          onClearToken={clearToken}
+          onChooseFolder={() => void chooseFolder()}
+          onClearFolder={() => persistSettings({ saveFolder: null })}
+        />
+      )}
     </div>
   );
 }

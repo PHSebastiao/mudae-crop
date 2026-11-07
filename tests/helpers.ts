@@ -7,6 +7,7 @@ import {
   type Source,
 } from '../src/core/document';
 import { sourceRect } from '../src/core/geometry';
+import type { UploadRecord } from '../src/core/history';
 import type { RenderContext } from '../src/core/render';
 
 export function makeSource(
@@ -60,4 +61,20 @@ export function sourcePointAt(
 export function pngSize(bytes: Uint8Array): { width: number; height: number } {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   return { width: view.getUint32(16), height: view.getUint32(20) };
+}
+
+export function makeUploadRecord(
+  index: number,
+  overrides: Partial<UploadRecord> = {},
+): UploadRecord {
+  return {
+    link: `https://cdn.imgchest.com/files/image${index}.png`,
+    postId: `post${index}`,
+    imageId: `image${index}`,
+    title: `card ${index} · 225×350`,
+    format: 'png',
+    size: 1234,
+    uploadedAt: new Date(Date.UTC(2026, 0, 1, 0, index)).toISOString(),
+    ...overrides,
+  };
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { exportFileName } from '../src/core/naming';
+import { exportFileName, postTitle } from '../src/core/naming';
 
 const date = new Date(2026, 10, 6, 14, 5, 9);
 
@@ -16,5 +16,20 @@ describe('Export file names', () => {
     expect(exportFileName('C:\\art\\Waifu 01.jpg', 'mudae', date)).toBe(
       'c-art-waifu-01-mudae-20261106-140509.png',
     );
+  });
+});
+
+describe('Post titles', () => {
+  it('follows <source name> · <width>×<height>', () => {
+    expect(postTitle('waifu.png', 225, 350)).toBe('waifu · 225×350');
+  });
+
+  it('drops only the final extension and keeps the user casing', () => {
+    expect(postTitle('My.Card.GIF', 350, 320)).toBe('My.Card · 350×320');
+    expect(postTitle('no-extension', 225, 350)).toBe('no-extension · 225×350');
+  });
+
+  it('falls back to source when the name is empty', () => {
+    expect(postTitle('', 225, 350)).toBe('source · 225×350');
   });
 });

@@ -17,3 +17,12 @@ export function exportFileName(sourceName: string, frameId: string, date: Date):
   ].join('');
   return `${stem}-${frameId}-${stamp}.png`;
 }
+
+/**
+ * The automatic Image Chest Post title: the Source name without its extension,
+ * followed by the Export's dimensions.
+ */
+export function postTitle(sourceName: string, width: number, height: number): string {
+  const stem = sourceName.replace(/\.[^.]+$/, '').trim() || 'source';
+  return `${stem} · ${width}×${height}`;
+}
