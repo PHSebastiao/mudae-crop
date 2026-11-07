@@ -467,7 +467,7 @@ export function withSharpness(doc: DocumentState, sharpness: number): DocumentSt
 }
 
 export function withExportScale(doc: DocumentState, exportScale: ExportScale): DocumentState {
-  return { ...doc, exportScale, resize: null };
+  return { ...doc, exportScale, resize: null, resizeLocked: true };
 }
 
 export function outputSize(doc: DocumentState): { width: number; height: number } {

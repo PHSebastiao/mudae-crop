@@ -17,6 +17,13 @@ import { isPostId } from '../core/imagechest';
 import type { OptimizeResult } from '../core/optimize';
 import type { Settings } from '../core/settings';
 import { formatBytes } from '../core/download';
+import {
+  aspectMatches,
+  exceedsSource,
+  formatAspect,
+  formatScale,
+  relativeScale,
+} from '../core/size';
 import { NumberField } from './NumberField';
 
 interface ExportPanelProps {
@@ -177,13 +184,18 @@ export function ExportPanel({
   const kind = exportKindFor(doc.source, settings.exportFormat);
   const format = kind.label;
   const animated = isAnimated(doc.source);
-  const sizeLabel = doc.resize ? `${size.width}×${size.height}` : `${doc.exportScale}×`;
+  const custom = doc.resize !== null;
+  const ratioMatches = aspectMatches(size, doc.frame);
+  const ratioLabel = formatAspect(size);
+  const scaleLabel = formatScale(relativeScale(size, doc.frame));
+  const sourceTooSmall = exceedsSource(size, doc.source);
   const exportLabel = downloading
     ? 'Aguarde o link…'
     : busy && !uploading
       ? 'Exportando…'
-      : `Exportar ${format} ${sizeLabel}`;
+      : `Exportar ${format}`;
   const optimize = doc.optimize;
+  const [optimizeOpen, setOptimizeOpen] = useState(false);
   const listRef = useRef<HTMLUListElement | null>(null);
 
   // Clearing the History, or the 50-entry cap evicting an old row, releases
@@ -196,12 +208,18 @@ export function ExportPanel({
     <aside className="panel">
       <section>
         <h4>Export</h4>
-        <div className="meta">
-          <span>{format}</span>
-          <span>
-            {size.width}×{size.height}
+
+        <div className="export-summary" aria-live="polite">
+          <strong>
+            {format} · {size.width}×{size.height}
+          </strong>
+          <span>{scaleLabel}</span>
+          <span className={ratioMatches ? '' : 'warn'}>
+            {ratioMatches ? 'proporção da carta' : 'esticada'}
           </span>
+          {optimizeResult && <span>{formatBytes(optimizeResult.size)}</span>}
         </div>
+
         <div className="toggle" role="group" aria-label="Formato do Export">
           <button
             type="button"
@@ -220,109 +238,188 @@ export function ExportPanel({
             GIF
           </button>
         </div>
-        <div className="toggle" role="group" aria-label="Escala do Export">
+        {!animated && (
+          <p className="panel-hint">GIF indisponível: a Source é estática.</p>
+        )}
+
+        <div className="export-sizes" role="radiogroup" aria-label="Tamanho do Export">
           <button
             type="button"
-            className={doc.resize === null && doc.exportScale === 1 ? 'on' : ''}
+            className={`size-option${!custom && doc.exportScale === 1 ? ' on' : ''}`}
             onClick={() => onExportScale(1)}
+            role="radio"
+            aria-checked={!custom && doc.exportScale === 1}
           >
-            1×
+            <span>Carta 1×</span>
+            <span className="dims">
+              {doc.frame.width}×{doc.frame.height}
+            </span>
           </button>
           <button
             type="button"
-            className={doc.resize === null && doc.exportScale === 2 ? 'on' : ''}
+            className={`size-option${!custom && doc.exportScale === 2 ? ' on' : ''}`}
             onClick={() => onExportScale(2)}
+            role="radio"
+            aria-checked={!custom && doc.exportScale === 2}
           >
-            2×
+            <span>Carta 2×</span>
+            <span className="dims">
+              {doc.frame.width * 2}×{doc.frame.height * 2}
+            </span>
+          </button>
+          <button
+            type="button"
+            className={`size-option${custom ? ' on' : ''}`}
+            onClick={() => {
+              if (!custom) onResizeWidth(size.width);
+            }}
+            role="radio"
+            aria-checked={custom}
+          >
+            <span>Personalizado</span>
+            <span className="dims">{custom ? `${size.width}×${size.height}` : '—'}</span>
           </button>
         </div>
-        <div className="row">
-          <span className="key">largura</span>
-          <NumberField
-            value={size.width}
-            onCommit={onResizeWidth}
-            label="Largura do Export"
-            disabled={!doc.source}
-          />
-        </div>
-        <div className="row">
-          <span className="key">altura</span>
-          <NumberField
-            value={size.height}
-            onCommit={onResizeHeight}
-            label="Altura do Export"
-            disabled={!doc.source}
-          />
-        </div>
-        <button
-          type="button"
-          className="link"
-          onClick={() => onResizeLocked(!doc.resizeLocked)}
-          disabled={!doc.source}
-        >
-          {doc.resizeLocked ? 'proporção travada' : 'proporção livre'}
-        </button>
-        <div className="meta">
-          <span>tamanho</span>
-          <span>{optimizeResult ? formatBytes(optimizeResult.size) : '—'}</span>
-        </div>
-        {animated && kind.format === 'gif' && (
-          <>
-            <div className="toggle" role="group" aria-label="Otimizar GIF">
+
+        {custom && (
+          <div className="custom-size">
+            <div className="custom-size-head">
+              <NumberField
+                value={size.width}
+                onCommit={onResizeWidth}
+                label="Largura do Export"
+                disabled={!doc.source}
+              />
               <button
                 type="button"
-                className={optimize.enabled ? 'on' : ''}
-                onClick={() => onOptimize({ enabled: !optimize.enabled })}
+                className={`lock${doc.resizeLocked ? ' on' : ''}`}
+                onClick={() => onResizeLocked(!doc.resizeLocked)}
+                disabled={!doc.source}
+                aria-pressed={doc.resizeLocked}
+                aria-label="Travar proporção da carta"
+                title={
+                  doc.resizeLocked
+                    ? 'Proporção da carta travada'
+                    : 'Proporção livre — a imagem pode esticar'
+                }
               >
-                otimizar
+                {doc.resizeLocked ? '🔒' : '🔓'}
+              </button>
+              <NumberField
+                value={size.height}
+                onCommit={onResizeHeight}
+                label="Altura do Export"
+                disabled={!doc.source}
+              />
+            </div>
+            <div className="custom-size-meta">
+              <span className="ratio-chip">{ratioLabel}</span>
+              <button
+                type="button"
+                className="link"
+                onClick={() => onExportScale(doc.exportScale)}
+              >
+                voltar a {doc.exportScale}×
               </button>
             </div>
-            {optimize.enabled && (
+            {!doc.resizeLocked && !ratioMatches && (
+              <p className="panel-hint bad">
+                fora da proporção da carta — a imagem vai esticar
+              </p>
+            )}
+            {sourceTooSmall && doc.source && (
+              <p className="panel-hint warn">
+                acima da Source ({doc.source.width}×{doc.source.height}) — só amplia
+              </p>
+            )}
+          </div>
+        )}
+
+        <button
+          type="button"
+          className="big primary"
+          onClick={onExport}
+          disabled={!doc.source || busy}
+        >
+          {exportLabel}
+        </button>
+        <p className="panel-hint">Ctrl+S exporta · salva na pasta escolhida</p>
+
+        {animated && kind.format === 'gif' && (
+          <div className="optimize-block">
+            <button
+              type="button"
+              className="section-toggle"
+              onClick={() => setOptimizeOpen((open) => !open)}
+              aria-expanded={optimizeOpen}
+            >
+              <span>Otimizar GIF</span>
+              <span>
+                {optimize.enabled
+                  ? `ligado · ${(optimize.targetBytes / (1024 * 1024)).toFixed(1).replace('.', ',')} MB`
+                  : 'desligado'}{' '}
+                {optimizeOpen ? '▾' : '▸'}
+              </span>
+            </button>
+            {optimizeOpen && (
               <>
-                <div className="row">
-                  <span className="key">alvo MB</span>
-                  <NumberField
-                    value={optimize.targetBytes / (1024 * 1024)}
-                    onCommit={(mb) => onOptimize({ targetBytes: mb * 1024 * 1024 })}
-                    label="Alvo de tamanho em MB"
-                    precision={1}
-                  />
+                <div className="toggle" role="group" aria-label="Otimizar GIF">
+                  <button
+                    type="button"
+                    className={optimize.enabled ? 'on' : ''}
+                    onClick={() => onOptimize({ enabled: !optimize.enabled })}
+                  >
+                    {optimize.enabled ? 'otimizar ligado' : 'otimizar desligado'}
+                  </button>
                 </div>
-                <div className="row">
-                  <span className="key">compressão</span>
-                  <span className="pill">{optimize.lossy}</span>
-                </div>
-                <input
-                  className="slider"
-                  type="range"
-                  min={MIN_LOSSY}
-                  max={MAX_LOSSY}
-                  step={5}
-                  value={optimize.lossy}
-                  onChange={(event) => onOptimize({ lossy: Number(event.target.value) })}
-                  aria-label="Compressão com perda"
-                />
-                <label className="row">
-                  <span className="key">reduzir cores</span>
-                  <input
-                    type="checkbox"
-                    checked={optimize.reduceColors}
-                    onChange={(event) => onOptimize({ reduceColors: event.target.checked })}
-                  />
-                </label>
-                {optimize.reduceColors && (
-                  <div className="row">
-                    <span className="key">cores</span>
-                    <NumberField
-                      value={optimize.colors}
-                      onCommit={(colors) => onOptimize({ colors })}
-                      label="Número de cores"
+                {optimize.enabled && (
+                  <>
+                    <div className="row">
+                      <span className="key">alvo MB</span>
+                      <NumberField
+                        value={optimize.targetBytes / (1024 * 1024)}
+                        onCommit={(mb) => onOptimize({ targetBytes: mb * 1024 * 1024 })}
+                        label="Alvo de tamanho em MB"
+                        precision={1}
+                      />
+                    </div>
+                    <div className="row">
+                      <span className="key">compressão</span>
+                      <span className="pill">{optimize.lossy}</span>
+                    </div>
+                    <input
+                      className="slider"
+                      type="range"
+                      min={MIN_LOSSY}
+                      max={MAX_LOSSY}
+                      step={5}
+                      value={optimize.lossy}
+                      onChange={(event) => onOptimize({ lossy: Number(event.target.value) })}
+                      aria-label="Compressão com perda"
                     />
-                  </div>
+                    <label className="row">
+                      <span className="key">reduzir cores</span>
+                      <input
+                        type="checkbox"
+                        checked={optimize.reduceColors}
+                        onChange={(event) => onOptimize({ reduceColors: event.target.checked })}
+                      />
+                    </label>
+                    {optimize.reduceColors && (
+                      <div className="row">
+                        <span className="key">cores</span>
+                        <NumberField
+                          value={optimize.colors}
+                          onCommit={(colors) => onOptimize({ colors })}
+                          label="Número de cores"
+                        />
+                      </div>
+                    )}
+                    <p className="panel-hint">
+                      {MIN_COLORS}–{MAX_COLORS} cores · perda até {MAX_LOSSY}
+                    </p>
+                  </>
                 )}
-                <p className="panel-hint">
-                  {MIN_COLORS}–{MAX_COLORS} cores · perda até {MAX_LOSSY}
-                </p>
               </>
             )}
             {optimizeResult && (
@@ -336,17 +433,8 @@ export function ExportPanel({
                 {optimizeResult.error ? ` · ${optimizeResult.error}` : ''}
               </p>
             )}
-          </>
+          </div>
         )}
-        <button
-          type="button"
-          className="big primary"
-          onClick={onExport}
-          disabled={!doc.source || busy}
-        >
-          {exportLabel}
-        </button>
-        <p className="panel-hint">Ctrl+S exporta · salva na pasta escolhida</p>
       </section>
 
       <section className="divided">
