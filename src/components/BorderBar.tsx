@@ -1,5 +1,6 @@
 import type { Border } from '../core/document';
-import type { PaletteColor } from '../core/palette';
+import { withWhiteFirst, type PaletteColor } from '../core/palette';
+import { HexInput } from './HexInput';
 import { NumberField } from './NumberField';
 
 interface BorderBarProps {
@@ -21,13 +22,15 @@ export function BorderBar({
   onCopy,
   onRecalc,
 }: BorderBarProps) {
+  const swatches = hasSource ? withWhiteFirst(palette) : [];
+
   return (
     <footer className="border-bar">
       <div className="border-row">
         <span className="label">Borda</span>
         <div className="current-color">
           <span className="swatch" style={{ background: border.color }} />
-          <code>{border.color}</code>
+          <HexInput value={border.color} onCommit={onColor} label="HEX da Borda" />
           <button
             type="button"
             className="copy"
@@ -47,7 +50,7 @@ export function BorderBar({
         </span>
         <span className="muted">cores da imagem</span>
         <div className="palette" role="group" aria-label="Palette da imagem">
-          {palette.map((color) => {
+          {swatches.map((color) => {
             const selected = color.hex === border.color;
             return (
               <button
@@ -55,7 +58,11 @@ export function BorderBar({
                 type="button"
                 className={`palette-swatch${selected ? ' selected' : ''}`}
                 style={{ background: color.hex }}
-                title={`${color.hex} · ${Math.round(color.share * 100)}%`}
+                title={
+                  color.count === 0
+                    ? color.hex
+                    : `${color.hex} · ${Math.round(color.share * 100)}%`
+                }
                 aria-label={`Borda ${color.hex}`}
                 aria-pressed={selected}
                 onClick={() => onColor(color.hex)}
@@ -63,7 +70,7 @@ export function BorderBar({
               />
             );
           })}
-          {palette.length === 0 && <span className="muted">sem cores</span>}
+          {swatches.length === 0 && <span className="muted">sem cores</span>}
         </div>
         <button
           type="button"

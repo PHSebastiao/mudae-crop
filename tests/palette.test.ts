@@ -10,8 +10,10 @@ import {
 } from '../src/core/document';
 import {
   MAX_PALETTE,
+  WHITE_SWATCH,
   extractPalette,
   paletteFromPixels,
+  withWhiteFirst,
   type PaletteAdapter,
   type PaletteCanvas,
   type PaletteColor,
@@ -162,5 +164,60 @@ describe('palette', () => {
     expect(hexes(extractPalette(withSharpness(doc, 80), adapter))).toEqual(
       hexes(extractPalette(doc, adapter)),
     );
+  });
+});
+
+describe('vibrant accents', () => {
+  it('keeps a small vivid red and pink when neutral areas dominate', () => {
+    const neutrals: Array<[number, number, number]> = [
+      [20, 20, 20],
+      [60, 55, 50],
+      [100, 95, 90],
+      [140, 135, 130],
+      [180, 175, 170],
+      [220, 215, 210],
+      [240, 240, 240],
+      [90, 70, 50],
+    ];
+    const counts = [3000, 2600, 2200, 1800, 1400, 1200, 1000, 800];
+    const pixels: Array<[number, number, number, number]> = [];
+    neutrals.forEach((rgb, index) => {
+      for (let i = 0; i < counts[index]; i += 1) {
+        pixels.push([rgb[0], rgb[1], rgb[2], 255]);
+      }
+    });
+    for (let i = 0; i < 220; i += 1) pixels.push([190, 25, 20, 255]);
+    for (let i = 0; i < 180; i += 1) pixels.push([205, 40, 130, 255]);
+
+    const palette = paletteFromPixels(rgba(pixels), pixels.length, 1, '#FFFFFF');
+    const rgb = palette.map((color) => parseHexColor(color.hex)!);
+
+    expect(rgb.some((color) => color.r > 150 && color.g < 80 && color.b < 80)).toBe(true);
+    expect(rgb.some((color) => color.r > 150 && color.g < 100 && color.b > 90)).toBe(true);
+  });
+
+  it('always puts the fixed white first and drops the extracted white duplicate', () => {
+    const palette = [
+      { hex: '#D94F6D', count: 10, share: 0.5 },
+      { hex: '#FFFFFF', count: 5, share: 0.25 },
+      { hex: '#2B9C8F', count: 5, share: 0.25 },
+    ];
+
+    const ordered = withWhiteFirst(palette);
+
+    expect(ordered[0]).toEqual(WHITE_SWATCH);
+    expect(ordered[0].hex).toBe('#FFFFFF');
+    expect(ordered.filter((color) => color.hex === '#FFFFFF')).toHaveLength(1);
+    expect(ordered.map((color) => color.hex)).toEqual(['#FFFFFF', '#D94F6D', '#2B9C8F']);
+  });
+
+  it('caps the white-first list at ten swatches', () => {
+    const many: PaletteColor[] = Array.from({ length: 14 }, (_, index) => ({
+      hex: `#${(index * 111111).toString(16).padStart(6, '0').slice(-6)}`,
+      count: 1,
+      share: 0,
+    }));
+
+    expect(withWhiteFirst(many)).toHaveLength(MAX_PALETTE);
   });
 });

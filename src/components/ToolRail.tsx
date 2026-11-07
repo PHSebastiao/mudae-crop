@@ -3,6 +3,7 @@ import {
   type DocumentState,
   type ScaleMode,
 } from '../core/document';
+import { HexInput } from './HexInput';
 import { NumberField } from './NumberField';
 
 interface ToolRailProps {
@@ -117,9 +118,18 @@ export function ToolRail({
               aria-label="Cor do Pad"
               disabled={!hasSource}
             />
-            <code>{doc.padColor.toUpperCase()}</code>
+            <HexInput
+              className="rail-hex"
+              value={doc.padColor}
+              onCommit={onPadColor}
+              label="HEX do Pad"
+              disabled={!hasSource}
+            />
           </span>
         </div>
+        {hasSource && doc.crop.mode === 'fit' && (
+          <p className="rail-hint">Pad color só aparece fora do Fit.</p>
+        )}
         <button type="button" className="link" onClick={onResetCrop} disabled={!hasSource}>
           redefinir Crop
         </button>
