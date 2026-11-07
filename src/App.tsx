@@ -34,7 +34,7 @@ import {
   type Trim,
 } from './core/document';
 import { normalizeHexColor } from './core/color';
-import { formatFps, formatPlaybackDuration, trimDurationMs } from './core/animation';
+import { formatFps, formatPlaybackDuration, trimDurationMs, videoPreviewRate } from './core/animation';
 import {
   DownloadError,
   downloadErrorMessage,
@@ -341,7 +341,8 @@ export default function App() {
       video?.pause();
       return;
     }
-    video.play(doc.speed);
+    const rate = videoPreviewRate(doc.source, doc.speed);
+    video.play(rate);
     let frame = 0;
     let cancelled = false;
     const tick = () => {
@@ -349,7 +350,7 @@ export default function App() {
       const startMs = (trim.start / video.fps) * 1000;
       if (video.currentTimeMs >= endMs - 1) {
         void video.seekToMs(startMs).then(() => {
-          if (!cancelled) video.play(doc.speed);
+          if (!cancelled) video.play(rate);
         });
       }
       setFrameIndex(

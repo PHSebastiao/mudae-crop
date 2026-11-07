@@ -13,6 +13,7 @@ import {
 import { renderGif, renderPng, type EncodableCanvas, type ExportAdapter } from '../src/core/export';
 import { decodeGif } from '../src/core/gif';
 import { renderFrame } from '../src/core/render';
+import { videoPreviewRate } from '../src/core/animation';
 import { contextOf, makeDoc } from './helpers';
 
 const adapter: ExportAdapter = {
@@ -85,6 +86,14 @@ describe('video Sources', () => {
     expect(animationFrameCount(source)).toBe(3);
     expect(frameDelayMs(source, 1)).toBeCloseTo(1000 / 12);
     expect(frameImage(source, 0)).toBe(source.video?.image);
+  });
+
+  it('slows the native preview to the GIF rate when the floor caps a high-fps clip', () => {
+    const { source } = makeVideoFixture(8, 8, ['#FF0000', '#00FF00'], 60);
+    expect(videoPreviewRate(source, 1)).toBeCloseTo(0.8333, 3);
+
+    const thirty = makeVideoFixture(8, 8, ['#FF0000', '#00FF00'], 30).source;
+    expect(videoPreviewRate(thirty, 1)).toBeCloseTo(1.01, 2);
   });
 
   it('exports only the trimmed frames, with speed-scaled delays and a loop', async () => {

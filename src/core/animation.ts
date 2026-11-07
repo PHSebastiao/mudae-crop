@@ -78,3 +78,19 @@ export function formatFps(fps: number): string {
   if (!Number.isFinite(fps) || fps <= 0) return '—';
   return Number.isInteger(fps) ? String(fps) : fps.toFixed(2).replace('.', ',');
 }
+
+/**
+ * The playback rate that makes a native video preview match the GIF's actual
+ * motion after the 10 ms GIF delay quantisation and the 20 ms floor. A 60 fps
+ * clip at 1× lands near 0.83× because 60 fps cannot be represented above the
+ * floor.
+ */
+export function videoPreviewRate(
+  source: Source | null | undefined,
+  speed: number,
+): number {
+  if (!source?.video || source.video.fps <= 0) return speed;
+  const delay = effectiveDelayMs(source, 0, speed);
+  const rate = 1000 / (source.video.fps * delay);
+  return Math.min(4, Math.max(0.25, rate));
+}
