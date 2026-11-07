@@ -47,6 +47,7 @@ export function Stage({
   const hostRef = useRef<HTMLDivElement>(null);
   const backdropRef = useRef<HTMLCanvasElement>(null);
   const frameRef = useRef<HTMLCanvasElement>(null);
+  const pickRef = useRef<HTMLCanvasElement | null>(null);
   const magnifierRef = useRef<HTMLCanvasElement>(null);
   const dragRef = useRef<{ id: number; x: number; y: number } | null>(null);
   const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
@@ -119,6 +120,34 @@ export function Stage({
     backdropContext.fillRect(pad + width, pad, fullWidth - pad - width, height);
   }, [doc, scale, frameWidth, frameHeight, sceneWidth, sceneHeight]);
 
+  // The visible Frame includes the Border. The eyedropper should read the
+  // image underneath it, matching the Palette's border:false sample.
+  useEffect(() => {
+    if (!picking) {
+      pickRef.current = null;
+      return;
+    }
+    const frameCanvas = frameRef.current;
+    if (!frameCanvas) return;
+    const dpr = window.devicePixelRatio || 1;
+    const canvas = pickRef.current ?? document.createElement('canvas');
+    canvas.width = frameCanvas.width;
+    canvas.height = frameCanvas.height;
+    const context = canvas.getContext('2d');
+    if (!context) {
+      pickRef.current = null;
+      return;
+    }
+    renderFrame(context, doc, { scale: scale * dpr, border: false });
+    pickRef.current = canvas;
+  }, [doc, picking, scale]);
+
+  // A notice or window resize changes the stage scale; the cached magnifier
+  // cell and hex would be from the old frame.
+  useEffect(() => {
+    setMagnifier(null);
+  }, [doc, picking, scale]);
+
   useEffect(() => {
     const element = hostRef.current;
     if (!element) return;
@@ -163,15 +192,20 @@ export function Stage({
 
   function handlePointerDown(event: ReactPointerEvent<HTMLDivElement>) {
     if (!doc.source) return;
+    if (event.button !== 0) return;
 
     if (picking) {
       const point = framePixelAt(event.clientX, event.clientY);
-      const frameCanvas = frameRef.current;
-      if (!point || !frameCanvas) {
+      const pickCanvas = pickRef.current;
+      if (!point) {
         onPickMiss('outside');
         return;
       }
-      const context = frameCanvas.getContext('2d');
+      if (!pickCanvas) {
+        onPickMiss('transparent');
+        return;
+      }
+      const context = pickCanvas.getContext('2d');
       let pixel: Uint8ClampedArray | undefined;
       try {
         pixel = context?.getImageData(point.sx, point.sy, 1, 1).data;
@@ -195,14 +229,14 @@ export function Stage({
 
   function updateMagnifier(event: ReactPointerEvent<HTMLDivElement>) {
     const host = hostRef.current;
-    const frameCanvas = frameRef.current;
-    if (!host || !frameCanvas) return;
+    const pickCanvas = pickRef.current;
+    if (!host || !pickCanvas) return;
     const point = framePixelAt(event.clientX, event.clientY);
     if (!point) {
       setMagnifier(null);
       return;
     }
-    const context = frameCanvas.getContext('2d');
+    const context = pickCanvas.getContext('2d');
     let pixel: Uint8ClampedArray | undefined;
     try {
       pixel = context?.getImageData(point.sx, point.sy, 1, 1).data;
@@ -257,13 +291,9 @@ export function Stage({
   }
 
   useEffect(() => {
-    if (!picking) setMagnifier(null);
-  }, [picking]);
-
-  useEffect(() => {
     if (!picking || !magnifier) return;
     const canvas = magnifierRef.current;
-    const source = frameRef.current;
+    const source = pickRef.current;
     if (!canvas || !source) return;
     const context = canvas.getContext('2d');
     const sourceContext = source.getContext('2d');

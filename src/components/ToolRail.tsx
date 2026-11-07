@@ -137,6 +137,7 @@ export function ToolRail({
           className="link rail-pick"
           onClick={onPickPadColor}
           disabled={!hasSource}
+          aria-pressed={pickingPad}
         >
           {pickingPad ? 'clique na imagem · Esc cancela' : 'pegar cor da imagem'}
         </button>

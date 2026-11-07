@@ -21,24 +21,31 @@ export function HexInput({
   disabled = false,
 }: HexInputProps) {
   const [draft, setDraft] = useState(value);
+  const [invalid, setInvalid] = useState(false);
   const cancelRef = useRef(false);
 
   useEffect(() => {
-    if (!cancelRef.current) setDraft(value);
+    if (!cancelRef.current) {
+      setDraft(value);
+      setInvalid(false);
+    }
   }, [value]);
 
   const commit = () => {
     if (cancelRef.current) {
       cancelRef.current = false;
       setDraft(value);
+      setInvalid(false);
       return;
     }
     const normalized = normalizeHexColor(draft);
     if (!normalized) {
       setDraft(value);
+      setInvalid(true);
       return;
     }
     setDraft(normalized);
+    setInvalid(false);
     if (normalized !== value) onCommit(normalized);
   };
 
@@ -47,7 +54,10 @@ export function HexInput({
       type="text"
       className={`hex-input${className ? ` ${className}` : ''}`}
       value={draft}
-      onChange={(event) => setDraft(event.target.value)}
+      onChange={(event) => {
+        setInvalid(false);
+        setDraft(event.target.value);
+      }}
       onBlur={commit}
       onKeyDown={(event) => {
         if (event.key === 'Enter') {
@@ -58,7 +68,8 @@ export function HexInput({
         }
       }}
       aria-label={label}
-      title="HEX · Enter aplica · Esc cancela"
+      aria-invalid={invalid}
+      title={invalid ? 'HEX inválido. Use #RRGGBB.' : 'HEX · Enter aplica · Esc cancela'}
       maxLength={7}
       spellCheck={false}
       autoComplete="off"

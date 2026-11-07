@@ -233,3 +233,14 @@ describe('white-first filtering', () => {
     expect(ordered.map((color) => color.hex)).toEqual(['#FFFFFF', '#D94F6D']);
   });
 });
+
+describe('near-white boundary', () => {
+  it('keeps a color just below the near-white threshold', () => {
+    const ordered = withWhiteFirst([
+      { hex: '#F4FFFF', count: 5, share: 0.5 },
+      { hex: '#D94F6D', count: 5, share: 0.5 },
+    ]);
+
+    expect(ordered.map((color) => color.hex)).toEqual(['#FFFFFF', '#F4FFFF', '#D94F6D']);
+  });
+});
