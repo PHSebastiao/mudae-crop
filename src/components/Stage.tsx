@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { toHexColor } from '../core/color';
 import { animationFrameCount, isAnimated, type DocumentState } from '../core/document';
-import { formatPlaybackDuration } from '../core/animation';
+import { formatFps, formatPlaybackDuration } from '../core/animation';
 import { formatBytes } from '../core/download';
 import { drawSource, renderFrame } from '../core/render';
 
@@ -420,7 +420,7 @@ export function Stage({
               {doc.source.format.toUpperCase()} · {doc.source.width}×{doc.source.height} ·{' '}
               {formatBytes(doc.source.bytes)} ·{' '}
               {doc.source.video
-                ? `vídeo ${doc.source.video.fps} fps · ${formatPlaybackDuration(doc.source.video.durationMs)}`
+                ? `vídeo ${formatFps(doc.source.video.fps)} fps · ${formatPlaybackDuration(doc.source.video.durationMs)}`
                 : isAnimated(doc.source)
                   ? `animado ${animationFrameCount(doc.source)}f`
                   : 'estático'}

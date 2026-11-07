@@ -10,6 +10,7 @@ import {
 import {
   formatClock,
   formatDuration,
+  formatFps,
   formatPlaybackDuration,
   sampleTrimIndices,
   trimDurationMs,
@@ -86,5 +87,10 @@ describe('Animation trim', () => {
     expect(formatClock(3_661_000)).toBe('61:01');
     expect(formatPlaybackDuration(9_500)).toBe('9,5 s');
     expect(formatPlaybackDuration(65_000)).toBe('1:05');
+  });
+
+  it('formats a detected frame rate with a decimal comma only when needed', () => {
+    expect(formatFps(30)).toBe('30');
+    expect(formatFps(29.97002997)).toBe('29,97');
   });
 });

@@ -37,7 +37,7 @@ cargo check --manifest-path src-tauri/Cargo.toml
 - `verbatimModuleSyntax` is on: type-only imports must use `import type` (and unused locals/params fail typecheck).
 - GIF trim/playback/speed/Export, video import and still WebP import are in place; waifu2x and frame-rate reduction are deliberate placeholders in this slice. ADR-0003 describes the waifu2x target, not current behavior, so disabled controls are not bugs.
 - The saved `trim` only applies while `trimEnabled` is on; Preview, Palette and Export all go through `effectiveTrim`. Speed scales every delay with `effectiveDelayMs`, keeping the 20 ms floor.
-- A video Source is backed by a `VideoSource`: the hidden `<video>` plays natively in Preview, while scrub and Export seek frame by frame. Never pre-extract the whole video; long files must stay bounded.
+- A video Source is backed by a `VideoSource`: its frame rate is detected from the file, the hidden `<video>` plays natively in Preview, and scrub and Export seek frame by frame. Never pre-extract the whole video; long files must stay bounded.
 - Export sizes come from `outputSize`: a custom `resize` or the Frame × 1×/2×. Unlocked aspect deliberately stretches only the final raster; the Crop still never distorts the Source.
 - Exports are PNG or GIF only. PNG of an animation uses the selected frame; GIF keeps trim, speed, resize and loop.
 - Optimize runs gifsicle WASM after our encoder: lossy LZW is the primary lever, color reduction is optional, duplicate frames are merged losslessly, and every candidate is decoded before it can replace the base.

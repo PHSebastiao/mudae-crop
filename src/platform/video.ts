@@ -2,8 +2,54 @@ import type { ImageFormat, VideoSource } from '../core/document';
 import { clampSpeed, isVideoFormat } from '../core/document';
 import { ImportError, mimeFor, type DecodedImage } from '../core/import';
 
-/** GIF-friendly sampling rate for imported video; not user-configurable. */
-export const VIDEO_SAMPLE_FPS = 12;
+const FALLBACK_VIDEO_FPS = 30;
+
+/**
+ * Estimate the video's own frame rate from the first presented frames. The
+ * HTMLVideoElement does not expose fps, so the median mediaTime delta over a
+ * short muted playback is the portable signal. A 60 fps clip keeps 60 fps;
+ * a VFR clip gets its median cadence.
+ */
+function detectFrameRate(video: HTMLVideoElement): Promise<number> {
+  return new Promise((resolve) => {
+    if (typeof video.requestVideoFrameCallback !== 'function') {
+      resolve(FALLBACK_VIDEO_FPS);
+      return;
+    }
+
+    const samples: number[] = [];
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timer);
+      video.removeEventListener('ended', finish);
+      video.pause();
+      const deltas = samples
+        .slice(1)
+        .map((time, index) => time - samples[index])
+        .filter((delta) => delta > 0.001);
+      if (deltas.length < 2) {
+        resolve(FALLBACK_VIDEO_FPS);
+        return;
+      }
+      deltas.sort((a, b) => a - b);
+      const median = deltas[Math.floor(deltas.length / 2)];
+      resolve(Math.min(120, Math.max(1, 1 / median)));
+    };
+    const timer = window.setTimeout(finish, 1200);
+    const onFrame: VideoFrameRequestCallback = (_now, metadata) => {
+      samples.push(metadata.mediaTime);
+      if (samples.length >= 24) finish();
+      else video.requestVideoFrameCallback(onFrame);
+    };
+
+    video.addEventListener('ended', finish, { once: true });
+    video.requestVideoFrameCallback(onFrame);
+    video.playbackRate = 1;
+    void video.play().catch(finish);
+  });
+}
 
 function waitForMetadata(video: HTMLVideoElement): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -74,6 +120,7 @@ export async function decodeVideoWithBrowser(
     if (durationMs <= 0) {
       throw unsupportedVideo('O vídeo não tem duração válida.');
     }
+    const fps = await detectFrameRate(video);
 
     const width = video.videoWidth;
     const height = video.videoHeight;
@@ -91,7 +138,7 @@ export async function decodeVideoWithBrowser(
     let playing = false;
     let disposed = false;
     let loopToken = 0;
-    const frameCount = Math.max(1, Math.ceil((durationMs / 1000) * VIDEO_SAMPLE_FPS));
+    const frameCount = Math.max(1, Math.ceil((durationMs / 1000) * fps));
 
     const seekToMsInternal = (ms: number): Promise<void> =>
       new Promise((resolve, reject) => {
@@ -135,7 +182,7 @@ export async function decodeVideoWithBrowser(
 
     const source: VideoSource = {
       frameCount,
-      fps: VIDEO_SAMPLE_FPS,
+      fps,
       durationMs,
       get image() {
         return canvas;
@@ -143,7 +190,7 @@ export async function decodeVideoWithBrowser(
       get currentTimeMs() {
         return video.currentTime * 1000;
       },
-      seekToFrame: (index) => seekToMsInternal((index / VIDEO_SAMPLE_FPS) * 1000),
+      seekToFrame: (index) => seekToMsInternal((index / fps) * 1000),
       seekToMs: async (ms) => {
         playing = false;
         video.pause();

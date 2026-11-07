@@ -34,7 +34,7 @@ import {
   type Trim,
 } from './core/document';
 import { normalizeHexColor } from './core/color';
-import { formatPlaybackDuration, trimDurationMs } from './core/animation';
+import { formatFps, formatPlaybackDuration, trimDurationMs } from './core/animation';
 import {
   DownloadError,
   downloadErrorMessage,
@@ -1132,7 +1132,7 @@ export default function App() {
         doc.source.bytes,
       )} · ${
         doc.source.video
-          ? `vídeo ${doc.source.video.fps} fps · ${formatPlaybackDuration(doc.source.video.durationMs)}`
+          ? `vídeo ${formatFps(doc.source.video.fps)} fps · ${formatPlaybackDuration(doc.source.video.durationMs)}`
           : sourceAnimated
             ? `animado ${animationFrameCount(doc.source)}f`
             : 'estático'

@@ -78,7 +78,7 @@ function makeVideoFixture(
 }
 
 describe('video Sources', () => {
-  it('count as animations with the internal sampling rate as their delay', () => {
+  it('count as animations with their frame rate as the delay', () => {
     const { source } = makeVideoFixture(8, 8, ['#FF0000', '#00FF00', '#0000FF'], 12);
 
     expect(isAnimated(source)).toBe(true);

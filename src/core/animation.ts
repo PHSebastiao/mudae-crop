@@ -72,3 +72,9 @@ export function formatClock(ms: number): string {
 export function formatPlaybackDuration(ms: number): string {
   return ms >= 60_000 ? formatClock(ms) : formatDuration(ms);
 }
+
+/** A detected video frame rate, without a trailing .0 for integer rates. */
+export function formatFps(fps: number): string {
+  if (!Number.isFinite(fps) || fps <= 0) return '—';
+  return Number.isInteger(fps) ? String(fps) : fps.toFixed(2).replace('.', ',');
+}
