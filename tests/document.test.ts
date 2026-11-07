@@ -11,10 +11,12 @@ import {
   outputSize,
   presetOf,
   swappedFrame,
+  withBorder,
   withCrop,
   withExportScale,
   withFrame,
   withPadColor,
+  withSharpness,
   withSource,
 } from '../src/core/document';
 import { makeDoc, makeSource } from './helpers';
@@ -26,6 +28,9 @@ describe('document', () => {
     expect(doc.frame).toEqual(MUDAE_FRAME);
     expect(doc.crop).toEqual(FIT_CROP);
     expect(doc.padColor).toBe(DEFAULT_PAD_COLOR);
+    expect(doc.padColorExplicit).toBe(false);
+    expect(doc.border).toEqual({ color: '#FFFFFF', width: 1 });
+    expect(doc.sharpness).toBe(0);
     expect(doc.exportScale).toBe(1);
   });
 
@@ -51,17 +56,67 @@ describe('document', () => {
     expect(replaced.crop).toEqual(FIT_CROP);
   });
 
-  it('leaves settings it does not own untouched, ready for Border', () => {
+  it('keeps Border, sharpness and Pad choices when a Source is replaced', () => {
     const first = makeSource(400, 800);
-    const settings = {
-      ...makeDoc(first),
-      border: { width: 2, color: '#ffcc00' },
-    };
+    const settings = withSharpness(
+      withPadColor(
+        withBorder(
+          withFrame(
+            withCrop(makeDoc(first), {
+              mode: 'pad',
+              zoom: 3,
+              offsetX: 40,
+              offsetY: -20,
+              rotation: 90,
+            }),
+            MUDAE_LANDSCAPE_FRAME,
+          ),
+          { color: '#FFCC00', width: 2 },
+        ),
+        '#123456',
+      ),
+      40,
+    );
 
-    const replaced = withSource(settings, makeSource(800, 400)) as typeof settings;
+    const replaced = withSource(settings, makeSource(800, 400));
 
-    expect(replaced.border).toEqual({ width: 2, color: '#ffcc00' });
+    expect(replaced.source).not.toBe(first);
+    expect(replaced.frame).toEqual(MUDAE_LANDSCAPE_FRAME);
+    expect(replaced.padColor).toBe('#123456');
+    expect(replaced.padColorExplicit).toBe(true);
+    expect(replaced.border).toEqual({ color: '#FFCC00', width: 2 });
+    expect(replaced.sharpness).toBe(40);
     expect(replaced.crop).toEqual(FIT_CROP);
+  });
+});
+
+describe('Border and sharpness', () => {
+  it('normalizes the Border color and clamps its width to 0–20', () => {
+    const doc = makeDoc(makeSource(225, 350));
+
+    expect(withBorder(doc, { color: '#aabbcc' }).border).toEqual({
+      color: '#AABBCC',
+      width: 1,
+    });
+    expect(withBorder(doc, { width: 99 }).border.width).toBe(20);
+    expect(withBorder(doc, { width: -3 }).border.width).toBe(0);
+    expect(withBorder(doc, { width: 2.6 }).border.width).toBe(3);
+    expect(withBorder(doc, { color: 'not-a-color' }).border.color).toBe('#FFFFFF');
+  });
+
+  it('keeps the Border color when only the width changes', () => {
+    const doc = withBorder(makeDoc(makeSource(225, 350)), { color: '#112233' });
+
+    expect(withBorder(doc, { width: 4 }).border).toEqual({ color: '#112233', width: 4 });
+  });
+
+  it('clamps sharpness to 0–100 and rounds it', () => {
+    const doc = makeDoc(makeSource(225, 350));
+
+    expect(withSharpness(doc, 140).sharpness).toBe(100);
+    expect(withSharpness(doc, -1).sharpness).toBe(0);
+    expect(withSharpness(doc, 42.6).sharpness).toBe(43);
+    expect(withSharpness(doc, Number.NaN).sharpness).toBe(0);
   });
 });
 

@@ -45,7 +45,7 @@ A 90° step applied to the Source inside the Crop: 0, 90, 180 or 270. The bitmap
 _Avoid_: angle, spin, tilt
 
 **Pad color**:
-The solid color painted wherever a Crop leaves the Frame uncovered. Separate from the Border color.
+The solid color painted wherever a Crop leaves the Frame uncovered. It starts from the Border color the first time Pad is enabled, then changes independently of the Border.
 
 _Avoid_: background, fill color
 
@@ -58,6 +58,11 @@ _Avoid_: stroke, outline, frame line
 The colors judged relevant in the Crop, extracted across every frame of an animation, offered as swatches that set the Border color.
 
 _Avoid_: colors, swatches, dominant colors
+
+**Sharpness**:
+An unsharp mask from 0 (off) to 100 applied to the rendered Crop before the Border.
+
+_Avoid_: sharpen, crispness, blur
 
 **Preset**:
 A named Frame size with its default Export settings: Mudae (225×350) and Square (350×350).

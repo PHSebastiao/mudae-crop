@@ -215,17 +215,6 @@ export function ExportPanel({
           </ul>
         )}
       </section>
-
-      <section className="divided disabled-group">
-        <h4>Borda</h4>
-        <div className="border-preview">
-          <div
-            className="border-pixel"
-            style={{ borderColor: settings.borderColor, borderWidth: settings.borderWidth }}
-          />
-          <div className="caption">prévia da Borda na próxima etapa</div>
-        </div>
-      </section>
     </aside>
   );
 }

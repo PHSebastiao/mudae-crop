@@ -1,4 +1,12 @@
-import { defaultCrop, type Crop, type DocumentState, type Rotation, type ScaleMode } from './document';
+import {
+  defaultCrop,
+  withCrop,
+  withPadColor,
+  type Crop,
+  type DocumentState,
+  type Rotation,
+  type ScaleMode,
+} from './document';
 
 export const MAX_ZOOM = 8;
 
@@ -172,6 +180,18 @@ export function rotate90(doc: DocumentState, crop: Crop): Crop {
 /** A Scale mode change snaps the Crop to that mode's default zoom and centring. */
 export function setScaleMode(crop: Crop, mode: ScaleMode): Crop {
   return defaultCrop(mode, crop.rotation);
+}
+
+/**
+ * Apply a Scale mode to the document. The first time Pad is enabled, its color
+ * starts from the current Border color; after that the two stay independent.
+ */
+export function applyScaleMode(doc: DocumentState, mode: ScaleMode): DocumentState {
+  const next = withCrop(doc, clampCrop(doc, setScaleMode(doc.crop, mode)));
+  if (mode === 'pad' && doc.crop.mode !== 'pad' && !doc.padColorExplicit) {
+    return withPadColor(next, doc.border.color);
+  }
+  return next;
 }
 
 /** Reset zoom, pan and rotation to the current Scale mode's default. */

@@ -2,11 +2,14 @@ import { createHash } from 'node:crypto';
 import { createCanvas, type Canvas, type SKRSContext2D } from '@napi-rs/canvas';
 import { describe, expect, it } from 'vitest';
 import {
+  DEFAULT_BORDER,
   FIT_CROP,
   SQUARE_FRAME,
   defaultCrop,
+  withBorder,
   withCrop,
   withPadColor,
+  withSharpness,
   type DocumentState,
   type Rotation,
 } from '../src/core/document';
@@ -84,10 +87,10 @@ describe('render seam at 1×', () => {
     // At 2× the Source overflows evenly on both axes, so the quadrant
     // boundaries (112 and 175 in Source space) land at −112 and 0 on screen.
     // The four corners therefore still show four different quadrants.
-    expect(Array.from(ctx.getImageData(0, 0, 1, 1).data)).toEqual([0xd9, 0x4f, 0x6d, 255]);
-    expect(Array.from(ctx.getImageData(224, 0, 1, 1).data)).toEqual([0x2b, 0x9c, 0x8f, 255]);
-    expect(Array.from(ctx.getImageData(0, 349, 1, 1).data)).toEqual([0xf0, 0xd7, 0xa8, 255]);
-    expect(Array.from(ctx.getImageData(224, 349, 1, 1).data)).toEqual([0x23, 0x20, 0x2c, 255]);
+    expect(Array.from(ctx.getImageData(2, 2, 1, 1).data)).toEqual([0xd9, 0x4f, 0x6d, 255]);
+    expect(Array.from(ctx.getImageData(222, 2, 1, 1).data)).toEqual([0x2b, 0x9c, 0x8f, 255]);
+    expect(Array.from(ctx.getImageData(2, 347, 1, 1).data)).toEqual([0xf0, 0xd7, 0xa8, 255]);
+    expect(Array.from(ctx.getImageData(222, 347, 1, 1).data)).toEqual([0x23, 0x20, 0x2c, 255]);
   });
 });
 
@@ -154,5 +157,109 @@ describe('rotation', () => {
     // Half a turn swaps opposite quadrants.
     expect(Array.from(ctx.getImageData(10, 10, 1, 1).data)).toEqual([0x23, 0x20, 0x2c, 255]);
     expect(Array.from(ctx.getImageData(340, 340, 1, 1).data)).toEqual([0xd9, 0x4f, 0x6d, 255]);
+  });
+});
+
+function renderContext(
+  doc: DocumentState,
+  width: number,
+  height: number,
+  scale = 1,
+): SKRSContext2D {
+  const canvas = createCanvas(width, height);
+  renderFrame(contextOf(canvas), doc, { scale });
+  return canvas.getContext('2d');
+}
+
+function pixel(ctx: SKRSContext2D, x: number, y: number): number[] {
+  return Array.from(ctx.getImageData(x, y, 1, 1).data);
+}
+
+describe('Border', () => {
+  it('draws the default 1px white Border inside the Frame', () => {
+    const doc = makeDoc(fixtureSource());
+    expect(doc.border).toEqual(DEFAULT_BORDER);
+
+    const ctx = renderContext(doc, 225, 350);
+
+    expect(pixel(ctx, 0, 0)).toEqual([255, 255, 255, 255]);
+    expect(pixel(ctx, 0, 175)).toEqual([255, 255, 255, 255]);
+    expect(pixel(ctx, 112, 0)).toEqual([255, 255, 255, 255]);
+    expect(pixel(ctx, 224, 349)).toEqual([255, 255, 255, 255]);
+    expect(pixel(ctx, 1, 1)).toEqual([0xd9, 0x4f, 0x6d, 255]);
+  });
+
+  it('scales the Border width with the Export scale', () => {
+    const doc = makeDoc(fixtureSource());
+    const one = renderContext(doc, 225, 350, 1);
+    const two = renderContext(doc, 450, 700, 2);
+
+    // At 1× only pixel 0 is Border; at 2× the 2px stroke covers 0 and 1.
+    expect(pixel(one, 0, 0)).toEqual([255, 255, 255, 255]);
+    expect(pixel(one, 1, 1)).toEqual([0xd9, 0x4f, 0x6d, 255]);
+    expect(pixel(two, 1, 1)).toEqual([255, 255, 255, 255]);
+    expect(pixel(two, 2, 2)).toEqual([0xd9, 0x4f, 0x6d, 255]);
+  });
+
+  it('draws nothing when the width is 0', () => {
+    const doc = withBorder(makeDoc(fixtureSource()), { width: 0 });
+    const ctx = renderContext(doc, 225, 350);
+
+    expect(pixel(ctx, 0, 0)).toEqual([0xd9, 0x4f, 0x6d, 255]);
+    expect(pixel(ctx, 224, 349)).toEqual([0x23, 0x20, 0x2c, 255]);
+  });
+
+  it('stays aligned to the Frame when the Source is rotated', () => {
+    const doc = {
+      ...withBorder(makeDoc(makeSource(350, 350, paintQuadrants)), {
+        color: '#FF0000',
+        width: 4,
+      }),
+      frame: SQUARE_FRAME,
+      crop: defaultCrop('fit', 90),
+    };
+    const ctx = renderContext(doc, 350, 350);
+
+    expect(pixel(ctx, 0, 0)).toEqual([255, 0, 0, 255]);
+    expect(pixel(ctx, 2, 2)).toEqual([255, 0, 0, 255]);
+    expect(pixel(ctx, 175, 0)).toEqual([255, 0, 0, 255]);
+    expect(pixel(ctx, 349, 175)).toEqual([255, 0, 0, 255]);
+    expect(pixel(ctx, 6, 6)).toEqual([0xf0, 0xd7, 0xa8, 255]);
+  });
+});
+
+describe('Sharpness', () => {
+  function edgeDoc(): DocumentState {
+    const source = makeSource(225, 350, (ctx) => {
+      ctx.fillStyle = '#282828';
+      ctx.fillRect(0, 0, 112, 350);
+      ctx.fillStyle = '#C8C8C8';
+      ctx.fillRect(112, 0, 113, 350);
+    });
+    return makeDoc(source);
+  }
+
+  it('sharpens the rendered Crop before the Border', () => {
+    const flat = renderContext(edgeDoc(), 225, 350);
+    const sharp = renderContext(withSharpness(edgeDoc(), 100), 225, 350);
+
+    expect(pixel(sharp, 111, 175)[0]).toBeLessThan(pixel(flat, 111, 175)[0]);
+    expect(pixel(sharp, 112, 175)[0]).toBeGreaterThan(pixel(flat, 112, 175)[0]);
+
+    const bordered = withBorder(withSharpness(edgeDoc(), 100), {
+      color: '#FF0000',
+      width: 4,
+    });
+    const ctx = renderContext(bordered, 225, 350);
+    expect(pixel(ctx, 0, 0)).toEqual([255, 0, 0, 255]);
+    expect(pixel(ctx, 3, 3)).toEqual([255, 0, 0, 255]);
+  });
+
+  it('is deterministic and a no-op at 0', () => {
+    const doc = edgeDoc();
+    expect(hashOf(withSharpness(doc, 0), 225, 350)).toBe(hashOf(doc, 225, 350));
+    expect(hashOf(withSharpness(edgeDoc(), 60), 225, 350)).toBe(
+      hashOf(withSharpness(edgeDoc(), 60), 225, 350),
+    );
   });
 });

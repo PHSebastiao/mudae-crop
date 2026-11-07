@@ -1,5 +1,6 @@
 import { createCanvas, type Canvas, type SKRSContext2D } from '@napi-rs/canvas';
 import {
+  DEFAULT_BORDER,
   DEFAULT_PAD_COLOR,
   FIT_CROP,
   MUDAE_FRAME,
@@ -39,6 +40,9 @@ export function makeDoc(source: Source | null): DocumentState {
     frame: MUDAE_FRAME,
     crop: FIT_CROP,
     padColor: DEFAULT_PAD_COLOR,
+    padColorExplicit: false,
+    border: DEFAULT_BORDER,
+    sharpness: 0,
     exportScale: 1,
   };
 }

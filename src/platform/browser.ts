@@ -2,6 +2,7 @@ import type { ImageFormat } from '../core/document';
 import type { DecodedImage, Decoder } from '../core/import';
 import { mimeFor } from '../core/import';
 import { ExportError, type EncodableCanvas, type ExportAdapter } from '../core/export';
+import type { PaletteAdapter } from '../core/palette';
 
 export const decodeWithBrowser: Decoder = async (
   bytes: Uint8Array,
@@ -31,4 +32,8 @@ export const browserExportAdapter: ExportAdapter = {
     if (!blob) throw new ExportError('Falha ao codificar o PNG.');
     return new Uint8Array(await blob.arrayBuffer());
   },
+};
+
+export const browserPaletteAdapter: PaletteAdapter = {
+  createCanvas: (width, height) => canvasFrom({ width, height }),
 };

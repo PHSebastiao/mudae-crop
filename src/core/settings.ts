@@ -1,5 +1,6 @@
-import type { ExportScale } from './document';
+import { DEFAULT_BORDER, clampBorderWidth, type ExportScale } from './document';
 import { isPostId, type Privacy } from './imagechest';
+import { normalizeHexColor } from './color';
 import { asRecord, parseJson } from './json';
 
 /** Stills are PNG today; JPG is stored ahead of the Export format control. */
@@ -25,15 +26,13 @@ export const DEFAULT_SETTINGS: Settings = Object.freeze({
   defaultPrivacy: 'hidden',
   appendPostId: '',
   saveFolder: null,
-  borderColor: '#FFFFFF',
-  borderWidth: 1,
+  borderColor: DEFAULT_BORDER.color,
+  borderWidth: DEFAULT_BORDER.width,
   exportFormat: 'png',
   exportScale: 1,
 });
 
 const PRIVACY: ReadonlyArray<Privacy> = ['public', 'hidden', 'secret'];
-const HEX_COLOR = /^#[0-9a-f]{6}$/i;
-const MAX_BORDER_WIDTH = 20;
 
 function readString(value: unknown): string | null {
   return typeof value === 'string' ? value : null;
@@ -57,7 +56,7 @@ function readBorderWidth(value: unknown): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
     return DEFAULT_SETTINGS.borderWidth;
   }
-  return Math.min(MAX_BORDER_WIDTH, Math.max(0, Math.round(value)));
+  return clampBorderWidth(value);
 }
 
 function readFolder(value: unknown): string | null {
@@ -80,15 +79,14 @@ export function parseSettings(raw: string | null | undefined): Settings {
   if (!data) return { ...DEFAULT_SETTINGS };
 
   const token = readString(data.token)?.trim() ?? DEFAULT_SETTINGS.token;
-  const borderColor = readString(data.borderColor)?.trim() ?? '';
+  const borderColor =
+    normalizeHexColor(readString(data.borderColor) ?? '') ?? DEFAULT_SETTINGS.borderColor;
   return {
     token,
     defaultPrivacy: readPrivacy(data.defaultPrivacy),
     appendPostId: readPostId(data.appendPostId),
     saveFolder: readFolder(data.saveFolder),
-    borderColor: HEX_COLOR.test(borderColor)
-      ? borderColor.toUpperCase()
-      : DEFAULT_SETTINGS.borderColor,
+    borderColor,
     borderWidth: readBorderWidth(data.borderWidth),
     exportFormat: readFormat(data.exportFormat),
     exportScale: readScale(data.exportScale),

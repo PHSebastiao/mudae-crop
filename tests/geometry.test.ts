@@ -4,9 +4,12 @@ import {
   MUDAE_FRAME,
   SQUARE_FRAME,
   defaultCrop,
+  withBorder,
   withCrop,
+  withPadColor,
 } from '../src/core/document';
 import {
+  applyScaleMode,
   clampCrop,
   clampZoom,
   effectiveScale,
@@ -220,5 +223,36 @@ describe('mode defaults', () => {
   it('starts from the Mudae Frame', () => {
     expect(makeDoc(null).frame).toEqual(MUDAE_FRAME);
     expect(defaultCrop()).toEqual(FIT_CROP);
+  });
+});
+
+describe('Pad default from the Border', () => {
+  it('copies the Border color the first time Pad is enabled', () => {
+    const doc = withBorder(makeDoc(makeSource(400, 800)), { color: '#123456', width: 2 });
+
+    const padded = applyScaleMode(doc, 'pad');
+
+    expect(padded.crop.mode).toBe('pad');
+    expect(padded.padColor).toBe('#123456');
+    expect(padded.padColorExplicit).toBe(true);
+  });
+
+  it('keeps a Pad color the user chose before enabling Pad', () => {
+    const doc = withPadColor(makeDoc(makeSource(400, 800)), '#FF0000');
+
+    const padded = applyScaleMode(doc, 'pad');
+
+    expect(padded.padColor).toBe('#FF0000');
+  });
+
+  it('does not copy the Border again after Pad was first enabled', () => {
+    const first = applyScaleMode(
+      withBorder(makeDoc(makeSource(400, 800)), { color: '#112233' }),
+      'pad',
+    );
+    const fitted = applyScaleMode(first, 'fit');
+    const again = applyScaleMode(withBorder(fitted, { color: '#445566' }), 'pad');
+
+    expect(again.padColor).toBe('#112233');
   });
 });

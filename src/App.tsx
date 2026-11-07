@@ -1,22 +1,26 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { downloadDir, join } from '@tauri-apps/api/path';
 import {
+  clampBorderWidth,
   emptyDocument,
   frameFor,
   orientationOf,
   outputSize,
   presetOf,
   swappedFrame,
+  withBorder,
   withCrop,
   withExportScale,
   withFrame,
   withPadColor,
+  withSharpness,
   withSource,
   type DocumentState,
   type ExportScale,
   type Frame,
   type ScaleMode,
 } from './core/document';
+import { normalizeHexColor } from './core/color';
 import {
   DownloadError,
   downloadErrorMessage,
@@ -25,8 +29,16 @@ import {
   sourceUrlFrom,
 } from './core/download';
 import { renderPng } from './core/export';
-import { clampCrop, panBy, resetCrop, rotate90, setScaleMode, zoomAt } from './core/geometry';
+import {
+  applyScaleMode,
+  clampCrop,
+  panBy,
+  resetCrop,
+  rotate90,
+  zoomAt,
+} from './core/geometry';
 import { importErrorMessage, loadSource, type SourceCandidate } from './core/import';
+import { extractPalette, type PaletteColor } from './core/palette';
 import {
   appendHistory,
   type ExportEntry,
@@ -43,7 +55,7 @@ import {
 import { exportFileName, postTitle } from './core/naming';
 import { loadHistory, loadSettings, saveHistory, saveSettings } from './core/config';
 import { DEFAULT_SETTINGS, type Settings } from './core/settings';
-import { browserExportAdapter, decodeWithBrowser } from './platform/browser';
+import { browserExportAdapter, browserPaletteAdapter, decodeWithBrowser } from './platform/browser';
 import { configStore } from './platform/config';
 import { tauriImageChestTransport } from './platform/imagechest';
 import { copyText, openExternal, revealInExplorer } from './platform/system';
@@ -90,6 +102,8 @@ export default function App() {
   const [testingToken, setTestingToken] = useState(false);
   const [tokenResult, setTokenResult] = useState<TokenTestResult | null>(null);
   const [appendPostId, setAppendPostId] = useState('');
+  const [palette, setPalette] = useState<readonly PaletteColor[]>([]);
+  const [paletteVersion, setPaletteVersion] = useState(0);
   const [cooldownSeconds, setCooldownSeconds] = useState(0);
   const [downloadProgress, setDownloadProgress] = useState<{
     received: number;
@@ -139,11 +153,27 @@ export default function App() {
 
   const persistSettings = useCallback(
     (patch: Partial<Settings>) => {
-      const next = { ...settingsRef.current, ...patch };
+      const borderColor =
+        patch.borderColor !== undefined
+          ? (normalizeHexColor(patch.borderColor) ?? settingsRef.current.borderColor)
+          : settingsRef.current.borderColor;
+      const borderWidth =
+        patch.borderWidth !== undefined
+          ? clampBorderWidth(patch.borderWidth)
+          : settingsRef.current.borderWidth;
+      const next: Settings = { ...settingsRef.current, ...patch, borderColor, borderWidth };
       settingsRef.current = next;
       setSettings(next);
       if (patch.exportScale !== undefined) {
         setDoc((current) => withExportScale(current, patch.exportScale as ExportScale));
+      }
+      if (patch.borderColor !== undefined || patch.borderWidth !== undefined) {
+        setDoc((current) =>
+          withBorder(current, {
+            color: borderColor,
+            width: borderWidth,
+          }),
+        );
       }
       if (patch.token !== undefined) setTokenResult(null);
       void saveSettings(configStore, next).catch((reason) => {
@@ -178,7 +208,12 @@ export default function App() {
       setHistory(savedHistory);
       appendPostIdRef.current = savedSettings.appendPostId;
       setAppendPostId(savedSettings.appendPostId);
-      setDoc((current) => withExportScale(current, savedSettings.exportScale));
+      setDoc((current) =>
+        withBorder(withExportScale(current, savedSettings.exportScale), {
+          color: savedSettings.borderColor,
+          width: savedSettings.borderWidth,
+        }),
+      );
     })().catch((reason) => {
       if (!alive) return;
       fail(`Não foi possível ler as Configurações; usando os padrões. ${messageOf(reason)}`);
@@ -187,6 +222,24 @@ export default function App() {
       alive = false;
     };
   }, [fail]);
+
+  // The Palette follows the Crop, Frame, Pad color and sharpness. It is
+  // debounced so dragging or zooming does not sample on every pointer move,
+  // and the Border is deliberately not a dependency.
+  useEffect(() => {
+    if (!doc.source) {
+      setPalette([]);
+      return;
+    }
+    const timer = setTimeout(() => {
+      try {
+        setPalette(extractPalette(docRef.current, browserPaletteAdapter));
+      } catch {
+        setPalette([]);
+      }
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [doc.source, doc.frame, doc.crop, doc.padColor, doc.sharpness, paletteVersion]);
 
   const refuseBecauseBusy = useCallback(() => {
     fail('Termine a operação em andamento antes de importar outra Source.');
@@ -547,7 +600,7 @@ export default function App() {
     }
   }, [persistSettings]);
 
-  const copyHistoryValue = useCallback(
+  const copyValue = useCallback(
     async (value: string) => {
       try {
         await copyText(value);
@@ -599,9 +652,7 @@ export default function App() {
   }, []);
 
   const changeMode = useCallback((mode: ScaleMode) => {
-    setDoc((current) =>
-      withCrop(current, clampCrop(current, setScaleMode(current.crop, mode))),
-    );
+    setDoc((current) => applyScaleMode(current, mode));
   }, []);
 
   const changeZoom = useCallback((zoom: number) => {
@@ -616,6 +667,14 @@ export default function App() {
 
   const changePadColor = useCallback((padColor: string) => {
     setDoc((current) => withPadColor(current, padColor));
+  }, []);
+
+  const changeSharpness = useCallback((sharpness: number) => {
+    setDoc((current) => withSharpness(current, sharpness));
+  }, []);
+
+  const recalcPalette = useCallback(() => {
+    setPaletteVersion((value) => value + 1);
   }, []);
 
   const changeExportScale = useCallback(
@@ -847,6 +906,7 @@ export default function App() {
           onPadColor={changePadColor}
           onRotate={rotate}
           onResetCrop={reset}
+          onSharpness={changeSharpness}
         />
         <Stage
           doc={doc}
@@ -880,14 +940,22 @@ export default function App() {
           onCommitAppendPostId={commitAppendPostId}
           onUpload={handleUpload}
           onOpenSettings={openSettings}
-          onCopyText={(value) => void copyHistoryValue(value)}
+          onCopyText={(value) => void copyValue(value)}
           onOpenLink={(value) => void openHistoryLink(value)}
           onRevealPath={(value) => void revealHistoryFile(value)}
           onClearHistory={clearHistory}
         />
       </main>
 
-      <BorderBar />
+      <BorderBar
+        border={doc.border}
+        palette={palette}
+        hasSource={doc.source !== null}
+        onColor={(color) => persistSettings({ borderColor: color })}
+        onWidth={(width) => persistSettings({ borderWidth: width })}
+        onCopy={(hex) => void copyValue(hex)}
+        onRecalc={recalcPalette}
+      />
 
       {settingsOpen && (
         <SettingsDialog

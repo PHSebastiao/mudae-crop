@@ -1,4 +1,8 @@
-import type { DocumentState, ScaleMode } from '../core/document';
+import {
+  MAX_SHARPNESS,
+  type DocumentState,
+  type ScaleMode,
+} from '../core/document';
 import { NumberField } from './NumberField';
 
 interface ToolRailProps {
@@ -9,6 +13,7 @@ interface ToolRailProps {
   readonly onPadColor: (color: string) => void;
   readonly onRotate: () => void;
   readonly onResetCrop: () => void;
+  readonly onSharpness: (sharpness: number) => void;
 }
 
 export function ToolRail({
@@ -19,6 +24,7 @@ export function ToolRail({
   onPadColor,
   onRotate,
   onResetCrop,
+  onSharpness,
 }: ToolRailProps) {
   const hasSource = doc.source !== null;
   const mode = doc.crop.mode;
@@ -119,12 +125,24 @@ export function ToolRail({
         </button>
       </div>
 
-      <div className="group disabled-group">
-        <div className="label">Borda</div>
+      <div className="group">
+        <div className="label">Nitidez</div>
         <div className="row">
-          <span className="key">width</span>
-          <span className="pill">1 px</span>
+          <span className="key">sharpness</span>
+          <span className="pill">{doc.sharpness}</span>
         </div>
+        <input
+          className="slider"
+          type="range"
+          min={0}
+          max={MAX_SHARPNESS}
+          step={1}
+          value={doc.sharpness}
+          onChange={(event) => onSharpness(Number(event.target.value))}
+          aria-label="Nitidez"
+          disabled={!hasSource}
+        />
+        <p className="rail-hint">unsharp mask · 0 desliga</p>
       </div>
 
       <div className="group disabled-group">

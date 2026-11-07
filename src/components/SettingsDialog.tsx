@@ -193,7 +193,7 @@ export function SettingsDialog({
         </section>
 
         <section>
-          <h3>Borda padrão</h3>
+          <h3>Borda</h3>
           <div className="settings-row">
             <span className="settings-key">Cor</span>
             <span className="settings-color">
@@ -202,7 +202,7 @@ export function SettingsDialog({
                 className="color"
                 value={settings.borderColor}
                 onChange={(event) => onChange({ borderColor: event.target.value.toUpperCase() })}
-                aria-label="Cor padrão da Borda"
+                aria-label="Cor da Borda"
               />
               <code>{settings.borderColor}</code>
             </span>
@@ -213,14 +213,14 @@ export function SettingsDialog({
               <NumberField
                 value={settings.borderWidth}
                 onCommit={(borderWidth) => onChange({ borderWidth })}
-                label="Largura padrão da Borda"
+                label="Largura da Borda"
               />
               <span className="unit">px</span>
             </span>
           </div>
           <p className="settings-hint">
-            A Borda desenhada no Export chega na etapa de Borda e Palette; estes valores são os
-            padrões guardados.
+            A Borda é desenhada no Export e escala junto com a escala do Export; estes valores
+            também são guardados para a próxima sessão.
           </p>
         </section>
 

@@ -1,3 +1,5 @@
+import { normalizeHexColor } from './color';
+
 export type ImageFormat = 'png' | 'jpg' | 'gif';
 
 /**
@@ -98,12 +100,36 @@ export type ExportScale = 1 | 2;
 
 export const DEFAULT_PAD_COLOR = '#FFFFFF';
 
+export const MAX_BORDER_WIDTH = 20;
+export const MAX_SHARPNESS = 100;
+
+export interface Border {
+  readonly color: string;
+  readonly width: number;
+}
+
+export const DEFAULT_BORDER: Border = Object.freeze({
+  color: '#FFFFFF',
+  width: 1,
+});
+
+export function clampBorderWidth(width: number): number {
+  if (!Number.isFinite(width)) return 0;
+  return Math.min(MAX_BORDER_WIDTH, Math.max(0, Math.round(width)));
+}
+
 export interface DocumentState {
   readonly source: Source | null;
   readonly frame: Frame;
   readonly crop: Crop;
-  /** Fills the area the Crop leaves uncovered, and is never the Border color. */
+  /** Fills the area the Crop leaves uncovered. It starts from the Border color
+   * when Pad is first enabled, then stays independent of later Border changes. */
   readonly padColor: string;
+  /** True once the user (or the Pad default) chose a Pad color. */
+  readonly padColorExplicit: boolean;
+  readonly border: Border;
+  /** Unsharp-mask strength from 0 (off) to 100. */
+  readonly sharpness: number;
   readonly exportScale: ExportScale;
 }
 
@@ -113,13 +139,16 @@ export function emptyDocument(): DocumentState {
     frame: MUDAE_FRAME,
     crop: FIT_CROP,
     padColor: DEFAULT_PAD_COLOR,
+    padColorExplicit: false,
+    border: DEFAULT_BORDER,
+    sharpness: 0,
     exportScale: 1,
   };
 }
 
 /**
- * Replacing a Source keeps the Frame, Pad color and Export settings while
- * resetting only the Crop, so a batch of similar images can be processed
+ * Replacing a Source keeps the Frame, Pad color, Border and Export settings
+ * while resetting only the Crop, so a batch of similar images can be processed
  * quickly.
  */
 export function withSource(doc: DocumentState, source: Source): DocumentState {
@@ -135,7 +164,28 @@ export function withFrame(doc: DocumentState, frame: Frame): DocumentState {
 }
 
 export function withPadColor(doc: DocumentState, padColor: string): DocumentState {
-  return { ...doc, padColor };
+  return {
+    ...doc,
+    padColor: normalizeHexColor(padColor) ?? doc.padColor,
+    padColorExplicit: true,
+  };
+}
+
+export function withBorder(doc: DocumentState, patch: Partial<Border>): DocumentState {
+  const color =
+    patch.color !== undefined
+      ? (normalizeHexColor(patch.color) ?? doc.border.color)
+      : doc.border.color;
+  const width = patch.width !== undefined ? clampBorderWidth(patch.width) : doc.border.width;
+  if (color === doc.border.color && width === doc.border.width) return doc;
+  return { ...doc, border: { color, width } };
+}
+
+export function withSharpness(doc: DocumentState, sharpness: number): DocumentState {
+  const next = Number.isFinite(sharpness)
+    ? Math.min(MAX_SHARPNESS, Math.max(0, Math.round(sharpness)))
+    : 0;
+  return next === doc.sharpness ? doc : { ...doc, sharpness: next };
 }
 
 export function withExportScale(doc: DocumentState, exportScale: ExportScale): DocumentState {

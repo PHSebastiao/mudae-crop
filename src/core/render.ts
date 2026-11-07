@@ -1,17 +1,29 @@
 import type { DocumentState } from './document';
 import { sourceRect } from './geometry';
+import { applyUnsharpMask } from './sharpen';
 
 /**
  * The minimal 2D context surface the render seam needs. Both the browser
  * canvas and the test canvas satisfy it.
  */
+export interface ImageDataLike {
+  readonly data: Uint8ClampedArray;
+  readonly width: number;
+  readonly height: number;
+}
+
 export interface RenderContext {
   imageSmoothingEnabled: boolean;
   imageSmoothingQuality: 'low' | 'medium' | 'high';
   fillStyle: string | CanvasGradient | CanvasPattern;
+  strokeStyle: string | CanvasGradient | CanvasPattern;
+  lineWidth: number;
   fillRect(x: number, y: number, width: number, height: number): void;
+  strokeRect(x: number, y: number, width: number, height: number): void;
   clearRect(x: number, y: number, width: number, height: number): void;
   drawImage(image: CanvasImageSource, dx: number, dy: number, dw: number, dh: number): void;
+  getImageData(x: number, y: number, width: number, height: number): ImageDataLike;
+  putImageData(image: ImageDataLike, dx: number, dy: number): void;
   save(): void;
   restore(): void;
   translate(x: number, y: number): void;
@@ -21,6 +33,10 @@ export interface RenderContext {
 export interface RenderOptions {
   /** Output scale relative to the Frame: 1 for a 1× Export, display scale for Preview. */
   readonly scale: number;
+  /** Palette sampling skips the Border; Preview and Export draw it. */
+  readonly border?: boolean;
+  /** Palette sampling skips sharpening; Preview and Export apply it. */
+  readonly sharpness?: boolean;
 }
 
 export function prepareContext(ctx: RenderContext): void {
@@ -90,4 +106,40 @@ export function renderFrame(
   }
 
   drawSource(ctx, doc, scale);
+
+  // Enhancement runs on the rendered Crop, before the Border is drawn.
+  if (options.sharpness !== false && doc.sharpness > 0) {
+    const pixelsWide = Math.max(1, Math.round(width));
+    const pixelsHigh = Math.max(1, Math.round(height));
+    const image = ctx.getImageData(0, 0, pixelsWide, pixelsHigh);
+    applyUnsharpMask(
+      image.data,
+      image.width,
+      image.height,
+      doc.sharpness,
+      Math.max(1, Math.round(scale)),
+    );
+    ctx.putImageData(image, 0, 0);
+  }
+
+  if (options.border !== false && doc.border.width > 0) {
+    drawBorder(ctx, doc, scale);
+  }
+}
+
+/**
+ * The Border is stroked inside the Frame edge, in Frame pixels at the output
+ * scale. It is drawn after the Source transform is restored, so rotation can
+ * never tilt it.
+ */
+function drawBorder(ctx: RenderContext, doc: DocumentState, scale: number): void {
+  const stroke = doc.border.width * scale;
+  const width = doc.frame.width * scale;
+  const height = doc.frame.height * scale;
+  const inset = stroke / 2;
+  ctx.save();
+  ctx.strokeStyle = doc.border.color;
+  ctx.lineWidth = stroke;
+  ctx.strokeRect(inset, inset, width - stroke, height - stroke);
+  ctx.restore();
 }
