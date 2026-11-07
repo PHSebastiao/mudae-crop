@@ -1,5 +1,7 @@
+import { useEffect, useRef, useState, type RefObject } from 'react';
 import { outputSize, type DocumentState, type ExportScale } from '../core/document';
-import { formatHistoryDate, type HistoryEntry } from '../core/history';
+import { formatHistoryDate, type ExportEntry, type HistoryEntry } from '../core/history';
+import type { HistoryPreviewLoader } from '../core/historyPreview';
 import { isPostId } from '../core/imagechest';
 import type { Settings } from '../core/settings';
 
@@ -10,6 +12,7 @@ interface ExportPanelProps {
   readonly uploading: boolean;
   readonly settings: Settings;
   readonly history: readonly HistoryEntry[];
+  readonly preview: HistoryPreviewLoader;
   readonly cooldownSeconds: number;
   readonly appendPostId: string;
   readonly onExport: () => void;
@@ -24,6 +27,100 @@ interface ExportPanelProps {
   readonly onClearHistory: () => void;
 }
 
+interface ExportRowProps {
+  readonly entry: ExportEntry;
+  readonly preview: HistoryPreviewLoader;
+  readonly root: RefObject<HTMLUListElement | null>;
+  readonly onCopyText: (value: string) => void;
+  readonly onRevealPath: (path: string) => void;
+}
+
+/**
+ * An Export row reads its file only once the row is near the visible part of
+ * the History list. The chip stays in place while the read is in flight, and
+ * becomes the permanent fallback when the file is gone or cannot be decoded.
+ */
+function ExportRow({ entry, preview, root, onCopyText, onRevealPath }: ExportRowProps) {
+  const rowRef = useRef<HTMLLIElement | null>(null);
+  const [url, setUrl] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    if (url || failed) return;
+    const row = rowRef.current;
+    if (!row) return;
+
+    let alive = true;
+    const startRead = () => {
+      void preview.load(entry).then(
+        (next) => {
+          if (alive) setUrl(next);
+        },
+        () => {
+          if (alive) setFailed(true);
+        },
+      );
+    };
+
+    if (typeof IntersectionObserver === 'undefined') {
+      startRead();
+      return () => {
+        alive = false;
+      };
+    }
+
+    const observer = new IntersectionObserver(
+      (records) => {
+        if (!records.some((record) => record.isIntersecting)) return;
+        observer.disconnect();
+        startRead();
+      },
+      { root: root.current, rootMargin: '80px' },
+    );
+    observer.observe(row);
+    return () => {
+      alive = false;
+      observer.disconnect();
+    };
+  }, [entry, failed, preview, root, url]);
+
+  const format = entry.format.toUpperCase();
+
+  return (
+    <li ref={rowRef}>
+      {url && !failed ? (
+        <img src={url} alt="" loading="lazy" onError={() => setFailed(true)} />
+      ) : (
+        <span className="history-file">{format}</span>
+      )}
+      <div className="history-body">
+        <span className="history-link" title={entry.path}>
+          {entry.fileName}
+        </span>
+        <span className="history-meta" title={entry.path}>
+          {entry.path}
+        </span>
+        <span className="history-meta">
+          {format} · {entry.width}×{entry.height}
+        </span>
+        <span className="history-meta">{formatHistoryDate(entry.createdAt)}</span>
+        <span className="history-actions">
+          <button type="button" onClick={() => onCopyText(entry.path)} title="Copiar caminho">
+            copiar
+          </button>
+          <button
+            type="button"
+            onClick={() => onRevealPath(entry.path)}
+            title="Abrir no Explorador"
+          >
+            explorador
+          </button>
+        </span>
+      </div>
+    </li>
+  );
+}
+
 export function ExportPanel({
   doc,
   busy,
@@ -31,6 +128,7 @@ export function ExportPanel({
   uploading,
   settings,
   history,
+  preview,
   cooldownSeconds,
   appendPostId,
   onExport,
@@ -55,6 +153,13 @@ export function ExportPanel({
     : busy && !uploading
       ? 'Exportando…'
       : `Exportar PNG ${doc.exportScale}×`;
+  const listRef = useRef<HTMLUListElement | null>(null);
+
+  // Clearing the History, or the 50-entry cap evicting an old row, releases
+  // that row's object URL. Rows still in the list keep their cached thumbnail.
+  useEffect(() => {
+    preview.retain(history.filter((entry): entry is ExportEntry => entry.kind === 'export'));
+  }, [history, preview]);
 
   return (
     <aside className="panel">
@@ -159,7 +264,7 @@ export function ExportPanel({
         {history.length === 0 ? (
           <p className="panel-hint">Nenhum upload ou Export ainda.</p>
         ) : (
-          <ul className="history">
+          <ul className="history" ref={listRef}>
             {history.map((entry) =>
               entry.kind === 'upload' ? (
                 <li key={`upload-${entry.imageId}-${entry.createdAt}`}>
@@ -183,33 +288,14 @@ export function ExportPanel({
                   </div>
                 </li>
               ) : (
-                <li key={`export-${entry.path}-${entry.createdAt}`}>
-                  <span className="history-file">{entry.format.toUpperCase()}</span>
-                  <div className="history-body">
-                    <span className="history-link" title={entry.path}>
-                      {entry.fileName}
-                    </span>
-                    <span className="history-meta" title={entry.path}>
-                      {entry.path}
-                    </span>
-                    <span className="history-meta">
-                      {entry.format.toUpperCase()} · {entry.width}×{entry.height}
-                    </span>
-                    <span className="history-meta">{formatHistoryDate(entry.createdAt)}</span>
-                    <span className="history-actions">
-                      <button type="button" onClick={() => onCopyText(entry.path)} title="Copiar caminho">
-                        copiar
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onRevealPath(entry.path)}
-                        title="Abrir no Explorador"
-                      >
-                        explorador
-                      </button>
-                    </span>
-                  </div>
-                </li>
+                <ExportRow
+                  key={`export-${entry.path}-${entry.createdAt}`}
+                  entry={entry}
+                  preview={preview}
+                  root={listRef}
+                  onCopyText={onCopyText}
+                  onRevealPath={onRevealPath}
+                />
               ),
             )}
           </ul>

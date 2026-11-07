@@ -1,4 +1,5 @@
 use std::collections::{HashMap, VecDeque};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -98,6 +99,36 @@ fn write_file_bytes(path: String, contents: Vec<u8>) -> Result<(), String> {
         return Err("O caminho escolhido é uma pasta, não um arquivo.".into());
     }
     std::fs::write(&path, contents).map_err(|error| error.to_string())
+}
+
+/// Read a saved Export so its History row can show a thumbnail. The file lives
+/// wherever the save dialog wrote it, outside the web root, so the bytes cross
+/// through the native side. Missing paths, folders and files over the Image
+/// Chest ceiling are refused.
+#[tauri::command]
+async fn read_export_bytes(path: String) -> Result<tauri::ipc::Response, String> {
+    read_export_preview(Path::new(&path), MAX_DOWNLOAD_BYTES).map(tauri::ipc::Response::new)
+}
+
+fn read_export_preview(path: &Path, max_bytes: u64) -> Result<Vec<u8>, String> {
+    if !path.is_absolute() {
+        return Err("O caminho do Export precisa ser absoluto.".into());
+    }
+    let file = std::fs::File::open(path).map_err(|error| error.to_string())?;
+    let metadata = file.metadata().map_err(|error| error.to_string())?;
+    if !metadata.is_file() {
+        return Err("O caminho do Export não é um arquivo.".into());
+    }
+    // Read one byte past the cap, so a file that grows after the metadata check
+    // is still refused instead of being loaded whole.
+    let mut bytes = Vec::with_capacity(metadata.len().min(max_bytes) as usize);
+    file.take(max_bytes + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|error| error.to_string())?;
+    if bytes.len() as u64 > max_bytes {
+        return Err("O arquivo do Export é grande demais para a prévia.".into());
+    }
+    Ok(bytes)
 }
 
 /// Fetch a Source from a URL on the native side, so CORS never applies. The
@@ -383,6 +414,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             read_file_bytes,
             write_file_bytes,
+            read_export_bytes,
             download_source,
             cancel_download,
             read_config,
@@ -407,5 +439,49 @@ mod tests {
         assert_eq!(config_file_name("uploads"), None);
         assert_eq!(config_file_name("../settings"), None);
         assert_eq!(config_file_name("other"), None);
+    }
+
+    fn temp_path(name: &str) -> PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!(
+            "mudae-crop-{}-{}-{}",
+            std::process::id(),
+            nanos,
+            name
+        ))
+    }
+
+    #[test]
+    fn export_preview_refuses_missing_and_relative_paths() {
+        assert!(read_export_preview(&temp_path("missing.png"), MAX_DOWNLOAD_BYTES).is_err());
+        assert!(read_export_preview(Path::new("relative.png"), MAX_DOWNLOAD_BYTES).is_err());
+    }
+
+    #[test]
+    fn export_preview_refuses_a_directory() {
+        assert!(read_export_preview(&std::env::temp_dir(), MAX_DOWNLOAD_BYTES).is_err());
+    }
+
+    #[test]
+    fn export_preview_reads_a_file_under_the_cap() {
+        let path = temp_path("read.png");
+        std::fs::write(&path, [1u8, 2, 3]).unwrap();
+
+        let bytes = read_export_preview(&path, MAX_DOWNLOAD_BYTES).unwrap();
+
+        assert_eq!(bytes, vec![1, 2, 3]);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn export_preview_caps_the_read() {
+        let path = temp_path("big.png");
+        std::fs::write(&path, [0u8; 16]).unwrap();
+
+        assert!(read_export_preview(&path, 8).is_err());
+        let _ = std::fs::remove_file(&path);
     }
 }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { downloadDir, join } from '@tauri-apps/api/path';
 import {
   clampBorderWidth,
@@ -45,6 +45,7 @@ import {
   type HistoryEntry,
   type UploadEntry,
 } from './core/history';
+import { createHistoryPreviewLoader } from './core/historyPreview';
 import {
   IMAGE_CHEST_API_KEY_URL,
   ImageChestError,
@@ -59,6 +60,7 @@ import { DEFAULT_SETTINGS, type Settings } from './core/settings';
 import { browserExportAdapter, browserPaletteAdapter, decodeWithBrowser } from './platform/browser';
 import { configStore } from './platform/config';
 import { tauriImageChestTransport } from './platform/imagechest';
+import { historyPreviewAdapter, readExportBytes } from './platform/historyPreview';
 import { copyText, openExternal, revealInExplorer } from './platform/system';
 import {
   chooseExportFolder,
@@ -122,6 +124,13 @@ export default function App() {
   const appendPostIdRef = useRef(appendPostId);
   appendPostIdRef.current = appendPostId;
   const uploadRef = useRef<() => Promise<void>>(async () => undefined);
+
+  // One loader owns the Export thumbnails and their object URLs. It is keyed by
+  // path + size, so re-renders reuse a read and a replaced file is read again.
+  const historyPreview = useMemo(
+    () => createHistoryPreviewLoader({ read: readExportBytes, adapter: historyPreviewAdapter }),
+    [],
+  );
 
   const openSettings = useCallback(() => {
     setPickTarget(null);
@@ -981,6 +990,7 @@ export default function App() {
           uploading={uploading}
           settings={settings}
           history={history}
+          preview={historyPreview}
           cooldownSeconds={cooldownSeconds}
           appendPostId={appendPostId}
           onExport={handleExport}

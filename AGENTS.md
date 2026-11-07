@@ -21,11 +21,11 @@ cargo check --manifest-path src-tauri/Cargo.toml
 
 ## Layout
 
-- `src/core/` is platform-free: no React, DOM calls or Tauri imports. Platform work arrives through injected seams (`RenderContext`, `Decoder`, `ExportAdapter`, `DownloadTransport`).
+- `src/core/` is platform-free: no React, DOM calls or Tauri imports. Platform work arrives through injected seams (`RenderContext`, `Decoder`, `ExportAdapter`, `DownloadTransport`, `HistoryPreviewAdapter`).
 - `src/platform/` holds the Tauri and browser adapters; `src/App.tsx` wires them (and imports the Tauri path helpers directly).
 - `renderFrame()` in `src/core/render.ts` is the only Frame renderer; Preview and Export both call it, and the dimmed surround reuses `drawSource()`.
 - Rust commands live in `src-tauri/src/lib.rs`. A new command must also be added to `generate_handler!`; commands use `rename_all = "snake_case"`, so TS passes `download_id`. New plugins need a permission in `src-tauri/capabilities/default.json`.
-- The 30 MB ceiling is Image Chest's per-file limit: `src/core/download.ts` owns the front-end constant, `src/core/imagechest.ts` reuses it for uploads, and `lib.rs` enforces the download cap natively. Keep them equal.
+- The 30 MB ceiling is Image Chest's per-file limit: `src/core/download.ts` owns the front-end constant, `src/core/imagechest.ts` reuses it for uploads, and `lib.rs` enforces the download cap natively. The Export History thumbnail read reuses the same ceiling. Keep them equal.
 
 ## Conventions
 
@@ -40,7 +40,7 @@ cargo check --manifest-path src-tauri/Cargo.toml
 - The Palette renders the Crop at reduced resolution with `border: false`, then ranks the composited pixels by coverage while reserving slots for vibrant accents, so a small saturated area survives; the UI always prepends the fixed white swatch. It must never depend on the Border color.
 - The Pad eyedropper samples the rendered frame canvas at the click point and shows a 9×9 pixel magnifier near the pointer. The native `input type=color` eyedropper is unreliable in WebView2 (it closes the dialog and cannot sample outside it), so the in-app "pegar cor da imagem" path is the supported one.
 - Settings and History are JSON files (`settings.json`, `history.json`) in the app config directory; on Windows the `appDirectoriesOverride` points that directory at `%LOCALAPPDATA%\Mudae Crop`. The Rust side whitelists the settings/history keys.
-- History entries are a discriminated union on `kind`: `upload` keeps the Post, direct link and thumbnail source; `export` keeps the absolute file path, dimensions and a reveal-in-Explorer action.
+- History entries are a discriminated union on `kind`: `upload` keeps the Post, direct link and thumbnail source; `export` keeps the absolute file path, dimensions and a reveal-in-Explorer action, plus an on-demand thumbnail read from disk through `read_export_bytes`.
 - Image Chest requests go through the native `imagechest_request` command because the API does not answer CORS. The TS client owns request shape and link parsing; tests mock its transport.
 
 ## Agent skills

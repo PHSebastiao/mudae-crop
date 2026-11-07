@@ -4,16 +4,20 @@ import { mimeFor } from '../core/import';
 import { ExportError, type EncodableCanvas, type ExportAdapter } from '../core/export';
 import type { PaletteAdapter } from '../core/palette';
 
+/** The one place that turns image bytes into a Blob with the matching MIME. */
+export function blobOf(bytes: Uint8Array, format: ImageFormat): Blob {
+  const buffer = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(buffer).set(bytes);
+  return new Blob([buffer], { type: mimeFor(format) });
+}
+
 export const decodeWithBrowser: Decoder = async (
   bytes: Uint8Array,
   format: ImageFormat,
 ): Promise<DecodedImage> => {
-  const buffer = new ArrayBuffer(bytes.byteLength);
-  new Uint8Array(buffer).set(bytes);
-  const blob = new Blob([buffer], { type: mimeFor(format) });
   // Chromium decodes the first frame of a GIF here, which is exactly the
   // still-Source rule this ticket needs.
-  const bitmap = await createImageBitmap(blob);
+  const bitmap = await createImageBitmap(blobOf(bytes, format));
   return { image: bitmap, width: bitmap.width, height: bitmap.height };
 };
 
