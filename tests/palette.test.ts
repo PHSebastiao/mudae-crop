@@ -226,6 +226,7 @@ describe('white-first filtering', () => {
   it('drops a near-white palette color beside the fixed white', () => {
     const ordered = withWhiteFirst([
       { hex: '#FEFEFE', count: 10, share: 0.5 },
+      { hex: '#F5FFFF', count: 5, share: 0.25 },
       { hex: '#D94F6D', count: 10, share: 0.5 },
     ]);
 

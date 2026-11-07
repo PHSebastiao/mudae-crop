@@ -172,7 +172,13 @@ export function Stage({
         return;
       }
       const context = frameCanvas.getContext('2d');
-      const pixel = context?.getImageData(point.sx, point.sy, 1, 1).data;
+      let pixel: Uint8ClampedArray | undefined;
+      try {
+        pixel = context?.getImageData(point.sx, point.sy, 1, 1).data;
+      } catch {
+        onPickMiss('transparent');
+        return;
+      }
       if (!pixel || pixel[3] === 0) {
         onPickMiss('transparent');
         return;
@@ -197,7 +203,13 @@ export function Stage({
       return;
     }
     const context = frameCanvas.getContext('2d');
-    const pixel = context?.getImageData(point.sx, point.sy, 1, 1).data;
+    let pixel: Uint8ClampedArray | undefined;
+    try {
+      pixel = context?.getImageData(point.sx, point.sy, 1, 1).data;
+    } catch {
+      setMagnifier(null);
+      return;
+    }
     if (!pixel || pixel[3] === 0) {
       setMagnifier(null);
       return;
@@ -238,7 +250,6 @@ export function Stage({
   }
 
   function endDrag(event: ReactPointerEvent<HTMLDivElement>) {
-    if (picking) setMagnifier(null);
     if (dragRef.current?.id === event.pointerId) {
       dragRef.current = null;
       setDragging(false);

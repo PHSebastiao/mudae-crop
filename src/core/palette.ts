@@ -147,7 +147,7 @@ export function withWhiteFirst(palette: readonly PaletteColor[]): PaletteColor[]
   const rest = palette
     .filter((color) => {
       const rgb = parseHexColor(color.hex);
-      return !rgb || rgb.r < 250 || rgb.g < 250 || rgb.b < 250;
+      return !rgb || rgb.r < 245 || rgb.g < 245 || rgb.b < 245;
     })
     .slice(0, MAX_PALETTE - 1);
   return [WHITE_SWATCH, ...rest];

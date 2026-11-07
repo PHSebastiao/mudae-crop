@@ -671,6 +671,7 @@ export default function App() {
   }, []);
 
   const changePadColor = useCallback((padColor: string) => {
+    setPickTarget(null);
     setDoc((current) => withPadColor(current, padColor));
   }, []);
 
