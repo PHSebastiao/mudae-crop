@@ -1,5 +1,6 @@
 import {
   effectiveDelayMs,
+  effectiveSource,
   effectiveTrim,
   isAnimated,
   outputSize,
@@ -103,7 +104,7 @@ function renderedGifFrame(
   const image = ctx.getImageData(0, 0, size.width, size.height);
   return {
     pixels: new Uint8ClampedArray(image.data),
-    delayMs: effectiveDelayMs(doc.source, frameIndex, doc.speed),
+    delayMs: effectiveDelayMs(effectiveSource(doc), frameIndex, doc.speed),
   };
 }
 
@@ -160,6 +161,8 @@ export async function estimateExportSize(
     return { bytes: bytes.length, exact: true };
   }
 
+  const view = effectiveSource(doc);
+  if (!view) throw new ExportError('Não há Source para exportar.');
   const trim = effectiveTrim(doc);
   if (!trim) throw new ExportError('A Source não é animada.');
 
@@ -168,14 +171,14 @@ export async function estimateExportSize(
     throw new ExportError('Export grande demais para estimar; o tamanho aparece ao exportar.');
   }
 
-  const total = trimFrameCount(source, trim);
-  const indices = sampleTrimIndices(source, trim, MAX_ESTIMATE_FRAMES);
+  const total = trimFrameCount(view, trim);
+  const indices = sampleTrimIndices(view, trim, MAX_ESTIMATE_FRAMES);
   const canvas = adapter.createCanvas(size.width, size.height);
   const ctx = canvas.getContext('2d');
   const writer = new GifWriter({
     width: size.width,
     height: size.height,
-    loopCount: source.video ? 0 : (source.animation?.loopCount ?? null),
+    loopCount: view.video ? 0 : (view.animation?.loopCount ?? null),
   });
   for (const [slot, frameIndex] of indices.entries()) {
     writer.addFrame(renderedGifFrame(ctx, doc, size, frameIndex));
@@ -226,8 +229,8 @@ export async function renderGif(
   adapter: ExportAdapter,
   options: GifExportOptions = {},
 ): Promise<Uint8Array> {
-  const source = doc.source;
-  if (!source) {
+  const view = effectiveSource(doc);
+  if (!view) {
     throw new ExportError('Não há Source para exportar.');
   }
   const trim = effectiveTrim(doc);
@@ -238,11 +241,11 @@ export async function renderGif(
   const size = outputSize(doc);
   const canvas = adapter.createCanvas(size.width, size.height);
   const ctx = canvas.getContext('2d');
-  const total = trimFrameCount(source, trim);
+  const total = trimFrameCount(view, trim);
   const writer = new GifWriter({
     width: size.width,
     height: size.height,
-    loopCount: source.video ? 0 : (source.animation?.loopCount ?? null),
+    loopCount: view.video ? 0 : (view.animation?.loopCount ?? null),
   });
   let pending: GifEncodeFrame | null = null;
   let dropped = 0;
@@ -250,7 +253,7 @@ export async function renderGif(
   for (let offset = 0; offset < total; offset += 1) {
     if (options.signal?.aborted) throw cancelledError();
     const frameIndex = trim.start + offset;
-    await prepareFrame(source, frameIndex);
+    await prepareFrame(view, frameIndex);
     const frame = renderedGifFrame(ctx, doc, size, frameIndex);
 
     if (doc.optimize.enabled) {

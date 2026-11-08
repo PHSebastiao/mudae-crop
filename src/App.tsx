@@ -3,7 +3,9 @@ import { downloadDir, join } from '@tauri-apps/api/path';
 import {
   animationFrameCount,
   clampBorderWidth,
+  effectiveAnimation,
   effectiveDelayMs,
+  effectiveSource,
   effectiveTrim,
   emptyDocument,
   frameFor,
@@ -17,6 +19,8 @@ import {
   withCrop,
   withExportScale,
   withFrame,
+  withFrameDelay,
+  withFrameRemoved,
   withOptimize,
   withPadColor,
   withResize,
@@ -102,6 +106,7 @@ import { ToolRail } from './components/ToolRail';
 import { ExportPanel } from './components/ExportPanel';
 import { BorderBar } from './components/BorderBar';
 import { Timeline } from './components/Timeline';
+import { FrameGrid } from './components/FrameGrid';
 import { SettingsDialog, type TokenTestResult } from './components/SettingsDialog';
 
 interface NoticeAction {
@@ -290,6 +295,7 @@ export default function App() {
     doc.padColor,
     doc.sharpness,
     doc.trim,
+    doc.animation,
     doc.trimEnabled,
     paletteVersion,
   ]);
@@ -310,7 +316,7 @@ export default function App() {
     if (busy) return;
     const version = estimateVersionRef.current + 1;
     estimateVersionRef.current = version;
-    const format = exportKindFor(doc.source, settings.exportFormat).format;
+    const format = exportKindFor(effectiveSource(doc), settings.exportFormat).format;
     const timer = setTimeout(() => {
       void estimateExportSize(doc, browserExportAdapter, { format, frameIndex })
         .then((next) => {
@@ -323,7 +329,10 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [doc, settings.exportFormat, frameIndex, busy]);
 
-  const activeTrim = useMemo(() => effectiveTrim(doc), [doc.source, doc.trim, doc.trimEnabled]);
+  const activeTrim = useMemo(
+    () => effectiveTrim(doc),
+    [doc.source, doc.trim, doc.trimEnabled, doc.animation],
+  );
 
   // Keep the visible frame inside a Trim that just moved, and never play a still.
   useEffect(() => {
@@ -334,7 +343,7 @@ export default function App() {
       return;
     }
     setFrameIndex((current) => Math.min(trim.end, Math.max(trim.start, current)));
-  }, [doc.source, doc.trim, doc.trimEnabled]);
+  }, [doc.source, doc.trim, doc.trimEnabled, doc.animation]);
 
   // Seeking while paused is what makes scrub, Trim and PNG export agree.
   useEffect(() => {
@@ -351,7 +360,7 @@ export default function App() {
 
   // GIF playback advances at the frame's own delay, scaled by the speed.
   useEffect(() => {
-    const source = doc.source;
+    const source = effectiveSource(doc);
     const trim = activeTrim;
     if (!playing || !source || source.video || !trim) return;
     const current = Math.min(trim.end, Math.max(trim.start, frameIndex));
@@ -362,7 +371,7 @@ export default function App() {
       effectiveDelayMs(source, current, doc.speed),
     );
     return () => clearTimeout(timer);
-  }, [activeTrim, playing, frameIndex, doc.source, doc.speed]);
+  }, [activeTrim, playing, frameIndex, doc.source, doc.animation, doc.speed]);
 
   // Video preview uses native playback; rAF only moves the in-app playhead.
   useEffect(() => {
@@ -552,7 +561,7 @@ export default function App() {
       controller: AbortController,
       selectedFrame: number,
     ): Promise<Uint8Array> => {
-      const kind = exportKindFor(current.source, settingsRef.current.exportFormat);
+      const kind = exportKindFor(effectiveSource(current), settingsRef.current.exportFormat);
       if (kind.format === 'png') {
         return renderPng(current, browserExportAdapter, {
           frameIndex: selectedFrame,
@@ -562,7 +571,7 @@ export default function App() {
       setRenderProgress({
         phase: 'render',
         done: 0,
-        total: trimFrameCount(current.source, effectiveTrim(current)),
+        total: trimFrameCount(effectiveSource(current), effectiveTrim(current)),
       });
       return renderGif(current, browserExportAdapter, {
         signal: controller.signal,
@@ -602,7 +611,7 @@ export default function App() {
       return;
     }
     if (!beginRun()) return;
-    const kind = exportKindFor(current.source, settingsRef.current.exportFormat);
+    const kind = exportKindFor(effectiveSource(current), settingsRef.current.exportFormat);
     const extension = kind.format;
     const label = kind.label;
     try {
@@ -722,7 +731,7 @@ export default function App() {
     }
     if (!beginRun()) return;
 
-    const kind = exportKindFor(current.source, settingsRef.current.exportFormat);
+    const kind = exportKindFor(effectiveSource(current), settingsRef.current.exportFormat);
     const extension = kind.format;
     const contentType = kind.contentType;
 
@@ -980,6 +989,18 @@ export default function App() {
     setDoc((current) => withSpeed(current, speed));
   }, []);
 
+  const changeFrameDelay = useCallback((frameIndex: number, delayMs: number) => {
+    setPlaying(false);
+    setOptimizeResult(null);
+    setDoc((current) => withFrameDelay(current, frameIndex, delayMs));
+  }, []);
+
+  const removeFrame = useCallback((frameIndex: number) => {
+    setPlaying(false);
+    setOptimizeResult(null);
+    setDoc((current) => withFrameRemoved(current, frameIndex));
+  }, []);
+
   const togglePlay = useCallback(() => {
     setPlaying((current) => !current);
   }, []);
@@ -1063,7 +1084,7 @@ export default function App() {
         return;
       }
       if (settingsOpen) return;
-      if (event.key === ' ' && isAnimated(doc.source)) {
+      if (event.key === ' ' && isAnimated(effectiveSource(doc))) {
         const target = event.target as HTMLElement | null;
         if (
           target &&
@@ -1186,7 +1207,9 @@ export default function App() {
     };
   }, [importCandidate]);
 
-  const sourceAnimated = isAnimated(doc.source);
+  const sourceView = effectiveSource(doc);
+  const sourceAnimated = isAnimated(sourceView);
+  const frameAnimation = effectiveAnimation(doc);
   const sourceChip = doc.source
     ? `${doc.source.format.toUpperCase()} · ${doc.source.width}×${doc.source.height} · ${formatBytes(
         doc.source.bytes,
@@ -1194,7 +1217,7 @@ export default function App() {
         doc.source.video
           ? `vídeo ${formatFps(doc.source.video.fps)} fps · ${formatPlaybackDuration(doc.source.video.durationMs)}`
           : sourceAnimated
-            ? `animado ${animationFrameCount(doc.source)}f`
+            ? `animado ${animationFrameCount(sourceView)}f`
             : 'estático'
       }`
     : 'sem Source';
@@ -1374,13 +1397,25 @@ export default function App() {
             onPickColor={pickPadColor}
             onPickMiss={pickPadMiss}
           />
+          {frameAnimation && (
+            <FrameGrid
+              animation={frameAnimation}
+              width={doc.source?.width ?? 1}
+              height={doc.source?.height ?? 1}
+              selectedIndex={frameIndex}
+              disabled={busy}
+              onSelect={scrubFrame}
+              onDelete={removeFrame}
+              onRetime={changeFrameDelay}
+            />
+          )}
           {sourceAnimated && (
             <Timeline
               frameIndex={frameIndex}
-              frameCount={animationFrameCount(doc.source)}
+              frameCount={animationFrameCount(sourceView)}
               trim={activeTrim ?? { start: 0, end: 0 }}
               trimEnabled={doc.trimEnabled}
-              durationMs={trimDurationMs(doc.source, activeTrim, doc.speed)}
+              durationMs={trimDurationMs(sourceView, activeTrim, doc.speed)}
               playing={playing}
               disabled={busy}
               onScrub={scrubFrame}

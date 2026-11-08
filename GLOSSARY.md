@@ -14,6 +14,11 @@ One fully composited still inside an animated Source, with its own delay. Not th
 
 _Avoid_: frame (when you mean an animation frame), image, layer
 
+**Frame grid**:
+The grid of animation-frame cells under the Preview where a bad frame is inspected, removed or retimed. Edits live in the document, not in the Source, and reset when a Source is loaded.
+
+_Avoid_: filmstrip, timeline
+
 **Trim**:
 The inclusive range of animation frames a Preview and Export use, set by a start and an end frame. It applies only while the trim toggle is on.
 

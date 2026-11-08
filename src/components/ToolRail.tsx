@@ -3,6 +3,7 @@ import {
   MAX_SPEED,
   MIN_SPEED,
   animationFrameCount,
+  effectiveSource,
   effectiveTrim,
   isAnimated,
   trimFrameCount,
@@ -45,10 +46,10 @@ export function ToolRail({
 }: ToolRailProps) {
   const hasSource = doc.source !== null;
   const mode = doc.crop.mode;
-  const animated = isAnimated(doc.source);
-  const frames = animationFrameCount(doc.source);
+  const animated = isAnimated(effectiveSource(doc));
+  const frames = animationFrameCount(effectiveSource(doc));
   const trim = effectiveTrim(doc) ?? { start: 0, end: 0 };
-  const trimmed = trimFrameCount(doc.source, effectiveTrim(doc));
+  const trimmed = trimFrameCount(effectiveSource(doc), effectiveTrim(doc));
   const speedLabel = `${doc.speed.toFixed(2).replace('.', ',')}×`;
 
   return (
@@ -193,7 +194,9 @@ export function ToolRail({
           <span className="key">duração</span>
           <span>
             {animated
-              ? formatPlaybackDuration(trimDurationMs(doc.source, effectiveTrim(doc), doc.speed))
+              ? formatPlaybackDuration(
+                  trimDurationMs(effectiveSource(doc), effectiveTrim(doc), doc.speed),
+                )
               : '—'}
           </span>
         </div>

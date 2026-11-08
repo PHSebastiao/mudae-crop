@@ -87,14 +87,19 @@ export function initialTrim(source: Source | null | undefined): Trim | null {
   return clampTrim(source, null);
 }
 
-/** Keep a Trim inside the Source's frames and in start ≤ end order. */
-export function clampTrim(source: Source | null | undefined, trim: Trim | null): Trim | null {
-  if (!isAnimated(source)) return null;
-  const last = animationFrameCount(source) - 1;
+/** Keep a Trim inside a frame count and in start ≤ end order. */
+function trimWithin(trim: Trim | null, frameCount: number): Trim {
+  const last = Math.max(0, frameCount - 1);
   if (!trim) return { start: 0, end: last };
   const first = Math.min(last, Math.max(0, Math.round(trim.start)));
   const second = Math.min(last, Math.max(0, Math.round(trim.end)));
   return { start: Math.min(first, second), end: Math.max(first, second) };
+}
+
+/** Keep a Trim inside the Source's frames and in start ≤ end order. */
+export function clampTrim(source: Source | null | undefined, trim: Trim | null): Trim | null {
+  if (!isAnimated(source)) return null;
+  return trimWithin(trim, animationFrameCount(source));
 }
 
 /** The number of frames in the active Trim, or 1 for a still. */
@@ -128,6 +133,8 @@ export function frameDelayMs(source: Source | null | undefined, frameIndex = 0):
 }
 
 export const MIN_FRAME_DELAY_MS = 20;
+/** The GIF format stores delays in centiseconds, so 65535 is the largest value. */
+export const MAX_FRAME_DELAY_MS = 655_350;
 export const MIN_SPEED = 0.25;
 export const MAX_SPEED = 4;
 
@@ -148,9 +155,33 @@ export function effectiveDelayMs(
 
 /** The Trim that actually applies: the saved range only when enabled. */
 export function effectiveTrim(doc: DocumentState): Trim | null {
-  if (!isAnimated(doc.source)) return null;
-  if (!doc.trimEnabled) return clampTrim(doc.source, null);
-  return clampTrim(doc.source, doc.trim);
+  const source = effectiveSource(doc);
+  if (!isAnimated(source)) return null;
+  if (!doc.trimEnabled) return clampTrim(source, null);
+  return clampTrim(source, doc.trim);
+}
+
+/**
+ * The editable animation of an image Source, or null for a still or a video.
+ * It starts as the Source's own animation and changes only through the frame
+ * grid; replacing the Source rebuilds it.
+ */
+export function effectiveAnimation(doc: DocumentState): Animation | null {
+  if (doc.source?.video) return null;
+  return doc.animation ?? doc.source?.animation ?? null;
+}
+
+/**
+ * The Source with the document's frame edits applied. The imported Source is
+ * never changed; deleting and retiming only replace the animation view the
+ * Preview, Trim and Export read. A video Source has no editable animation, so
+ * it passes through untouched.
+ */
+export function effectiveSource(doc: DocumentState): Source | null {
+  const source = doc.source;
+  const animation = effectiveAnimation(doc);
+  if (!source || !animation || animation === source.animation) return source;
+  return { ...source, animation };
 }
 
 export type FrameId = 'mudae' | 'mudae-landscape' | 'square';
@@ -342,6 +373,12 @@ export interface DocumentState {
   readonly resizeLocked: boolean;
   /** The saved range of an animated Source; null for a still. */
   readonly trim: Trim | null;
+  /**
+   * The editable animation the Preview, Trim and Export read. It starts as the
+   * Source's own animation and changes only through the frame grid; replacing
+   * the Source rebuilds it.
+   */
+  readonly animation: Animation | null;
   /** Whether the saved Trim applies to Preview and Export. */
   readonly trimEnabled: boolean;
   /** Playback and Export speed, 0.25×–4×. */
@@ -362,6 +399,7 @@ export function emptyDocument(): DocumentState {
     resize: null,
     resizeLocked: true,
     trim: null,
+    animation: null,
     trimEnabled: false,
     speed: 1,
     optimize: DEFAULT_OPTIMIZE,
@@ -379,17 +417,83 @@ export function withSource(doc: DocumentState, source: Source): DocumentState {
     source,
     crop: FIT_CROP,
     trim: initialTrim(source),
+    animation: source.animation ?? null,
     trimEnabled: false,
   };
 }
 
 export function withTrim(doc: DocumentState, trim: Trim | null): DocumentState {
-  return { ...doc, trim: clampTrim(doc.source, trim) };
+  return { ...doc, trim: clampTrim(effectiveSource(doc), trim) };
 }
 
 export function withTrimEnabled(doc: DocumentState, trimEnabled: boolean): DocumentState {
-  if (!isAnimated(doc.source)) return { ...doc, trimEnabled: false };
+  if (!isAnimated(effectiveSource(doc))) return { ...doc, trimEnabled: false };
   return { ...doc, trimEnabled };
+}
+
+/** A frame delay stays on the 10 ms GIF grid, at or above the 20 ms floor. */
+export function clampFrameDelayMs(delayMs: number): number {
+  if (!Number.isFinite(delayMs)) return MIN_FRAME_DELAY_MS;
+  const rounded = Math.round(delayMs / 10) * 10;
+  return Math.min(MAX_FRAME_DELAY_MS, Math.max(MIN_FRAME_DELAY_MS, rounded));
+}
+
+/** Retime one frame. Preview and Export read the same stored delay. */
+export function withFrameDelay(
+  doc: DocumentState,
+  frameIndex: number,
+  delayMs: number,
+): DocumentState {
+  const animation = effectiveAnimation(doc);
+  if (!animation) return doc;
+  if (!Number.isInteger(frameIndex) || frameIndex < 0 || frameIndex >= animation.frames.length) {
+    return doc;
+  }
+  const delay = clampFrameDelayMs(delayMs);
+  if (animation.frames[frameIndex].delayMs === delay) return doc;
+  const frames = animation.frames.map((frame, index) =>
+    index === frameIndex ? { ...frame, delayMs: delay } : frame,
+  );
+  return { ...doc, animation: { ...animation, frames } };
+}
+
+/**
+ * Delete one animation frame. The last remaining frame cannot be removed, so
+ * the document always has something to render. Trim bounds move with the
+ * deletion and stay inside the shortened animation.
+ */
+export function withFrameRemoved(doc: DocumentState, frameIndex: number): DocumentState {
+  const animation = effectiveAnimation(doc);
+  if (!animation || animation.frames.length <= 1) return doc;
+  if (!Number.isInteger(frameIndex) || frameIndex < 0 || frameIndex >= animation.frames.length) {
+    return doc;
+  }
+  const frames = animation.frames.filter((_, index) => index !== frameIndex);
+  return {
+    ...doc,
+    animation: { ...animation, frames },
+    trim: trimAfterRemoval(doc.trim, frameIndex, frames.length),
+  };
+}
+
+/** Shift the Trim so it still names the same frames after one is deleted. */
+function trimAfterRemoval(trim: Trim | null, removed: number, frameCount: number): Trim | null {
+  if (!trim) return null;
+  let start = trim.start;
+  let end = trim.end;
+  if (removed < start) {
+    start -= 1;
+    end -= 1;
+  } else if (removed <= end) {
+    end -= 1;
+  }
+  // A one-frame Trim that held the deleted frame collapses onto its neighbour
+  // instead of swapping into a wider range.
+  if (start > end) {
+    start = Math.max(0, end);
+    end = start;
+  }
+  return trimWithin({ start, end }, frameCount);
 }
 
 export function withSpeed(doc: DocumentState, speed: number): DocumentState {

@@ -1,4 +1,4 @@
-import { frameImage, type DocumentState } from './document';
+import { effectiveSource, frameImage, type DocumentState } from './document';
 import { sourceRect } from './geometry';
 import { applyUnsharpMask } from './sharpen';
 
@@ -38,7 +38,7 @@ export interface RenderOptions {
   readonly outputHeight?: number;
   /** Palette sampling skips the Border; Preview and Export draw it. */
   readonly border?: boolean;
-  /** Absolute frame of an animated Source; ignored for a still. */
+  /** Frame index in the document's animation view; ignored for a still. */
   readonly frameIndex?: number;
 }
 
@@ -63,7 +63,7 @@ export function drawSource(
   frameIndex = 0,
 ): void {
   if (!doc.source) return;
-  const image = frameImage(doc.source, frameIndex);
+  const image = frameImage(effectiveSource(doc), frameIndex);
   if (!image) return;
   const rect = sourceRect(doc);
   prepareContext(ctx);

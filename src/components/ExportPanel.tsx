@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type RefObject } from 'react';
 import {
   MAX_LOSSY,
   MIN_LOSSY,
+  effectiveSource,
   isAnimated,
   outputSize,
   type DocumentState,
@@ -181,9 +182,9 @@ export function ExportPanel({
   const hasToken = settings.token.trim() !== '';
   const cooling = cooldownSeconds > 0;
   const uploadDisabled = !doc.source || busy || cooling || badPostId || !hasToken;
-  const kind = exportKindFor(doc.source, settings.exportFormat);
+  const kind = exportKindFor(effectiveSource(doc), settings.exportFormat);
   const format = kind.label;
-  const animated = isAnimated(doc.source);
+  const animated = isAnimated(effectiveSource(doc));
   const custom = doc.resize !== null;
   const ratioMatches = aspectMatches(size, doc.frame);
   const ratioLabel = formatAspect(size);

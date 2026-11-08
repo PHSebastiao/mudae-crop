@@ -1,6 +1,6 @@
 import { parseHexColor, toHexColor, type Rgb } from './color';
 import { sampleTrimIndices } from './animation';
-import { effectiveTrim, type DocumentState } from './document';
+import { effectiveSource, effectiveTrim, type DocumentState } from './document';
 import { renderFrame, type RenderContext } from './render';
 
 export const MIN_PALETTE = 4;
@@ -263,7 +263,7 @@ export function extractPalette(doc: DocumentState, adapter: PaletteAdapter): Pal
   // seeking the whole video.
   const indices = doc.source.video
     ? [effectiveTrim(doc)?.start ?? 0]
-    : sampleTrimIndices(doc.source, effectiveTrim(doc), MAX_SAMPLE_FRAMES);
+    : sampleTrimIndices(effectiveSource(doc), effectiveTrim(doc), MAX_SAMPLE_FRAMES);
   for (const frameIndex of indices) {
     renderFrame(ctx, doc, { scale: frameScale, border: false, frameIndex });
     const image = ctx.getImageData(0, 0, width, height);

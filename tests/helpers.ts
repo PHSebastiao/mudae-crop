@@ -126,6 +126,7 @@ export function makeDoc(source: Source | null): DocumentState {
       : source?.video
         ? { start: 0, end: Math.max(0, source.video.frameCount - 1) }
         : null,
+    animation: source?.animation ?? null,
     trimEnabled: false,
     speed: 1,
     optimize: DEFAULT_OPTIMIZE,

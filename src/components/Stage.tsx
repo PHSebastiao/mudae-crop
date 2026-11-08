@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { toHexColor } from '../core/color';
-import { animationFrameCount, isAnimated, type DocumentState } from '../core/document';
+import {
+  animationFrameCount,
+  effectiveSource,
+  isAnimated,
+  type DocumentState,
+} from '../core/document';
 import { formatFps, formatPlaybackDuration } from '../core/animation';
 import { formatBytes } from '../core/download';
 import { drawSource, renderFrame } from '../core/render';
@@ -24,7 +29,7 @@ interface MagnifierState {
 
 interface StageProps {
   readonly doc: DocumentState;
-  /** Absolute frame of an animated Source shown in the Frame. */
+  /** Frame index in the document's animation view, after any frame edits. */
   readonly frameIndex: number;
   /** Bumped after an async video seek so the canvas is redrawn. */
   readonly frameVersion?: number;
@@ -89,6 +94,7 @@ export function Stage({
   const frameHeight = doc.frame.height * scale;
   const sceneWidth = frameWidth + PAD * 2;
   const sceneHeight = frameHeight + PAD * 2;
+  const sourceView = effectiveSource(doc);
 
   useEffect(() => {
     const frameCanvas = frameRef.current;
@@ -410,8 +416,8 @@ export function Stage({
               {formatBytes(doc.source.bytes)} ·{' '}
               {doc.source.video
                 ? `vídeo ${formatFps(doc.source.video.fps)} fps · ${formatPlaybackDuration(doc.source.video.durationMs)}`
-                : isAnimated(doc.source)
-                  ? `animado ${animationFrameCount(doc.source)}f`
+                : isAnimated(sourceView)
+                  ? `animado ${animationFrameCount(sourceView)}f`
                   : 'estático'}
             </span>
           </div>
