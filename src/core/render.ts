@@ -81,13 +81,13 @@ export function drawSource(
   ctx.save();
   ctx.translate(x + width / 2, y + height / 2);
   ctx.rotate((doc.crop.rotation * Math.PI) / 180);
-  ctx.drawImage(
-    image,
-    -(doc.source.width * scaleX) / 2,
-    -(doc.source.height * scaleY) / 2,
-    doc.source.width * scaleX,
-    doc.source.height * scaleY,
-  );
+  // Rotating swaps which output axis scales which bitmap axis: the Source's
+  // width becomes vertical at 90°/270°. Use the rotated rect, never the raw
+  // output scale, so the bitmap lands exactly on sourceRect.
+  const swapped = doc.crop.rotation === 90 || doc.crop.rotation === 270;
+  const imageWidth = swapped ? rect.height * scaleY : rect.width * scaleX;
+  const imageHeight = swapped ? rect.width * scaleX : rect.height * scaleY;
+  ctx.drawImage(image, -imageWidth / 2, -imageHeight / 2, imageWidth, imageHeight);
   ctx.restore();
 }
 

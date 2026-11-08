@@ -10,7 +10,11 @@ interface NumberFieldProps {
 
 function format(value: number, precision: number): string {
   if (!Number.isFinite(value)) return '0';
-  return precision === 0 ? String(Math.round(value)) : value.toFixed(precision);
+  if (precision !== 0) return value.toFixed(precision);
+  // Round halves away from zero, so symmetric pan limits read as ±88 rather
+  // than -87 / 88.
+  const rounded = Math.sign(value) * Math.round(Math.abs(value));
+  return String(rounded === 0 ? 0 : rounded);
 }
 
 /**

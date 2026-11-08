@@ -47,7 +47,29 @@ button {
 .app {
   height: 100%;
   display: grid;
+  /* Named areas keep the optional notice from shifting every row below it. */
   grid-template-rows: auto auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    'topbar'
+    'notice'
+    'workspace'
+    'border';
+}
+
+.topbar {
+  grid-area: topbar;
+}
+
+.notice {
+  grid-area: notice;
+}
+
+.workspace {
+  grid-area: workspace;
+}
+
+.border-bar {
+  grid-area: border;
 }
 
 /* Top bar */
@@ -281,6 +303,7 @@ button {
 .panel {
   background: var(--bg);
   overflow-y: auto;
+  min-height: 0;
 }
 
 .rail {

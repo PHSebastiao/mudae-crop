@@ -160,6 +160,32 @@ describe('rotation', () => {
     expect(Array.from(ctx.getImageData(10, 10, 1, 1).data)).toEqual([0x23, 0x20, 0x2c, 255]);
     expect(Array.from(ctx.getImageData(340, 340, 1, 1).data)).toEqual([0xd9, 0x4f, 0x6d, 255]);
   });
+
+  it('draws the rotated bitmap at the Crop scale, not the output scale', () => {
+    const source = makeSource(400, 800, (ctx) => {
+      ctx.fillStyle = '#808080';
+      ctx.fillRect(0, 0, 400, 800);
+      ctx.fillStyle = '#ff00ff';
+      ctx.fillRect(0, 0, 400, 20);
+      ctx.fillRect(0, 780, 400, 20);
+      ctx.fillRect(0, 0, 20, 800);
+      ctx.fillRect(380, 0, 20, 800);
+    });
+    // At the right pan limit the Source's left edge sits on the Frame's left
+    // edge, so the rotated border must be visible there. The old path drew it
+    // with the output scale, pushing the edge far outside the Frame.
+    const doc = {
+      ...makeDoc(source),
+      frame: SQUARE_FRAME,
+      crop: { ...defaultCrop('fit', 90), offsetX: 175 },
+    };
+    const canvas = createCanvas(350, 350);
+    renderFrame(contextOf(canvas), doc, { scale: 1 });
+    const ctx = canvas.getContext('2d');
+    expect(Array.from(ctx.getImageData(2, 175, 1, 1).data)).toEqual([0xff, 0x00, 0xff, 255]);
+    expect(Array.from(ctx.getImageData(2, 2, 1, 1).data)).toEqual([0xff, 0x00, 0xff, 255]);
+    expect(Array.from(ctx.getImageData(100, 175, 1, 1).data)).toEqual([0x80, 0x80, 0x80, 255]);
+  });
 });
 
 function renderContext(
