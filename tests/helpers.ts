@@ -152,10 +152,7 @@ export function pngSize(bytes: Uint8Array): { width: number; height: number } {
   return { width: view.getUint32(16), height: view.getUint32(20) };
 }
 
-export function makeUploadEntry(
-  index: number,
-  overrides: Partial<UploadEntry> = {},
-): UploadEntry {
+export function makeUploadEntry(index: number, overrides: Partial<UploadEntry> = {}): UploadEntry {
   return {
     kind: 'upload',
     link: `https://cdn.imgchest.com/files/image${index}.png`,
@@ -169,10 +166,7 @@ export function makeUploadEntry(
   };
 }
 
-export function makeExportEntry(
-  index: number,
-  overrides: Partial<ExportEntry> = {},
-): ExportEntry {
+export function makeExportEntry(index: number, overrides: Partial<ExportEntry> = {}): ExportEntry {
   return {
     kind: 'export',
     path: `C:\\Cards\\export${index}.png`,

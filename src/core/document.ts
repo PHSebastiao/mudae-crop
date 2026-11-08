@@ -309,10 +309,7 @@ export function clampOptimize(patch: Partial<OptimizeSettings>): OptimizeSetting
     targetEnabled: patch.targetEnabled ?? DEFAULT_OPTIMIZE.targetEnabled,
     targetBytes: Math.min(
       MAX_OPTIMIZE_TARGET,
-      Math.max(
-        MIN_OPTIMIZE_TARGET,
-        Math.round(patch.targetBytes ?? DEFAULT_OPTIMIZE.targetBytes),
-      ),
+      Math.max(MIN_OPTIMIZE_TARGET, Math.round(patch.targetBytes ?? DEFAULT_OPTIMIZE.targetBytes)),
     ),
     lossy: Math.min(
       MAX_LOSSY,
@@ -427,10 +424,7 @@ export function withResizeLocked(doc: DocumentState, resizeLocked: boolean): Doc
   };
 }
 
-export function withOptimize(
-  doc: DocumentState,
-  patch: Partial<OptimizeSettings>,
-): DocumentState {
+export function withOptimize(doc: DocumentState, patch: Partial<OptimizeSettings>): DocumentState {
   return { ...doc, optimize: clampOptimize({ ...doc.optimize, ...patch }) };
 }
 

@@ -19,7 +19,12 @@ import {
 import { makeAnimatedSource, makeDoc, makeSource } from './helpers';
 
 describe('Animation trim', () => {
-  const source = makeAnimatedSource(4, 4, ['#FF0000', '#00FF00', '#0000FF', '#FFFFFF'], [80, 120, 40, 60]);
+  const source = makeAnimatedSource(
+    4,
+    4,
+    ['#FF0000', '#00FF00', '#0000FF', '#FFFFFF'],
+    [80, 120, 40, 60],
+  );
 
   it('starts with every frame selected and counts only the trim', () => {
     const doc = withSource(makeDoc(null), source);
@@ -60,7 +65,11 @@ describe('Animation trim', () => {
   });
 
   it('samples up to the limit, always keeping the first and last frame', () => {
-    const long = makeAnimatedSource(2, 2, Array.from({ length: 20 }, () => '#000000'));
+    const long = makeAnimatedSource(
+      2,
+      2,
+      Array.from({ length: 20 }, () => '#000000'),
+    );
     const sampled = sampleTrimIndices(long, { start: 2, end: 19 }, 5);
 
     expect(sampled).toHaveLength(5);

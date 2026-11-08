@@ -43,8 +43,7 @@ export function Timeline({
   const dragRef = useRef<DragTarget | null>(null);
   const last = Math.max(0, frameCount - 1);
 
-  const percent = (value: number) =>
-    last <= 0 ? 0 : (clamp(value, 0, last) / last) * 100;
+  const percent = (value: number) => (last <= 0 ? 0 : (clamp(value, 0, last) / last) * 100);
 
   const frameAt = (clientX: number): number | null => {
     const track = trackRef.current;

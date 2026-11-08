@@ -120,8 +120,7 @@ function selectSwatches(clusters: readonly SampleColor[]): SampleColor[] {
     .map((color) => ({ color, score: vibrantScore(color) }))
     .filter((entry) => entry.score > 0)
     .sort(
-      (a, b) =>
-        b.score - a.score || b.color.count - a.color.count || a.color.order - b.color.order,
+      (a, b) => b.score - a.score || b.color.count - a.color.count || a.color.order - b.color.order,
     );
 
   let accentsAdded = 0;
@@ -250,15 +249,9 @@ export function paletteFromPixels(
  * follows them; the Border is chrome and must never enter the Palette. An
  * animation is sampled across its active Trim, at most 60 evenly spaced frames.
  */
-export function extractPalette(
-  doc: DocumentState,
-  adapter: PaletteAdapter,
-): PaletteColor[] {
+export function extractPalette(doc: DocumentState, adapter: PaletteAdapter): PaletteColor[] {
   if (!doc.source) return [];
-  const frameScale = Math.min(
-    1,
-    MAX_SAMPLE_SIDE / Math.max(doc.frame.width, doc.frame.height),
-  );
+  const frameScale = Math.min(1, MAX_SAMPLE_SIDE / Math.max(doc.frame.width, doc.frame.height));
   const width = Math.max(1, Math.round(doc.frame.width * frameScale));
   const height = Math.max(1, Math.round(doc.frame.height * frameScale));
   const pad = parseHexColor(doc.padColor) ?? { r: 255, g: 255, b: 255 };

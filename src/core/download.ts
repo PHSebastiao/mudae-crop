@@ -13,13 +13,7 @@ const SIZE_MESSAGE = 'O download passa de 30 MB. Use um arquivo menor ou otimize
 const CANCELLED_MESSAGE = 'Download cancelado.';
 
 export type DownloadErrorCode =
-  | 'invalid-url'
-  | 'unreachable'
-  | 'http'
-  | 'not-image'
-  | 'empty'
-  | 'too-large'
-  | 'cancelled';
+  'invalid-url' | 'unreachable' | 'http' | 'not-image' | 'empty' | 'too-large' | 'cancelled';
 
 export class DownloadError extends Error {
   readonly code: DownloadErrorCode;

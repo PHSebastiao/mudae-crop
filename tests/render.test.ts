@@ -47,7 +47,9 @@ function pixelsOf(canvas: Canvas) {
 function hashOf(doc: DocumentState, width: number, height: number): string {
   const canvas = createCanvas(width, height);
   renderFrame(contextOf(canvas), doc, { scale: 1 });
-  return createHash('sha256').update(Buffer.from(pixelsOf(canvas))).digest('hex');
+  return createHash('sha256')
+    .update(Buffer.from(pixelsOf(canvas)))
+    .digest('hex');
 }
 
 describe('render seam at 1×', () => {

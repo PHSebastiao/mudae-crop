@@ -61,10 +61,7 @@ describe('history', () => {
   });
 
   it('round-trips through serialize and parse', () => {
-    const history = appendHistory(
-      appendHistory([], makeUploadEntry(1)),
-      makeExportEntry(2),
-    );
+    const history = appendHistory(appendHistory([], makeUploadEntry(1)), makeExportEntry(2));
 
     expect(parseHistory(serializeHistory(history))).toEqual(history);
   });

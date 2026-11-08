@@ -191,8 +191,7 @@ describe('downloadSource', () => {
       downloadSource('https://missing.example.com/card.png', { transport }),
     ).rejects.toMatchObject({
       code: 'unreachable',
-      message:
-        'Não foi possível alcançar missing.example.com. Verifique a conexão ou o link.',
+      message: 'Não foi possível alcançar missing.example.com. Verifique a conexão ou o link.',
     });
   });
 
@@ -217,9 +216,7 @@ describe('downloadSource', () => {
       contentType: 'text/html; charset=utf-8',
     });
 
-    await expect(
-      downloadSource('https://example.com/page', { transport }),
-    ).rejects.toMatchObject({
+    await expect(downloadSource('https://example.com/page', { transport })).rejects.toMatchObject({
       code: 'not-image',
       message:
         'O link não aponta para uma imagem ou vídeo (text/html). Use um link direto para PNG, JPG, GIF, WebP, MP4, MOV ou WebM.',

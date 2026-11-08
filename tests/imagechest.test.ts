@@ -60,9 +60,7 @@ const base = {
 
 describe('uploadStill', () => {
   it('creates a hidden post and returns the direct cdn link', async () => {
-    const { transport, requests } = script([
-      ok(post('post123', [image('img1', 1)]), 201),
-    ]);
+    const { transport, requests } = script([ok(post('post123', [image('img1', 1)]), 201)]);
 
     const outcome = await uploadStill({ ...base, transport });
 
@@ -108,17 +106,13 @@ describe('uploadStill', () => {
       name: 'card.gif',
       contentType: 'image/gif',
     });
-    expect(Array.from(requests[0].file?.bytes ?? [])).toEqual([
-      0x47, 0x49, 0x46, 0x38, 0x39, 0x61,
-    ]);
+    expect(Array.from(requests[0].file?.bytes ?? [])).toEqual([0x47, 0x49, 0x46, 0x38, 0x39, 0x61]);
   });
 
   it('appends to an existing Post only after validating it', async () => {
     const { transport, requests } = script([
       ok(post('post123', [image('old', 1)])),
-      ok(
-        post('post123', [image('old', 1), image('new', 2)]),
-      ),
+      ok(post('post123', [image('old', 1), image('new', 2)])),
     ]);
 
     const outcome = await uploadStill({ ...base, transport, postId: 'post123' });
@@ -135,13 +129,7 @@ describe('uploadStill', () => {
 
   it('picks the newest image when the response lists the whole Post', async () => {
     const { transport } = script([
-      ok(
-        post('post123', [
-          image('a', 1),
-          image('c', 3),
-          image('b', 2),
-        ]),
-      ),
+      ok(post('post123', [image('a', 1), image('c', 3), image('b', 2)])),
     ]);
 
     const outcome = await uploadStill({ ...base, transport });
@@ -219,9 +207,7 @@ describe('upload failures', () => {
   });
 
   it('maps 429 to a backoff with the Retry-After seconds', async () => {
-    const { transport } = script([
-      { ...ok({}, 429), retryAfterSeconds: 42 },
-    ]);
+    const { transport } = script([{ ...ok({}, 429), retryAfterSeconds: 42 }]);
 
     const error = await uploadStill({ ...base, transport }).catch((reason: unknown) => reason);
 

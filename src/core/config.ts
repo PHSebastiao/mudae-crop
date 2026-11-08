@@ -1,8 +1,4 @@
-import {
-  parseHistory,
-  serializeHistory,
-  type HistoryEntry,
-} from './history';
+import { parseHistory, serializeHistory, type HistoryEntry } from './history';
 import { parseSettings, serializeSettings, type Settings } from './settings';
 
 export const SETTINGS_KEY = 'settings';

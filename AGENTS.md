@@ -8,6 +8,7 @@ Local Windows desktop editor (Tauri 2 + React/TypeScript) that crops a Source in
 npm run typecheck                          # both tsconfigs (src + tests, then vite.config.ts)
 npm test                                   # Vitest, node env
 npm run build                              # typecheck + vite build; does not build Rust
+npm run format:check                       # Prettier over the repo; `npm run format` rewrites
 cargo check --manifest-path src-tauri/Cargo.toml
 ```
 
@@ -15,7 +16,7 @@ cargo check --manifest-path src-tauri/Cargo.toml
 - `npm test -- -u` rewrites `tests/__snapshots__/render.test.ts.snap`, a pixel hash. Only update it for an intended render change.
 - Reuse fixtures from `tests/helpers.ts` (`makeSource`, `makeDoc`, `contextOf`, `pngSize`).
 - Vitest runs in `node` with `@napi-rs/canvas`, not jsdom. Tests cover `src/core`; UI is checked in the window.
-- There is no CI, ESLint or Prettier. These commands are the static gate.
+- There is no CI or ESLint. Prettier is the only formatter: `.prettierrc.json` sets `printWidth` 100, single quotes and per-file line endings; `package-lock.json`, `dist` and `src-tauri/{target,gen}` are ignored. Prettier does not run inside another script, so format before you hand off.
 - `npm run tauri dev` needs a Developer PowerShell for VS 2022, or `vcvars64.bat`, so `link.exe` is on `PATH`.
 - `npm run dev` is browser-only: OS file drops, the file dialog, clipboard image files and saving require the desktop window.
 

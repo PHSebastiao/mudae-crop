@@ -26,10 +26,7 @@ export function trimDurationMs(
 export function trimmedIndices(source: Source | null | undefined, trim: Trim | null): number[] {
   const range = clampTrim(source, trim);
   if (!range || !isAnimated(source)) return [0];
-  return Array.from(
-    { length: trimFrameCount(source, trim) },
-    (_, index) => range.start + index,
-  );
+  return Array.from({ length: trimFrameCount(source, trim) }, (_, index) => range.start + index);
 }
 
 /**
@@ -85,10 +82,7 @@ export function formatFps(fps: number): string {
  * clip at 1× lands near 0.83× because 60 fps cannot be represented above the
  * floor.
  */
-export function videoPreviewRate(
-  source: Source | null | undefined,
-  speed: number,
-): number {
+export function videoPreviewRate(source: Source | null | undefined, speed: number): number {
   if (!source?.video || source.video.fps <= 0) return speed;
   const delay = effectiveDelayMs(source, 0, speed);
   const rate = 1000 / (source.video.fps * delay);

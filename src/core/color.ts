@@ -26,6 +26,8 @@ export function parseHexColor(value: string): Rgb | null {
 
 export function toHexColor(color: Rgb): string {
   const channel = (value: number) =>
-    Math.min(255, Math.max(0, Math.round(value))).toString(16).padStart(2, '0');
+    Math.min(255, Math.max(0, Math.round(value)))
+      .toString(16)
+      .padStart(2, '0');
   return `#${channel(color.r)}${channel(color.g)}${channel(color.b)}`.toUpperCase();
 }

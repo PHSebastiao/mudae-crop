@@ -34,7 +34,7 @@ describe('export size helpers', () => {
 });
 
 describe('size guidance', () => {
-  it('is Mudae\'s 10 MB hint, not the Image Chest upload ceiling', () => {
+  it("is Mudae's 10 MB hint, not the Image Chest upload ceiling", () => {
     expect(MUDAE_SIZE_GUIDANCE_BYTES).toBe(10 * 1024 * 1024);
   });
 

@@ -183,11 +183,7 @@ function malformedAccount(): ImageChestError {
 }
 
 function invalidPost(postId: string, reason: string): ImageChestError {
-  return new ImageChestError(
-    'invalid-post',
-    `O Post "${postId}" ${reason}. Confira o id.`,
-    404,
-  );
+  return new ImageChestError('invalid-post', `O Post "${postId}" ${reason}. Confira o id.`, 404);
 }
 
 async function send(
@@ -249,8 +245,7 @@ function parsePost(body: string, known: ReadonlySet<string> | null): ParsedPost 
 
   const images = imagesIn(body);
   if (images.length === 0) return null;
-  const fresh =
-    known === null ? images : images.filter((image) => !known.has(image.imageId));
+  const fresh = known === null ? images : images.filter((image) => !known.has(image.imageId));
   const pool = fresh.length > 0 ? fresh : images;
   let best = pool[0];
   for (const image of pool) {

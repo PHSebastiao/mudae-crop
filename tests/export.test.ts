@@ -1,6 +1,11 @@
 import { createCanvas, type Canvas } from '@napi-rs/canvas';
 import { describe, expect, it } from 'vitest';
-import { ExportError, renderPng, type EncodableCanvas, type ExportAdapter } from '../src/core/export';
+import {
+  ExportError,
+  renderPng,
+  type EncodableCanvas,
+  type ExportAdapter,
+} from '../src/core/export';
 import { renderFrame } from '../src/core/render';
 import {
   SQUARE_FRAME,
@@ -73,10 +78,10 @@ describe('PNG Export', () => {
   });
 
   it('writes an arbitrary resized Export at its exact dimensions', async () => {
-    const doc = withResize(
-      withResizeLocked(makeDoc(makeSource(450, 700)), false),
-      { width: 100, height: 50 },
-    );
+    const doc = withResize(withResizeLocked(makeDoc(makeSource(450, 700)), false), {
+      width: 100,
+      height: 50,
+    });
     const bytes = await renderPng(doc, adapter);
     expect(pngSize(bytes)).toEqual({ width: 100, height: 50 });
   });

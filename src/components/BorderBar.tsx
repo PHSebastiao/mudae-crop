@@ -41,11 +41,7 @@ export function BorderBar({
           </button>
         </div>
         <span className="field">
-          <NumberField
-            value={border.width}
-            onCommit={onWidth}
-            label="Largura da Borda"
-          />
+          <NumberField value={border.width} onCommit={onWidth} label="Largura da Borda" />
           <span className="unit">px</span>
         </span>
         <span className="muted">cores da imagem</span>
@@ -59,9 +55,7 @@ export function BorderBar({
                 className={`palette-swatch${selected ? ' selected' : ''}`}
                 style={{ background: color.hex }}
                 title={
-                  color.count === 0
-                    ? color.hex
-                    : `${color.hex} · ${Math.round(color.share * 100)}%`
+                  color.count === 0 ? color.hex : `${color.hex} · ${Math.round(color.share * 100)}%`
                 }
                 aria-label={`Borda ${color.hex}`}
                 aria-pressed={selected}

@@ -45,7 +45,13 @@ describe('document', () => {
     const settings = withExportScale(
       withPadColor(
         withFrame(
-          withCrop(makeDoc(first), { mode: 'pad', zoom: 3, offsetX: 40, offsetY: -20, rotation: 90 }),
+          withCrop(makeDoc(first), {
+            mode: 'pad',
+            zoom: 3,
+            offsetX: 40,
+            offsetY: -20,
+            rotation: 90,
+          }),
           MUDAE_LANDSCAPE_FRAME,
         ),
         '#123456',
@@ -168,10 +174,7 @@ describe('export size', () => {
     const doc = withExportScale(makeDoc(makeSource(450, 700)), 2);
     expect(outputSize(doc)).toEqual({ width: 450, height: 700 });
 
-    const square = withExportScale(
-      { ...makeDoc(makeSource(450, 700)), frame: SQUARE_FRAME },
-      2,
-    );
+    const square = withExportScale({ ...makeDoc(makeSource(450, 700)), frame: SQUARE_FRAME }, 2);
     expect(outputSize(square)).toEqual({ width: 700, height: 700 });
   });
 

@@ -13,13 +13,7 @@ interface HexInputProps {
  * A small editable HEX field. The draft stays local until Enter or blur, so a
  * half-typed value never repaints the Border or the Pad. Escape cancels.
  */
-export function HexInput({
-  value,
-  onCommit,
-  label,
-  className,
-  disabled = false,
-}: HexInputProps) {
+export function HexInput({ value, onCommit, label, className, disabled = false }: HexInputProps) {
   const [draft, setDraft] = useState(value);
   const [invalid, setInvalid] = useState(false);
   const cancelRef = useRef(false);

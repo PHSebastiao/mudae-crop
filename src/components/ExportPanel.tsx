@@ -247,8 +247,8 @@ export function ExportPanel({
 
         {overGuidance && (
           <p className="panel-hint warn">
-            {estimateLabel} passa dos {formatBytes(MUDAE_SIZE_GUIDANCE_BYTES)} recomendados
-            pelo Mudae.
+            {estimateLabel} passa dos {formatBytes(MUDAE_SIZE_GUIDANCE_BYTES)} recomendados pelo
+            Mudae.
             {kind.format === 'gif'
               ? ' Otimize o GIF para reduzir; o upload continua liberado.'
               : ' O upload continua liberado; reduza a escala para um arquivo menor.'}
@@ -273,9 +273,7 @@ export function ExportPanel({
             GIF
           </button>
         </div>
-        {!animated && (
-          <p className="panel-hint">GIF indisponível: a Source é estática.</p>
-        )}
+        {!animated && <p className="panel-hint">GIF indisponível: a Source é estática.</p>}
 
         <div className="export-sizes" role="radiogroup" aria-label="Tamanho do Export">
           <button
@@ -350,18 +348,12 @@ export function ExportPanel({
             </div>
             <div className="custom-size-meta">
               <span className="ratio-chip">{ratioLabel}</span>
-              <button
-                type="button"
-                className="link"
-                onClick={() => onExportScale(doc.exportScale)}
-              >
+              <button type="button" className="link" onClick={() => onExportScale(doc.exportScale)}>
                 voltar a {doc.exportScale}×
               </button>
             </div>
             {!doc.resizeLocked && !ratioMatches && (
-              <p className="panel-hint bad">
-                fora da proporção da carta — a imagem vai esticar
-              </p>
+              <p className="panel-hint bad">fora da proporção da carta — a imagem vai esticar</p>
             )}
           </div>
         )}
@@ -425,9 +417,7 @@ export function ExportPanel({
                       <input
                         type="checkbox"
                         checked={optimize.targetEnabled}
-                        onChange={(event) =>
-                          onOptimize({ targetEnabled: event.target.checked })
-                        }
+                        onChange={(event) => onOptimize({ targetEnabled: event.target.checked })}
                       />
                     </label>
                     {optimize.targetEnabled ? (
@@ -442,7 +432,7 @@ export function ExportPanel({
                       </div>
                     ) : (
                       <p className="panel-hint">
-                        sem alvo — aplica a perda escolhida, mesmo abaixo de{' '}
+                        sem alvo — aplica a compressão escolhida, mesmo abaixo de{' '}
                         {formatBytes(MUDAE_SIZE_GUIDANCE_BYTES)}
                       </p>
                     )}
@@ -458,9 +448,9 @@ export function ExportPanel({
                       step={5}
                       value={optimize.lossy}
                       onChange={(event) => onOptimize({ lossy: Number(event.target.value) })}
-                      aria-label="Compressão com perda"
+                      aria-label="Compressão com lossy"
                     />
-                    <div className="toggle" role="group" aria-label="Intensidade da perda">
+                    <div className="toggle" role="group" aria-label="Intensidade da compressão">
                       {[30, 100, 200].map((lossy) => (
                         <button
                           key={lossy}
@@ -491,18 +481,14 @@ export function ExportPanel({
                       </div>
                     )}
                     <p className="panel-hint">
-                      sem reduzir cores, 100–200 comprime mais · perda até {MAX_LOSSY}
+                      sem reduzir cores, 100–200 comprime mais · compressão até {MAX_LOSSY}
                     </p>
                   </>
                 )}
               </>
             )}
             {optimizeResult && (
-              <p
-                className={`panel-hint${
-                  optimizeResult.met === false ? ' bad' : ''
-                }`}
-              >
+              <p className={`panel-hint${optimizeResult.met === false ? ' bad' : ''}`}>
                 {optimizeResult.met === null
                   ? 'compressão aplicada'
                   : optimizeResult.met
@@ -513,11 +499,11 @@ export function ExportPanel({
                 ) : (
                   <>
                     {' '}
-                    · {formatBytes(optimizeResult.baseSize)} →{' '}
-                    {formatBytes(optimizeResult.size)} (−{optimizeGain}%)
+                    · {formatBytes(optimizeResult.baseSize)} → {formatBytes(optimizeResult.size)} (−
+                    {optimizeGain}%)
                   </>
-                )}
-                {' '}· perda {optimizeResult.lossy}
+                )}{' '}
+                · lossy {optimizeResult.lossy}
                 {optimizeResult.colors ? ` · ${optimizeResult.colors} cores` : ''}
                 {optimizeResult.droppedFrames > 0
                   ? ` · ${optimizeResult.droppedFrames} repetidos`
@@ -561,11 +547,7 @@ export function ExportPanel({
                 : 'Cria um Post hidden e copia o link direto'
           }
         >
-          {uploading
-            ? 'Subindo…'
-            : cooling
-              ? `Aguarde ${cooldownSeconds}s`
-              : 'Subir e copiar link'}
+          {uploading ? 'Subindo…' : cooling ? `Aguarde ${cooldownSeconds}s` : 'Subir e copiar link'}
         </button>
         {!hasToken ? (
           <button type="button" className="link" onClick={onOpenSettings}>
@@ -601,8 +583,7 @@ export function ExportPanel({
                       {entry.link.replace(/^https:\/\//, '')}
                     </span>
                     <span className="history-meta">
-                      {entry.format.toUpperCase()} · Post {entry.postId} ·{' '}
-                      {formatBytes(entry.size)}
+                      {entry.format.toUpperCase()} · Post {entry.postId} · {formatBytes(entry.size)}
                     </span>
                     <span className="history-meta">{formatHistoryDate(entry.createdAt)}</span>
                     <span className="history-actions">

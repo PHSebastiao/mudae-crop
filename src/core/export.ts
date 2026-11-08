@@ -165,9 +165,7 @@ export async function estimateExportSize(
 
   const size = outputSize(doc);
   if (size.width * size.height > MAX_ESTIMATE_PIXELS) {
-    throw new ExportError(
-      'Export grande demais para estimar; o tamanho aparece ao exportar.',
-    );
+    throw new ExportError('Export grande demais para estimar; o tamanho aparece ao exportar.');
   }
 
   const total = trimFrameCount(source, trim);

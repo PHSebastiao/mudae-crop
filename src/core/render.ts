@@ -95,18 +95,16 @@ export function drawSource(
  * The single render entry point. Preview calls it at display scale; Export
  * calls it at 1× or 2×. Nothing else draws Frame content.
  */
-export function renderFrame(
-  ctx: RenderContext,
-  doc: DocumentState,
-  options: RenderOptions,
-): void {
+export function renderFrame(ctx: RenderContext, doc: DocumentState, options: RenderOptions): void {
   const scale = options.scale ?? 1;
   const width =
-    options.outputWidth ?? (options.outputHeight
+    options.outputWidth ??
+    (options.outputHeight
       ? (options.outputHeight * doc.frame.width) / doc.frame.height
       : doc.frame.width * scale);
   const height =
-    options.outputHeight ?? (options.outputWidth
+    options.outputHeight ??
+    (options.outputWidth
       ? (options.outputWidth * doc.frame.height) / doc.frame.width
       : doc.frame.height * scale);
   const scaleX = width / doc.frame.width;

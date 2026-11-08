@@ -200,7 +200,12 @@ export function resetCrop(crop: Crop): Crop {
 }
 
 /** The rotated Source draw rectangle inside the Frame at 1×, before output scaling. */
-export function sourceRect(doc: DocumentState): { x: number; y: number; width: number; height: number } {
+export function sourceRect(doc: DocumentState): {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+} {
   if (!doc.source) return { x: 0, y: 0, width: 0, height: 0 };
   const scale = effectiveScale(doc);
   const bounds = rotatedBounds(doc);

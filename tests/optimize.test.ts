@@ -109,7 +109,12 @@ describe('optimizeGif', () => {
 
     const result = await optimizeGif(
       base,
-      settings({ targetEnabled: true, targetBytes: base.length + 1, reduceColors: true, colors: 128 }),
+      settings({
+        targetEnabled: true,
+        targetBytes: base.length + 1,
+        reduceColors: true,
+        colors: 128,
+      }),
       { compress } as GifOptimizer,
     );
 
@@ -164,11 +169,9 @@ describe('optimizeGif', () => {
       options: { lossy: number; colors: number | null },
     ) => (options.lossy >= 60 ? tiny : base);
 
-    const result = await optimizeGif(
-      base,
-      settings({ targetBytes: tiny.length + 1, lossy: 40 }),
-      { compress } as GifOptimizer,
-    );
+    const result = await optimizeGif(base, settings({ targetBytes: tiny.length + 1, lossy: 40 }), {
+      compress,
+    } as GifOptimizer);
 
     expect(result.met).toBe(true);
     expect(result.lossy).toBe(60);
@@ -196,11 +199,9 @@ describe('optimizeGif', () => {
 
   it('stops after trying every lever when the target cannot be reached', async () => {
     const base = await baseGif();
-    const result = await optimizeGif(
-      base,
-      settings({ targetBytes: 1, lossy: 40 }),
-      { compress: async () => base },
-    );
+    const result = await optimizeGif(base, settings({ targetBytes: 1, lossy: 40 }), {
+      compress: async () => base,
+    });
 
     expect(result.met).toBe(false);
     expect(result.bytes).toBe(base);

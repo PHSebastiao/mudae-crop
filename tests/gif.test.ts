@@ -189,7 +189,11 @@ describe('GIF decode', () => {
 });
 
 describe('GIF encode', () => {
-  function solid(width: number, height: number, color: [number, number, number]): Uint8ClampedArray {
+  function solid(
+    width: number,
+    height: number,
+    color: [number, number, number],
+  ): Uint8ClampedArray {
     const pixels = new Uint8ClampedArray(width * height * 4);
     for (let index = 0; index < width * height; index += 1) {
       pixels[index * 4] = color[0];
@@ -227,28 +231,27 @@ describe('GIF encode', () => {
   });
 
   it('preserves a finite loop count', async () => {
-    const bytes = await encodeGif(
-      [{ pixels: solid(1, 1, [1, 2, 3]), delayMs: 100 }],
-      { width: 1, height: 1, loopCount: 4 },
-    );
+    const bytes = await encodeGif([{ pixels: solid(1, 1, [1, 2, 3]), delayMs: 100 }], {
+      width: 1,
+      height: 1,
+      loopCount: 4,
+    });
 
     expect(decodeGif(bytes).loopCount).toBe(4);
   });
 
   it('omits the loop extension for a one-shot animation', async () => {
-    const bytes = await encodeGif(
-      [{ pixels: solid(1, 1, [1, 2, 3]), delayMs: 100 }],
-      { width: 1, height: 1, loopCount: null },
-    );
+    const bytes = await encodeGif([{ pixels: solid(1, 1, [1, 2, 3]), delayMs: 100 }], {
+      width: 1,
+      height: 1,
+      loopCount: null,
+    });
 
     expect(decodeGif(bytes).loopCount).toBeNull();
   });
 
   it('keeps transparent pixels transparent', async () => {
-    const pixels = new Uint8ClampedArray([
-      255, 0, 0, 255,
-      0, 0, 0, 0,
-    ]);
+    const pixels = new Uint8ClampedArray([255, 0, 0, 255, 0, 0, 0, 0]);
     const bytes = await encodeGif([{ pixels, delayMs: 100 }], {
       width: 2,
       height: 1,

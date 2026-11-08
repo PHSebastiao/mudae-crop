@@ -17,10 +17,22 @@ function bytes(...head: number[]): Uint8Array {
 
 function riffWebp(): Uint8Array {
   return new Uint8Array([
-    0x52, 0x49, 0x46, 0x46, // RIFF
-    0x1a, 0x00, 0x00, 0x00, // size
-    0x57, 0x45, 0x42, 0x50, // WEBP
-    0x56, 0x50, 0x38, 0x20, // VP8
+    0x52,
+    0x49,
+    0x46,
+    0x46, // RIFF
+    0x1a,
+    0x00,
+    0x00,
+    0x00, // size
+    0x57,
+    0x45,
+    0x42,
+    0x50, // WEBP
+    0x56,
+    0x50,
+    0x38,
+    0x20, // VP8
   ]);
 }
 
@@ -60,7 +72,10 @@ function mp4(brand = 'isom'): Uint8Array {
   const output = new Uint8Array(24);
   output[3] = 0x18;
   output.set([0x66, 0x74, 0x79, 0x70], 4);
-  output.set([...brand].map((char) => char.charCodeAt(0)), 8);
+  output.set(
+    [...brand].map((char) => char.charCodeAt(0)),
+    8,
+  );
   return output;
 }
 

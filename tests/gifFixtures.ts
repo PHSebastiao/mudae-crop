@@ -141,12 +141,7 @@ export function buildGif(options: {
 }
 
 /** Read one pixel as [r, g, b, a] from composited RGBA pixels. */
-export function pixelAt(
-  pixels: Uint8ClampedArray,
-  width: number,
-  x: number,
-  y: number,
-): number[] {
+export function pixelAt(pixels: Uint8ClampedArray, width: number, x: number, y: number): number[] {
   const offset = (y * width + x) * 4;
   return Array.from(pixels.slice(offset, offset + 4));
 }

@@ -30,7 +30,11 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-family:
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    sans-serif;
   font-size: 12px;
   overflow: hidden;
   user-select: none;
@@ -1107,7 +1111,9 @@ button {
 }
 
 .palette-swatch.selected {
-  box-shadow: 0 0 0 2px #17161c, 0 0 0 3.5px #fff;
+  box-shadow:
+    0 0 0 2px #17161c,
+    0 0 0 3.5px #fff;
 }
 
 .recalc {

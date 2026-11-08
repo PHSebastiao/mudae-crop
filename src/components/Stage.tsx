@@ -113,15 +113,7 @@ export function Stage({
     backdropContext.clearRect(0, 0, backdrop.width, backdrop.height);
     if (!doc.source) return;
 
-    drawSource(
-      backdropContext,
-      doc,
-      scale * dpr,
-      scale * dpr,
-      PAD * dpr,
-      PAD * dpr,
-      frameIndex,
-    );
+    drawSource(backdropContext, doc, scale * dpr, scale * dpr, PAD * dpr, PAD * dpr, frameIndex);
 
     // Dim everything the Crop leaves outside the Frame.
     const pad = PAD * dpr;
@@ -185,10 +177,7 @@ export function Stage({
     return () => element.removeEventListener('wheel', onWheel);
   }, [doc.source, onZoomAt, picking, scale]);
 
-  function framePixelAt(
-    clientX: number,
-    clientY: number,
-  ): { sx: number; sy: number } | null {
+  function framePixelAt(clientX: number, clientY: number): { sx: number; sy: number } | null {
     const frameCanvas = frameRef.current;
     if (!frameCanvas) return null;
     const rect = frameCanvas.getBoundingClientRect();

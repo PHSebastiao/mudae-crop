@@ -101,11 +101,7 @@ function uniqueDescending(values: readonly number[], min: number): number[] {
 function isValidGif(bytes: Uint8Array, width: number, height: number): boolean {
   try {
     const decoded = decodeGif(bytes);
-    return (
-      decoded.width === width &&
-      decoded.height === height &&
-      decoded.frames.length > 0
-    );
+    return decoded.width === width && decoded.height === height && decoded.frames.length > 0;
   } catch {
     return false;
   }
@@ -192,8 +188,7 @@ export async function optimizeGif(
       error = undefined;
       return true;
     } catch {
-      error =
-        'Não foi possível comprimir o GIF; o arquivo sem otimização foi mantido.';
+      error = 'Não foi possível comprimir o GIF; o arquivo sem otimização foi mantido.';
       return false;
     }
   };

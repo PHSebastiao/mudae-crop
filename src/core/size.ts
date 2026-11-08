@@ -36,7 +36,5 @@ export const MUDAE_SIZE_GUIDANCE_BYTES = 10 * 1024 * 1024;
 
 /** Whether an Export of this size should show the 10 MB hint. */
 export function exceedsSizeGuidance(bytes: number | null | undefined): boolean {
-  return (
-    typeof bytes === 'number' && Number.isFinite(bytes) && bytes > MUDAE_SIZE_GUIDANCE_BYTES
-  );
+  return typeof bytes === 'number' && Number.isFinite(bytes) && bytes > MUDAE_SIZE_GUIDANCE_BYTES;
 }

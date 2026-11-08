@@ -1,6 +1,12 @@
 import { createCanvas, type Canvas } from '@napi-rs/canvas';
 import { describe, expect, it, vi } from 'vitest';
-import { ExportError, exportKindFor, renderGif, type EncodableCanvas, type ExportAdapter } from '../src/core/export';
+import {
+  ExportError,
+  exportKindFor,
+  renderGif,
+  type EncodableCanvas,
+  type ExportAdapter,
+} from '../src/core/export';
 import { decodeGif } from '../src/core/gif';
 import { DEFAULT_OPTIMIZE, withTrim, withTrimEnabled } from '../src/core/document';
 import { makeAnimatedSource, makeDoc, makeSource } from './helpers';
@@ -171,9 +177,13 @@ describe('GIF Export', () => {
     const controller = new AbortController();
     controller.abort();
 
-    const attempt = renderGif(withTrimEnabled(withTrim(makeDoc(source), { start: 0, end: 1 }), true), adapter, {
-      signal: controller.signal,
-    });
+    const attempt = renderGif(
+      withTrimEnabled(withTrim(makeDoc(source), { start: 0, end: 1 }), true),
+      adapter,
+      {
+        signal: controller.signal,
+      },
+    );
 
     await expect(attempt).rejects.toBeInstanceOf(ExportError);
     await expect(attempt).rejects.toMatchObject({ cancelled: true });
@@ -197,8 +207,8 @@ describe('GIF Export', () => {
     await expect(renderGif(makeDoc(makeSource(10, 10)), adapter)).rejects.toMatchObject({
       message: 'A Source não é animada.',
     });
-    await expect(
-      renderGif(makeDoc(null), adapter),
-    ).rejects.toMatchObject({ message: 'Não há Source para exportar.' });
+    await expect(renderGif(makeDoc(null), adapter)).rejects.toMatchObject({
+      message: 'Não há Source para exportar.',
+    });
   });
 });

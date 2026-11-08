@@ -204,11 +204,7 @@ function interlacedRows(height: number): number[] {
   return rows;
 }
 
-function clearRect(
-  pixels: Uint8ClampedArray,
-  canvasWidth: number,
-  rect: Rect,
-): void {
+function clearRect(pixels: Uint8ClampedArray, canvasWidth: number, rect: Rect): void {
   for (let y = rect.y; y < rect.y + rect.height; y += 1) {
     const offset = (y * canvasWidth + rect.x) * 4;
     pixels.fill(0, offset, offset + rect.width * 4);
@@ -475,10 +471,7 @@ interface Quantized {
   readonly transparentIndex: number | null;
 }
 
-function quantize(
-  pixels: Uint8ClampedArray,
-  maxColors: number,
-): Quantized {
+function quantize(pixels: Uint8ClampedArray, maxColors: number): Quantized {
   const counts = new Map<number, ColorCount>();
   let hasTransparent = false;
   const pixelCount = Math.floor(pixels.length / 4);
@@ -543,8 +536,7 @@ function quantize(
       indices[pixel] = transparentIndex ?? 0;
       continue;
     }
-    const key =
-      (pixels[offset] << 16) | (pixels[offset + 1] << 8) | pixels[offset + 2];
+    const key = (pixels[offset] << 16) | (pixels[offset + 1] << 8) | pixels[offset + 2];
     const exactIndex = exact.get(key);
     if (exactIndex !== undefined) {
       indices[pixel] = exactIndex;
@@ -658,10 +650,7 @@ function writeSubBlocks(writer: Writer, bytes: Uint8Array): void {
 }
 
 function delayCentiseconds(delayMs: number): number {
-  return Math.min(
-    65535,
-    Math.max(MIN_GIF_DELAY_MS / 10, Math.round(Math.max(0, delayMs) / 10)),
-  );
+  return Math.min(65535, Math.max(MIN_GIF_DELAY_MS / 10, Math.round(Math.max(0, delayMs) / 10)));
 }
 
 function writeColorTable(writer: Writer, palette: readonly Rgb[], entries: number): void {

@@ -34,7 +34,12 @@ import {
   type Trim,
 } from './core/document';
 import { normalizeHexColor } from './core/color';
-import { formatFps, formatPlaybackDuration, trimDurationMs, videoPreviewRate } from './core/animation';
+import {
+  formatFps,
+  formatPlaybackDuration,
+  trimDurationMs,
+  videoPreviewRate,
+} from './core/animation';
 import {
   DownloadError,
   downloadErrorMessage,
@@ -53,20 +58,8 @@ import {
   type SizeEstimate,
 } from './core/export';
 import type { OptimizeResult } from './core/optimize';
-import {
-  applyScaleMode,
-  clampCrop,
-  panBy,
-  resetCrop,
-  rotate90,
-  zoomAt,
-} from './core/geometry';
-import {
-  importErrorMessage,
-  loadSource,
-  localPathFrom,
-  type SourceCandidate,
-} from './core/import';
+import { applyScaleMode, clampCrop, panBy, resetCrop, rotate90, zoomAt } from './core/geometry';
+import { importErrorMessage, loadSource, localPathFrom, type SourceCandidate } from './core/import';
 import { extractPalette, type PaletteColor } from './core/palette';
 import {
   appendHistory,
@@ -330,10 +323,7 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [doc, settings.exportFormat, frameIndex, busy]);
 
-  const activeTrim = useMemo(
-    () => effectiveTrim(doc),
-    [doc.source, doc.trim, doc.trimEnabled],
-  );
+  const activeTrim = useMemo(() => effectiveTrim(doc), [doc.source, doc.trim, doc.trimEnabled]);
 
   // Keep the visible frame inside a Trim that just moved, and never play a still.
   useEffect(() => {
@@ -365,9 +355,12 @@ export default function App() {
     const trim = activeTrim;
     if (!playing || !source || source.video || !trim) return;
     const current = Math.min(trim.end, Math.max(trim.start, frameIndex));
-    const timer = setTimeout(() => {
-      setFrameIndex(current >= trim.end ? trim.start : current + 1);
-    }, effectiveDelayMs(source, current, doc.speed));
+    const timer = setTimeout(
+      () => {
+        setFrameIndex(current >= trim.end ? trim.start : current + 1);
+      },
+      effectiveDelayMs(source, current, doc.speed),
+    );
     return () => clearTimeout(timer);
   }, [activeTrim, playing, frameIndex, doc.source, doc.speed]);
 
@@ -1061,9 +1054,7 @@ export default function App() {
         const target = event.target as HTMLElement | null;
         if (
           target &&
-          (target.tagName === 'INPUT' ||
-            target.tagName === 'TEXTAREA' ||
-            target.isContentEditable)
+          (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)
         ) {
           return;
         }
@@ -1370,7 +1361,10 @@ export default function App() {
             onZoomAt={(point, factor) =>
               setDoc((current) =>
                 current.source
-                  ? withCrop(current, zoomAt(current, current.crop, current.crop.zoom * factor, point))
+                  ? withCrop(
+                      current,
+                      zoomAt(current, current.crop, current.crop.zoom * factor, point),
+                    )
                   : current,
               )
             }

@@ -56,9 +56,7 @@ describe('config store', () => {
 
   it('caps history on save even if the caller sends more', async () => {
     const store = new MemoryStore();
-    const many = Array.from({ length: MAX_HISTORY + 3 }, (_, index) =>
-      makeUploadEntry(index),
-    );
+    const many = Array.from({ length: MAX_HISTORY + 3 }, (_, index) => makeUploadEntry(index));
 
     await saveHistory(store, many);
 

@@ -8,18 +8,8 @@ import {
   type DocumentState,
   type Source,
 } from '../src/core/document';
-import {
-  ExportError,
-  estimateExportSize,
-  renderGif,
-  renderPng,
-} from '../src/core/export';
-import {
-  makeDoc,
-  makePaintedAnimation,
-  makeSource,
-  testExportAdapter as adapter,
-} from './helpers';
+import { ExportError, estimateExportSize, renderGif, renderPng } from '../src/core/export';
+import { makeDoc, makePaintedAnimation, makeSource, testExportAdapter as adapter } from './helpers';
 
 const CELL_COLORS = Array.from({ length: 64 }, (_, index) => {
   const r = (index * 40) % 256;
@@ -96,11 +86,7 @@ describe('estimateExportSize', () => {
 
     const shortSize = await estimateExportSize(short, adapter, { format: 'gif' });
     const longSize = await estimateExportSize(long, adapter, { format: 'gif' });
-    const doubled = await estimateExportSize(
-      withExportScale(short, 2),
-      adapter,
-      { format: 'gif' },
-    );
+    const doubled = await estimateExportSize(withExportScale(short, 2), adapter, { format: 'gif' });
 
     expect(longSize.bytes).toBeGreaterThan(shortSize.bytes);
     expect(doubled.bytes).toBeGreaterThan(shortSize.bytes);

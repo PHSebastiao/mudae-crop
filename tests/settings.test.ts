@@ -63,9 +63,7 @@ describe('settings', () => {
   });
 
   it('keeps a saved token empty when it was cleared', () => {
-    const loaded = parseSettings(
-      JSON.stringify({ ...DEFAULT_SETTINGS, token: '' }),
-    );
+    const loaded = parseSettings(JSON.stringify({ ...DEFAULT_SETTINGS, token: '' }));
 
     expect(loaded.token).toBe('');
   });

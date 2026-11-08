@@ -233,12 +233,7 @@ export function ToolRail({
             </button>
           ))}
         </div>
-        <button
-          type="button"
-          className="link"
-          onClick={() => onTrim(null)}
-          disabled={!animated}
-        >
+        <button type="button" className="link" onClick={() => onTrim(null)} disabled={!animated}>
           redefinir trim
         </button>
       </div>

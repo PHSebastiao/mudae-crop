@@ -12,18 +12,7 @@ import {
 } from '../core/download';
 import type { ExportFileFormat } from '../core/export';
 
-const MEDIA_EXTENSIONS = [
-  'png',
-  'jpg',
-  'jpeg',
-  'gif',
-  'webp',
-  'apng',
-  'mp4',
-  'm4v',
-  'mov',
-  'webm',
-];
+const MEDIA_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'apng', 'mp4', 'm4v', 'mov', 'webm'];
 
 export function isDesktop(): boolean {
   return isTauri();
@@ -85,9 +74,7 @@ export async function writeFileBytes(path: string, bytes: Uint8Array): Promise<v
  * Tauri delivers OS file drops with real paths. The callback receives them and
  * the caller reuses the same import path as the file dialog.
  */
-export async function watchFileDrops(
-  onDrop: (paths: string[]) => void,
-): Promise<() => void> {
+export async function watchFileDrops(onDrop: (paths: string[]) => void): Promise<() => void> {
   if (!isTauri()) return () => undefined;
   return getCurrentWebview().onDragDropEvent((event) => {
     if (event.payload.type === 'drop') {

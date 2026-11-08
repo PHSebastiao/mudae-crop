@@ -191,7 +191,8 @@ export function SettingsDialog({
           <div className="settings-row">
             <span className="settings-key">Formato</span>
             <span>
-              {settings.exportFormat.toUpperCase()} · escolhido no painel Export; imagem estática força PNG
+              {settings.exportFormat.toUpperCase()} · escolhido no painel Export; imagem estática
+              força PNG
             </span>
           </div>
           <div className="settings-row">
