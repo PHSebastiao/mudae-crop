@@ -201,6 +201,22 @@ button {
   color: #e9e6ef;
 }
 
+.chip-button.on {
+  border-color: #6f6a7d;
+  background: rgba(255, 255, 255, 0.08);
+  color: #f2eef8;
+}
+
+.chip-button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.chip-button:disabled:hover {
+  border-color: #34323f;
+  color: #b7b2c5;
+}
+
 /* Notices */
 
 .notice {

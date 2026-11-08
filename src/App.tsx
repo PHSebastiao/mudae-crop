@@ -148,8 +148,11 @@ export default function App() {
   const [frameIndex, setFrameIndex] = useState(0);
   const [frameVersion, setFrameVersion] = useState(0);
   const [playing, setPlaying] = useState(false);
+  const [framesOpen, setFramesOpen] = useState(false);
   const docRef = useRef(doc);
   docRef.current = doc;
+  const frameAnimation = effectiveAnimation(doc);
+  const hasFrames = frameAnimation !== null;
   const estimateVersionRef = useRef(0);
   const runningRef = useRef(false);
   const cancelDownloadRef = useRef<(() => void) | null>(null);
@@ -1005,6 +1008,10 @@ export default function App() {
     setPlaying((current) => !current);
   }, []);
 
+  const toggleFrames = useCallback(() => {
+    setFramesOpen((current) => !current);
+  }, []);
+
   const scrubFrame = useCallback((index: number) => {
     setPlaying(false);
     setFrameIndex(index);
@@ -1084,6 +1091,27 @@ export default function App() {
         return;
       }
       if (settingsOpen) return;
+      if (
+        (event.key === 'f' || event.key === 'F') &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !event.altKey
+      ) {
+        const target = event.target as HTMLElement | null;
+        if (
+          target &&
+          (target.tagName === 'INPUT' ||
+            target.tagName === 'TEXTAREA' ||
+            target.tagName === 'SELECT' ||
+            target.isContentEditable)
+        ) {
+          return;
+        }
+        if (!hasFrames) return;
+        event.preventDefault();
+        toggleFrames();
+        return;
+      }
       if (event.key === ' ' && isAnimated(effectiveSource(doc))) {
         const target = event.target as HTMLElement | null;
         if (
@@ -1117,7 +1145,16 @@ export default function App() {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [doc.source, handleOpen, openSettings, pickTarget, settingsOpen, togglePlay]);
+  }, [
+    doc.source,
+    handleOpen,
+    hasFrames,
+    openSettings,
+    pickTarget,
+    settingsOpen,
+    toggleFrames,
+    togglePlay,
+  ]);
 
   useEffect(() => {
     const onPaste = (event: ClipboardEvent) => {
@@ -1209,7 +1246,6 @@ export default function App() {
 
   const sourceView = effectiveSource(doc);
   const sourceAnimated = isAnimated(sourceView);
-  const frameAnimation = effectiveAnimation(doc);
   const sourceChip = doc.source
     ? `${doc.source.format.toUpperCase()} · ${doc.source.width}×${doc.source.height} · ${formatBytes(
         doc.source.bytes,
@@ -1300,6 +1336,17 @@ export default function App() {
         </div>
         <div className="topbar-right">
           <span className="chip">{sourceChip}</span>
+          <button
+            type="button"
+            className={`chip chip-button${framesOpen ? ' on' : ''}`}
+            onClick={toggleFrames}
+            disabled={!hasFrames}
+            aria-pressed={framesOpen}
+            aria-keyshortcuts="F"
+            title="Mostrar ou ocultar o painel de quadros (F)"
+          >
+            Quadros
+          </button>
           <span className="chip">waifu2x off</span>
           <button
             type="button"
@@ -1397,7 +1444,7 @@ export default function App() {
             onPickColor={pickPadColor}
             onPickMiss={pickPadMiss}
           />
-          {frameAnimation && (
+          {framesOpen && frameAnimation && (
             <FrameGrid
               animation={frameAnimation}
               width={doc.source?.width ?? 1}
