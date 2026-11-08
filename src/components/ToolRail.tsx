@@ -3,6 +3,7 @@ import {
   MAX_SPEED,
   MIN_SPEED,
   animationFrameCount,
+  effectiveAnimation,
   effectiveSource,
   effectiveTrim,
   isAnimated,
@@ -28,6 +29,8 @@ interface ToolRailProps {
   readonly onTrim: (trim: Trim | null) => void;
   readonly onSpeed: (speed: number) => void;
   readonly pickingPad: boolean;
+  readonly framesOpen: boolean;
+  readonly onToggleFrames: () => void;
 }
 
 export function ToolRail({
@@ -43,10 +46,13 @@ export function ToolRail({
   onTrim,
   onSpeed,
   pickingPad,
+  framesOpen,
+  onToggleFrames,
 }: ToolRailProps) {
   const hasSource = doc.source !== null;
   const mode = doc.crop.mode;
   const animated = isAnimated(effectiveSource(doc));
+  const imageAnimation = effectiveAnimation(doc) !== null;
   const frames = animationFrameCount(effectiveSource(doc));
   const trim = effectiveTrim(doc) ?? { start: 0, end: 0 };
   const trimmed = trimFrameCount(effectiveSource(doc), effectiveTrim(doc));
@@ -239,6 +245,18 @@ export function ToolRail({
         <button type="button" className="link" onClick={() => onTrim(null)} disabled={!animated}>
           redefinir trim
         </button>
+        {imageAnimation && (
+          <button
+            type="button"
+            className={`link rail-frames${framesOpen ? ' on' : ''}`}
+            onClick={onToggleFrames}
+            aria-pressed={framesOpen}
+            aria-keyshortcuts="F"
+            title="Mostrar ou ocultar o painel de quadros (F)"
+          >
+            {framesOpen ? 'ocultar painel de quadros' : 'ver painel de quadros'}
+          </button>
+        )}
       </div>
     </aside>
   );

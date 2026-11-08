@@ -1,19 +1,28 @@
 import { useEffect, useRef, type KeyboardEvent } from 'react';
-import { MIN_FRAME_DELAY_MS, type Animation } from '../core/document';
+import { MIN_FRAME_DELAY_MS, scaledDelayMs, type Animation } from '../core/document';
 import { NumberField } from './NumberField';
 
 /** Longest side of a thumbnail, in CSS pixels. */
 const THUMB_SIZE = 54;
+
+function formatSpeed(speed: number): string {
+  return `${speed
+    .toFixed(2)
+    .replace(/\.?0+$/, '')
+    .replace('.', ',')}×`;
+}
 
 interface FrameGridProps {
   readonly animation: Animation;
   readonly width: number;
   readonly height: number;
   readonly selectedIndex: number;
+  readonly speed: number;
   readonly disabled: boolean;
   readonly onSelect: (index: number) => void;
   readonly onDelete: (index: number) => void;
-  readonly onRetime: (index: number, delayMs: number) => void;
+  /** Receives the duration the frame plays at the current Speed. */
+  readonly onRetime: (index: number, effectiveMs: number) => void;
 }
 
 function thumbSize(width: number, height: number): { width: number; height: number } {
@@ -69,6 +78,7 @@ export function FrameGrid({
   width,
   height,
   selectedIndex,
+  speed,
   disabled,
   onSelect,
   onDelete,
@@ -78,6 +88,11 @@ export function FrameGrid({
   const last = Math.max(0, frames.length - 1);
   const selected = Math.min(last, Math.max(0, selectedIndex));
   const thumb = thumbSize(width, height);
+  const selectedFrame = frames[selected];
+  const selectedDelay = selectedFrame
+    ? scaledDelayMs(selectedFrame.delayMs, speed)
+    : MIN_FRAME_DELAY_MS;
+  const speedLabel = formatSpeed(speed);
 
   const onThumbKey = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
     if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
@@ -104,14 +119,17 @@ export function FrameGrid({
             if (!disabled) onSelect(selected);
           }}
         >
-          <span>duração do quadro</span>
+          <span>{speed === 1 ? 'duração do quadro' : `duração a ${speedLabel}`}</span>
           <NumberField
-            value={frames[selected]?.delayMs ?? MIN_FRAME_DELAY_MS}
+            value={selectedDelay}
             onCommit={(delayMs) => onRetime(selected, delayMs)}
             label="Duração do quadro selecionado em milissegundos"
             disabled={disabled || frames.length === 0}
           />
           <span className="unit">ms</span>
+          {selectedFrame && selectedFrame.delayMs !== selectedDelay && (
+            <span className="frame-grid-base">base {selectedFrame.delayMs} ms</span>
+          )}
         </label>
         <button
           type="button"
@@ -127,24 +145,28 @@ export function FrameGrid({
         </span>
       </div>
       <div className="frame-grid-strip">
-        {frames.map((frame, index) => (
-          <button
-            key={index}
-            type="button"
-            className={`frame-cell${index === selected ? ' on' : ''}`}
-            onClick={() => onSelect(index)}
-            onKeyDown={(event) => onThumbKey(event, index)}
-            disabled={disabled}
-            aria-pressed={index === selected}
-            aria-label={`Quadro ${index + 1} de ${frames.length}, ${frame.delayMs} ms`}
-            title={`Quadro ${index + 1} · ${frame.delayMs} ms`}
-          >
-            <FrameThumbnail image={frame.image} width={thumb.width} height={thumb.height} />
-            <span className="frame-cell-meta">
-              {index + 1} · {frame.delayMs} ms
-            </span>
-          </button>
-        ))}
+        {frames.map((frame, index) => {
+          const delay = scaledDelayMs(frame.delayMs, speed);
+          const base = frame.delayMs === delay ? '' : `, base ${frame.delayMs} ms`;
+          return (
+            <button
+              key={index}
+              type="button"
+              className={`frame-cell${index === selected ? ' on' : ''}`}
+              onClick={() => onSelect(index)}
+              onKeyDown={(event) => onThumbKey(event, index)}
+              disabled={disabled}
+              aria-pressed={index === selected}
+              aria-label={`Quadro ${index + 1} de ${frames.length}, ${delay} ms${base}`}
+              title={`Quadro ${index + 1} · ${delay} ms${base}`}
+            >
+              <FrameThumbnail image={frame.image} width={thumb.width} height={thumb.height} />
+              <span className="frame-cell-meta">
+                {index + 1} · {delay} ms
+              </span>
+            </button>
+          );
+        })}
       </div>
     </section>
   );

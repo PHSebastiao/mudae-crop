@@ -19,7 +19,7 @@ import {
   withCrop,
   withExportScale,
   withFrame,
-  withFrameDelay,
+  withFrameEffectiveDelay,
   withFrameRemoved,
   withOptimize,
   withPadColor,
@@ -995,7 +995,7 @@ export default function App() {
   const changeFrameDelay = useCallback((frameIndex: number, delayMs: number) => {
     setPlaying(false);
     setOptimizeResult(null);
-    setDoc((current) => withFrameDelay(current, frameIndex, delayMs));
+    setDoc((current) => withFrameEffectiveDelay(current, frameIndex, delayMs));
   }, []);
 
   const removeFrame = useCallback((frameIndex: number) => {
@@ -1336,17 +1336,6 @@ export default function App() {
         </div>
         <div className="topbar-right">
           <span className="chip">{sourceChip}</span>
-          <button
-            type="button"
-            className={`chip chip-button${framesOpen ? ' on' : ''}`}
-            onClick={toggleFrames}
-            disabled={!hasFrames}
-            aria-pressed={framesOpen}
-            aria-keyshortcuts="F"
-            title="Mostrar ou ocultar o painel de quadros (F)"
-          >
-            Quadros
-          </button>
           <span className="chip">waifu2x off</span>
           <button
             type="button"
@@ -1417,6 +1406,8 @@ export default function App() {
           onTrim={changeTrim}
           onSpeed={changeSpeed}
           pickingPad={pickTarget === 'pad'}
+          framesOpen={framesOpen}
+          onToggleFrames={toggleFrames}
         />
         <div className="stage-column">
           <Stage
@@ -1450,6 +1441,7 @@ export default function App() {
               width={doc.source?.width ?? 1}
               height={doc.source?.height ?? 1}
               selectedIndex={frameIndex}
+              speed={doc.speed}
               disabled={busy}
               onSelect={scrubFrame}
               onDelete={removeFrame}

@@ -201,22 +201,6 @@ button {
   color: #e9e6ef;
 }
 
-.chip-button.on {
-  border-color: #6f6a7d;
-  background: rgba(255, 255, 255, 0.08);
-  color: #f2eef8;
-}
-
-.chip-button:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-
-.chip-button:disabled:hover {
-  border-color: #34323f;
-  color: #b7b2c5;
-}
-
 /* Notices */
 
 .notice {
@@ -471,6 +455,16 @@ button {
   margin-top: 2px;
   font-size: 9.5px;
   text-align: left;
+}
+
+.rail-frames {
+  align-self: flex-start;
+  font-size: 9.5px;
+  text-align: left;
+}
+
+.rail-frames.on {
+  color: #f2eef8;
 }
 
 .inline-link {
@@ -810,6 +804,7 @@ button {
 
 .frame-grid-bar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 10px;
 }
@@ -831,6 +826,12 @@ button {
 
 .frame-grid-delay .unit {
   color: var(--text-faint);
+}
+
+.frame-grid-base {
+  color: var(--text-faint);
+  font-size: 9.5px;
+  font-variant-numeric: tabular-nums;
 }
 
 .frame-grid-count {

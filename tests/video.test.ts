@@ -93,7 +93,8 @@ describe('video Sources', () => {
     expect(videoPreviewRate(source, 1)).toBeCloseTo(0.8333, 3);
 
     const thirty = makeVideoFixture(8, 8, ['#FF0000', '#00FF00'], 30).source;
-    expect(videoPreviewRate(thirty, 1)).toBeCloseTo(1.01, 2);
+    // 30 fps quantises to 30 ms in the GIF, so the native preview runs faster.
+    expect(videoPreviewRate(thirty, 1)).toBeCloseTo(1.1111, 3);
   });
 
   it('exports only the trimmed frames, with speed-scaled delays and a loop', async () => {

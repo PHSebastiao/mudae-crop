@@ -2,14 +2,17 @@ import { describe, expect, it } from 'vitest';
 import {
   MIN_FRAME_DELAY_MS,
   animationFrameCount,
+  effectiveDelayMs,
   effectiveSource,
   effectiveTrim,
   frameDelayMs,
   frameImage,
   isAnimated,
   withFrameDelay,
+  withFrameEffectiveDelay,
   withFrameRemoved,
   withSource,
+  withSpeed,
   withTrim,
   withTrimEnabled,
 } from '../src/core/document';
@@ -100,17 +103,33 @@ describe('frame edits', () => {
     expect(trimDurationMs(effectiveSource(retimed), effectiveTrim(retimed), 1)).toBe(200);
   });
 
-  it('stores the delay on the 10 ms GIF grid, so Preview and Export agree', async () => {
+  it('stores the retimed base while Preview and Export use the 10 ms grid', async () => {
     const doc = withFrameDelay(makeDoc(source()), 1, 37);
     const gif = decodeGif(await renderGif(doc, testExportAdapter));
 
-    expect(frameDelayMs(effectiveSource(doc), 1)).toBe(40);
+    expect(frameDelayMs(effectiveSource(doc), 1)).toBe(37);
+    expect(effectiveDelayMs(effectiveSource(doc), 1)).toBe(40);
     expect(gif.frames.map((frame) => frame.delayMs)).toEqual([100, 40, 80]);
   });
 
-  it('keeps the 20 ms floor after rounding to the GIF grid', () => {
-    expect(frameDelayMs(effectiveSource(withFrameDelay(makeDoc(source()), 1, 21)), 1)).toBe(20);
-    expect(frameDelayMs(effectiveSource(withFrameDelay(makeDoc(source()), 1, 24)), 1)).toBe(20);
+  it('retimes in the duration the frame plays at the current Speed', async () => {
+    const doc = withSpeed(makeDoc(source()), 2);
+    const retimed = withFrameEffectiveDelay(doc, 1, 100);
+    const gif = decodeGif(await renderGif(retimed, testExportAdapter));
+
+    expect(frameDelayMs(effectiveSource(retimed), 1)).toBe(200);
+    expect(effectiveDelayMs(effectiveSource(retimed), 1, 2)).toBe(100);
+    expect(gif.frames.map((frame) => frame.delayMs)).toEqual([50, 100, 40]);
+
+    const slow = withSpeed(makeDoc(source()), 0.25);
+    const slowed = withFrameEffectiveDelay(slow, 1, 100);
+    expect(frameDelayMs(effectiveSource(slowed), 1)).toBe(25);
+    expect(effectiveDelayMs(effectiveSource(slowed), 1, 0.25)).toBe(100);
+  });
+
+  it('keeps the 20 ms floor after speed scaling and rounding', () => {
+    expect(effectiveDelayMs(effectiveSource(withFrameDelay(makeDoc(source()), 1, 21)), 1)).toBe(20);
+    expect(effectiveDelayMs(effectiveSource(withFrameDelay(makeDoc(source()), 1, 24)), 1)).toBe(20);
   });
 });
 

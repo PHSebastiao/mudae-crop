@@ -143,14 +143,23 @@ export function clampSpeed(speed: number): number {
   return Math.min(MAX_SPEED, Math.max(MIN_SPEED, Math.round(speed * 100) / 100));
 }
 
+/**
+ * One base frame delay after the Speed multiplier and the GIF's 10 ms grid.
+ * Preview and Export both read this, so the grid can show the played duration.
+ */
+export function scaledDelayMs(delayMs: number, speed = 1): number {
+  const scaled = delayMs / clampSpeed(speed);
+  const rounded = Math.round(scaled / 10) * 10;
+  return Math.max(MIN_FRAME_DELAY_MS, rounded);
+}
+
 /** The delay the Preview and Export actually use at a given speed. */
 export function effectiveDelayMs(
   source: Source | null | undefined,
   frameIndex: number,
   speed = 1,
 ): number {
-  const scaled = frameDelayMs(source, frameIndex) / clampSpeed(speed);
-  return Math.max(MIN_FRAME_DELAY_MS, Math.round(scaled));
+  return scaledDelayMs(frameDelayMs(source, frameIndex), speed);
 }
 
 /** The Trim that actually applies: the saved range only when enabled. */
@@ -431,11 +440,10 @@ export function withTrimEnabled(doc: DocumentState, trimEnabled: boolean): Docum
   return { ...doc, trimEnabled };
 }
 
-/** A frame delay stays on the 10 ms GIF grid, at or above the 20 ms floor. */
+/** A frame delay stays at or above the 20 ms GIF floor and below its ceiling. */
 export function clampFrameDelayMs(delayMs: number): number {
   if (!Number.isFinite(delayMs)) return MIN_FRAME_DELAY_MS;
-  const rounded = Math.round(delayMs / 10) * 10;
-  return Math.min(MAX_FRAME_DELAY_MS, Math.max(MIN_FRAME_DELAY_MS, rounded));
+  return Math.min(MAX_FRAME_DELAY_MS, Math.max(MIN_FRAME_DELAY_MS, Math.round(delayMs)));
 }
 
 /** Retime one frame. Preview and Export read the same stored delay. */
@@ -455,6 +463,18 @@ export function withFrameDelay(
     index === frameIndex ? { ...frame, delayMs: delay } : frame,
   );
   return { ...doc, animation: { ...animation, frames } };
+}
+
+/**
+ * Retime one frame in the duration it actually plays at the current Speed.
+ * The stored delay is the base the Preview and Export scale from.
+ */
+export function withFrameEffectiveDelay(
+  doc: DocumentState,
+  frameIndex: number,
+  effectiveMs: number,
+): DocumentState {
+  return withFrameDelay(doc, frameIndex, effectiveMs * clampSpeed(doc.speed));
 }
 
 /**
