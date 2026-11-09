@@ -15,13 +15,21 @@ import {
 } from '../core/document';
 import { formatFps, formatPlaybackDuration } from '../core/animation';
 import { formatBytes } from '../core/download';
-import { frameRect, nativeSize } from '../core/geometry';
+import { centreSnapAxes, frameRect, rotatedBounds } from '../core/geometry';
 import { stageLayout, type Handle } from '../core/rect';
 import { ratioLabel } from '../core/ratios';
-import { drawSource, frameBorderStroke, paintsPadColor, renderFrame } from '../core/render';
+import { drawSource, paintsPadColor, renderFrame } from '../core/render';
 
 /** Screen pixels of drag before a free resize starts snapping. */
 const SNAP_START_PX = 6;
+
+/** Screen pixels within which a pan holds the Frame at the Source centre. */
+const CENTRE_SNAP_PX = 6;
+
+/** How close the rect centre must be to count as snapped, in Source pixels. */
+const CENTRE_SNAP_EPSILON = 0.01;
+
+const NO_CENTRE_SNAP = { x: false, y: false } as const;
 
 const HANDLES: readonly Handle[] = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
 
@@ -118,6 +126,9 @@ export function Stage({
   } | null>(null);
   const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
   const [dragging, setDragging] = useState(false);
+  /** A grab only shows the centre guides after it actually moved. */
+  const [panned, setPanned] = useState(false);
+  const [altDown, setAltDown] = useState(false);
   const [magnifier, setMagnifier] = useState<MagnifierState | null>(null);
 
   useEffect(() => {
@@ -132,7 +143,6 @@ export function Stage({
   }, []);
 
   const rect = frameRect(doc);
-  const native = nativeSize(doc);
   const dpr = window.devicePixelRatio || 1;
   const layout = stageLayout(doc, stageSize, dpr, adjustFrame);
   const {
@@ -160,6 +170,18 @@ export function Stage({
     '--frame-width': `${frameWidth}px`,
     '--frame-height': `${frameHeight}px`,
   } as CSSProperties;
+  // A pan that lands on the Source centre leaves the rect exactly centred, so
+  // the guides read the settled document instead of guessing from the pointer.
+  // An axis the window cannot pan on is always centred, and that is not a snap.
+  const snapBounds = rotatedBounds(doc);
+  const centred = centreSnapAxes(snapBounds, doc.crop.rect, 0, 0, CENTRE_SNAP_EPSILON);
+  const centreSnap =
+    doc.source && dragging && panned && !altDown
+      ? {
+          x: centred.x && snapBounds.width - doc.crop.rect.width > CENTRE_SNAP_EPSILON,
+          y: centred.y && snapBounds.height - doc.crop.rect.height > CENTRE_SNAP_EPSILON,
+        }
+      : NO_CENTRE_SNAP;
 
   useEffect(() => {
     const frameCanvas = frameRef.current;
@@ -238,20 +260,8 @@ export function Stage({
     backdropContext.fillRect(0, top + height, fullWidth, fullHeight - top - height);
     backdropContext.fillRect(0, top, left, height);
     backdropContext.fillRect(left + width, top, fullWidth - left - width, height);
-
-    // In the adjust phase the Frame canvas is hidden, so the Border is stroked
-    // on the backdrop at the same preview scale.
-    const stroke = frameBorderStroke(doc, width, outputSize(doc).width);
-    if (adjusting && stroke > 0) {
-      backdropContext.strokeStyle = doc.border.color;
-      backdropContext.lineWidth = stroke;
-      backdropContext.strokeRect(
-        left + stroke / 2,
-        top + stroke / 2,
-        width - stroke,
-        height - stroke,
-      );
-    }
+    // The applied Border stays out of the adjust phase: the dashed Frame
+    // outline is what the user is positioning, and the Border would cover it.
   }, [
     doc,
     adjusting,
@@ -301,6 +311,22 @@ export function Stage({
   useEffect(() => {
     setMagnifier(null);
   }, [doc, picking, scale, frameIndex, frameVersion]);
+
+  // Alt releases the centre snap; track it while dragging so the guides react
+  // even when the pointer stays still.
+  useEffect(() => {
+    if (!dragging) return;
+    const update = (event: KeyboardEvent) => {
+      if (event.key !== 'Alt') return;
+      setAltDown(event.altKey);
+    };
+    window.addEventListener('keydown', update);
+    window.addEventListener('keyup', update);
+    return () => {
+      window.removeEventListener('keydown', update);
+      window.removeEventListener('keyup', update);
+    };
+  }, [dragging]);
 
   useEffect(() => {
     const element = hostRef.current;
@@ -377,6 +403,8 @@ export function Stage({
     event.currentTarget.setPointerCapture(event.pointerId);
     dragRef.current = { id: event.pointerId, x: event.clientX, y: event.clientY };
     setDragging(true);
+    setPanned(false);
+    setAltDown(event.altKey);
   }
 
   function updateMagnifier(event: ReactPointerEvent<HTMLDivElement>) {
@@ -432,8 +460,10 @@ export function Stage({
     const dx = (event.clientX - drag.x) / scale;
     const dy = (event.clientY - drag.y) / scale;
     dragRef.current = { id: drag.id, x: event.clientX, y: event.clientY };
+    setPanned((value) => value || dx !== 0 || dy !== 0);
+    setAltDown(event.altKey);
     // Alt releases the centre snap, the same key that releases the ratio snap.
-    const snapThreshold = scale > 0 ? 6 / scale : 0;
+    const snapThreshold = scale > 0 ? CENTRE_SNAP_PX / scale : 0;
     onPan(dx, dy, !event.altKey && snapThreshold > 0, snapThreshold);
   }
 
@@ -441,6 +471,8 @@ export function Stage({
     if (dragRef.current?.id === event.pointerId) {
       dragRef.current = null;
       setDragging(false);
+      setPanned(false);
+      setAltDown(false);
     }
   }
 
@@ -577,9 +609,9 @@ export function Stage({
           className="frame-canvas"
           style={{ left: frameLeft, top: frameTop, width: frameWidth, height: frameHeight }}
         />
-        {doc.source && (adjusting || dragging) && (
+        {doc.source && (
           <div
-            className="frame-guides"
+            className={`frame-guides${adjusting || dragging ? ' visible' : ''}`}
             style={{ left: frameLeft, top: frameTop, width: frameWidth, height: frameHeight }}
             aria-hidden="true"
           >
@@ -587,6 +619,24 @@ export function Stage({
             <span className="guide vertical" style={{ left: '66.6667%' }} />
             <span className="guide horizontal" style={{ top: '33.3333%' }} />
             <span className="guide horizontal" style={{ top: '66.6667%' }} />
+          </div>
+        )}
+        {doc.source && (
+          <div
+            className="centre-guides"
+            style={
+              {
+                '--centre-x': `${frameLeft + frameWidth / 2}px`,
+                '--centre-y': `${frameTop + frameHeight / 2}px`,
+              } as CSSProperties
+            }
+            aria-hidden="true"
+          >
+            <span className={`centre-line vertical${centreSnap.x ? ' on' : ''}`} />
+            <span className={`centre-line horizontal${centreSnap.y ? ' on' : ''}`} />
+            <span className={`centre-hint${centreSnap.x || centreSnap.y ? ' on' : ''}`}>
+              Grudado no centro · Alt solta
+            </span>
           </div>
         )}
         {adjustFrame && doc.source && !picking && (
@@ -661,7 +711,7 @@ export function Stage({
             role="status"
             aria-live="polite"
           >
-            {`${native.width}×${native.height} · ${ratioLabel(doc.frame.ratio)}`}
+            {`${ratioLabel(doc.frame.ratio)}`}
           </div>
         )}
       </div>

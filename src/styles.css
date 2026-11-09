@@ -780,7 +780,13 @@ button {
 .frame-guides {
   position: absolute;
   z-index: 3;
+  opacity: 0;
   pointer-events: none;
+  transition: opacity 140ms ease;
+}
+
+.frame-guides.visible {
+  opacity: 1;
 }
 
 .frame-guides .guide {
@@ -802,6 +808,76 @@ button {
   right: 0;
   height: 1px;
   transform: translateY(-0.5px);
+}
+
+/* Turquoise guides that appear while a pan holds the Frame at the Source centre. */
+
+.centre-guides {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;
+}
+
+.centre-guides .centre-line {
+  position: absolute;
+  display: block;
+  background: #1e4b62;
+  box-shadow:
+    0 0 0 0.5px rgba(255, 255, 255, 0.22),
+    0 0 10px rgba(30, 75, 98, 0.8);
+  opacity: 0;
+  transition: opacity 140ms ease;
+}
+
+.centre-guides .centre-line.on {
+  opacity: 1;
+}
+
+.centre-guides .centre-line.vertical {
+  left: var(--centre-x);
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  transform: translateX(-0.5px);
+}
+
+.centre-guides .centre-line.horizontal {
+  top: var(--centre-y);
+  left: 0;
+  right: 0;
+  height: 1px;
+  transform: translateY(-0.5px);
+}
+
+.centre-guides .centre-hint {
+  position: absolute;
+  /* Above the frame, stacked over the size badge so the image stays clear. */
+  left: var(--centre-x);
+  top: var(--frame-top);
+  padding: 2px 8px;
+  border: 1px solid #1e4b62;
+  border-radius: 999px;
+  background: rgba(30, 75, 98, 0.92);
+  color: #e8f4fa;
+  font-size: 10px;
+  letter-spacing: 0.2px;
+  white-space: nowrap;
+  transform: translate(-50%, calc(-100% - 30px));
+  opacity: 0;
+  transition: opacity 140ms ease;
+}
+
+.centre-guides .centre-hint.on {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .frame-guides,
+  .centre-guides .centre-line,
+  .centre-guides .centre-hint {
+    transition: none;
+  }
 }
 
 .frame-handles {

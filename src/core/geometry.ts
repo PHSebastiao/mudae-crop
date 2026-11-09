@@ -60,6 +60,30 @@ export interface PanOptions {
   readonly threshold?: number;
 }
 
+/** Which axes would land on the Source's centre for this pan delta. */
+export interface CentreSnap {
+  readonly x: boolean;
+  readonly y: boolean;
+}
+
+/**
+ * Report the axes a pan would snap to the Source's centre. The stage uses it
+ * to show the guide lines for exactly the axes `panBy` is holding.
+ */
+export function centreSnapAxes(
+  bounds: Size,
+  rect: Rect,
+  dx: number,
+  dy: number,
+  threshold: number,
+): CentreSnap {
+  const limit = Math.max(0, threshold);
+  return {
+    x: Math.abs(rect.x + rect.width / 2 + dx - bounds.width / 2) <= limit,
+    y: Math.abs(rect.y + rect.height / 2 + dy - bounds.height / 2) <= limit,
+  };
+}
+
 /** Pan by a delta expressed in rotated Source pixels. */
 export function panBy(
   doc: DocumentState,
@@ -72,14 +96,12 @@ export function panBy(
   let nextDy = dy;
   if (options.snapCenter && doc.source) {
     const bounds = boundsFor(doc, crop.rotation);
-    const threshold = Math.max(0, options.threshold ?? 0);
     const rect = crop.rect;
-    const centreX = rect.x + rect.width / 2 + dx;
-    const centreY = rect.y + rect.height / 2 + dy;
-    if (Math.abs(centreX - bounds.width / 2) <= threshold) {
+    const snapped = centreSnapAxes(bounds, rect, dx, dy, options.threshold ?? 0);
+    if (snapped.x) {
       nextDx = bounds.width / 2 - (rect.x + rect.width / 2);
     }
-    if (Math.abs(centreY - bounds.height / 2) <= threshold) {
+    if (snapped.y) {
       nextDy = bounds.height / 2 - (rect.y + rect.height / 2);
     }
   }
