@@ -4,29 +4,17 @@
  * adjusting and picking. `App` owns the single value and passes it down.
  */
 export type StageMode =
-  | { readonly kind: 'idle' }
-  | { readonly kind: 'adjust'; readonly resumePlayback: boolean }
-  | { readonly kind: 'pick-pad' };
+  { readonly kind: 'idle' } | { readonly kind: 'adjust' } | { readonly kind: 'pick-pad' };
 
 export const IDLE_STAGE_MODE: StageMode = { kind: 'idle' };
 
 /**
- * Whether leaving the current mode must resume playback. Only an adjust mode
- * entered while playing carries the flag; a phase entered while paused never
- * starts playback later.
+ * Enter the crop phase. A pick is cleared by construction. Playback is not
+ * affected: the Source keeps running under the handles. Entering while already
+ * adjusting is a no-op.
  */
-export function shouldResumePlayback(mode: StageMode): boolean {
-  return mode.kind === 'adjust' && mode.resumePlayback;
-}
-
-/**
- * Enter the crop phase. A pick is cleared by construction, and the playback
- * that was running is remembered in the state. Entering while already
- * adjusting is a no-op so a repeated toggle cannot overwrite the memory.
- */
-export function enterAdjust(mode: StageMode, playing: boolean): StageMode {
-  if (mode.kind === 'adjust') return mode;
-  return { kind: 'adjust', resumePlayback: playing };
+export function enterAdjust(mode: StageMode): StageMode {
+  return mode.kind === 'adjust' ? mode : { kind: 'adjust' };
 }
 
 /** Arm the Pad eyedropper. Adjust and pick can never coexist. */

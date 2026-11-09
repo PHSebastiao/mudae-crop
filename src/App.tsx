@@ -238,9 +238,6 @@ export default function App() {
     setDoc,
     snapRatios: settings.snapRatios,
     persistSettings,
-    playing,
-    setPlaying,
-    stageMode,
     setStageMode,
   });
 
@@ -422,7 +419,7 @@ export default function App() {
       const source = await loadSource(candidate, decodeWithBrowser);
       docRef.current.source?.video?.dispose();
       setStageMode(leavePick);
-      setPlaying(false);
+      setPlaying(isAnimated(source));
       setFrameIndex(0);
       setOptimizeResult(null);
       setDoc((current) => withSource(current, source));

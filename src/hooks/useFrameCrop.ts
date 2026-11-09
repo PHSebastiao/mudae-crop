@@ -14,23 +14,13 @@ import {
 import { presetForRatio } from '../core/ratios';
 import type { Handle } from '../core/rect';
 import type { Settings } from '../core/settings';
-import {
-  closeAdjust,
-  enterAdjust,
-  leavePick,
-  shouldResumePlayback,
-  type StageMode,
-} from '../core/stageMode';
+import { closeAdjust, enterAdjust, leavePick, type StageMode } from '../core/stageMode';
 
 interface FrameCropOptions {
   readonly doc: DocumentState;
   readonly setDoc: Dispatch<SetStateAction<DocumentState>>;
   readonly snapRatios: boolean;
   readonly persistSettings: (patch: Partial<Settings>) => void;
-  readonly playing: boolean;
-  readonly setPlaying: Dispatch<SetStateAction<boolean>>;
-  /** `App` owns the one stage interaction mode. */
-  readonly stageMode: StageMode;
   readonly setStageMode: Dispatch<SetStateAction<StageMode>>;
 }
 
@@ -60,18 +50,15 @@ export interface FrameCrop {
 
 /**
  * Owns the Frame/Crop controller: the crop commands, the proportion
- * persistence and the playback side effect of the crop phase. `App` owns the
- * stage interaction mode itself and passes it in; this hook never touches DOM
- * APIs beyond `window`.
+ * persistence and the stage mode transitions. `App` owns the stage interaction
+ * mode itself and passes the setter in; this hook never touches DOM APIs
+ * beyond `window`.
  */
 export function useFrameCrop({
   doc,
   setDoc,
   snapRatios,
   persistSettings,
-  playing,
-  setPlaying,
-  stageMode,
   setStageMode,
 }: FrameCropOptions): FrameCrop {
   const persistedFrameRatioRef = useRef(doc.frame.ratio);
@@ -90,21 +77,9 @@ export function useFrameCrop({
     return () => window.clearTimeout(timer);
   }, [doc.frame.ratio, persistSettings]);
 
-  // The crop phase freezes the preview: a moving Source under the handles is
-  // distracting and makes the framing harder to judge. Playback resumes when
-  // the phase ends, but only if it was playing when it started. The memory
-  // lives in the mode itself (`resumePlayback`); this effect only mirrors the
-  // previous mode so leaving adjust can read that flag.
-  const previousStageModeRef = useRef<StageMode>(stageMode);
-  useEffect(() => {
-    const previous = previousStageModeRef.current;
-    previousStageModeRef.current = stageMode;
-    if (stageMode.kind === 'adjust') {
-      if (stageMode.resumePlayback) setPlaying(false);
-    } else if (shouldResumePlayback(previous)) {
-      setPlaying(true);
-    }
-  }, [stageMode, setPlaying]);
+  // The crop phase does not freeze the preview: an animated Source keeps
+  // playing under the handles, so entering and leaving adjust never touches
+  // playback.
 
   const changeMode = useCallback(
     (mode: ScaleMode) => setDoc((current) => applyScaleMode(current, mode)),
@@ -186,9 +161,9 @@ export function useFrameCrop({
 
   const toggleAdjustFrame = useCallback(() => {
     setStageMode((current) =>
-      current.kind === 'adjust' ? closeAdjust(current) : enterAdjust(current, playing),
+      current.kind === 'adjust' ? closeAdjust(current) : enterAdjust(current),
     );
-  }, [playing, setStageMode]);
+  }, [setStageMode]);
 
   const changeSnapRatios = useCallback(
     (enabled: boolean) => persistSettings({ snapRatios: enabled }),
