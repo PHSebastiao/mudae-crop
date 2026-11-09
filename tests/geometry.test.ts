@@ -12,6 +12,7 @@ import {
   applyRatio,
   applyScaleMode,
   baseRectFor,
+  centreSnapAxes,
   clampCrop,
   frameRect,
   nativeSize,
@@ -265,6 +266,16 @@ describe('pan', () => {
       threshold: 6,
     });
     expect(centre(far)).toBeCloseTo(370);
+  });
+
+  it('reports the axes a pan would hold at the centre', () => {
+    const doc = makeDoc(makeSource(800, 400));
+    const off = panBy(doc, doc.crop, -40, 0);
+    const bounds = rotatedBounds({ ...doc, crop: off });
+
+    expect(centreSnapAxes(bounds, off.rect, 0, 0, 6)).toEqual({ x: false, y: true });
+    expect(centreSnapAxes(bounds, off.rect, 36, 0, 6)).toEqual({ x: true, y: true });
+    expect(centreSnapAxes(bounds, off.rect, 10, 0, 6)).toEqual({ x: false, y: true });
   });
 });
 
