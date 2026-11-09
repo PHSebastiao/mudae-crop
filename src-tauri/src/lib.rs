@@ -1,4 +1,4 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -14,15 +14,121 @@ use tauri::{AppHandle, Emitter, Manager, State};
 /// enforces the same ceiling before decoding.
 const MAX_DOWNLOAD_BYTES: u64 = 30 * 1024 * 1024;
 
-#[derive(Default)]
-struct DownloadRegistry {
-    live: HashMap<String, Arc<AtomicBool>>,
-    early_cancels: VecDeque<String>,
+/// How many early cancels may wait for a download that never starts. A cancel
+/// whose download never starts is harmless, so the oldest one is dropped.
+const MAX_EARLY_CANCELS: usize = 32;
+
+/// Cancellation state of one download, keyed by the id the front-end chose.
+///
+/// ```text
+///                    start()                       cancel()
+///   (absent) ───────────────────▶ Running(false) ───────────▶ Running(true)
+///      │                              │
+///      │ cancel()                     │ finish()
+///      ▼                              ▼
+///   AwaitingStart ──start()──▶ Running(true)              (absent)
+///   (bounded FIFO, MAX_EARLY_CANCELS)
+/// ```
+///
+/// `AwaitingStart` marks a cancel that arrived before its download began; it
+/// waits in its own bounded queue and never displaces a live flag. `start()`
+/// consumes only the id it is starting, and `finish()` drops only a running
+/// entry, so a later cancel for a finished id becomes an early cancel again.
+enum DownloadState {
+    /// A cancel arrived first. `enqueued_at` keeps the queue's insertion order;
+    /// `cancelled` is the flag `start()` publishes already set.
+    AwaitingStart { cancelled: bool, enqueued_at: u64 },
+    /// The download is streaming. The flag is the shared cancel signal the
+    /// stream polls.
+    Running(Arc<AtomicBool>),
 }
 
-/// Cancellation flags for in-flight downloads, keyed by the id the front-end
-/// chose. A cancel can arrive before its download starts, so early ids wait in
-/// their own queue and never displace a live flag.
+#[derive(Default)]
+struct DownloadRegistry {
+    states: HashMap<String, DownloadState>,
+    next_sequence: u64,
+}
+
+impl DownloadRegistry {
+    /// Enter the running state and publish the flag the stream polls. A pending
+    /// early cancel is consumed and starts the download already cancelled.
+    fn start(&mut self, id: &str) -> Arc<AtomicBool> {
+        let cancelled = match self.states.remove(id) {
+            Some(DownloadState::AwaitingStart { cancelled, .. }) => cancelled,
+            // Starting an id that is already running keeps the previous
+            // behaviour: a fresh flag replaces it and the old stream keeps its
+            // own handle.
+            Some(DownloadState::Running(_)) | None => false,
+        };
+        let flag = Arc::new(AtomicBool::new(cancelled));
+        self.states
+            .insert(id.to_string(), DownloadState::Running(flag.clone()));
+        flag
+    }
+
+    /// Cancel a download whatever its state: set the live flag, keep an existing
+    /// early cancel, or queue a new one when no download has started yet.
+    fn cancel(&mut self, id: String) {
+        match self.states.get_mut(&id) {
+            Some(DownloadState::Running(flag)) => {
+                flag.store(true, Ordering::Relaxed);
+            }
+            Some(DownloadState::AwaitingStart { .. }) => {}
+            None => {
+                if self.pending_count() >= MAX_EARLY_CANCELS {
+                    self.evict_oldest_pending();
+                }
+                let enqueued_at = self.next_sequence;
+                self.next_sequence = self.next_sequence.wrapping_add(1);
+                self.states.insert(
+                    id,
+                    DownloadState::AwaitingStart {
+                        cancelled: true,
+                        enqueued_at,
+                    },
+                );
+            }
+        }
+    }
+
+    /// Leave the machine once the stream ends. A later cancel for the id is an
+    /// early cancel again.
+    fn finish(&mut self, id: &str) {
+        if matches!(self.states.get(id), Some(DownloadState::Running(_))) {
+            self.states.remove(id);
+        }
+    }
+
+    fn pending_count(&self) -> usize {
+        self.states
+            .values()
+            .filter(|state| matches!(state, DownloadState::AwaitingStart { .. }))
+            .count()
+    }
+
+    /// Drop the oldest id still waiting, keeping the queue at
+    /// `MAX_EARLY_CANCELS`. Live flags are never evicted.
+    fn evict_oldest_pending(&mut self) {
+        let oldest = self
+            .states
+            .iter()
+            .filter_map(|(id, state)| match state {
+                DownloadState::AwaitingStart { enqueued_at, .. } => {
+                    Some((*enqueued_at, id.clone()))
+                }
+                DownloadState::Running(_) => None,
+            })
+            .min_by_key(|(enqueued_at, _)| *enqueued_at)
+            .map(|(_, id)| id);
+        if let Some(id) = oldest {
+            self.states.remove(&id);
+        }
+    }
+}
+
+/// Cancellation state for in-flight downloads, keyed by the id the front-end
+/// chose. A cancel can arrive before its download starts; `DownloadState`
+/// records that out-of-order case explicitly.
 #[derive(Default)]
 struct Downloads(Mutex<DownloadRegistry>);
 
@@ -142,41 +248,17 @@ async fn download_source(
     url: String,
     download_id: String,
 ) -> Result<tauri::ipc::Response, DownloadFailure> {
-    let cancelled = {
-        let mut registry = downloads.lock();
-        let early = registry
-            .early_cancels
-            .iter()
-            .position(|id| id == &download_id);
-        if let Some(index) = early {
-            registry.early_cancels.remove(index);
-        }
-        let flag = Arc::new(AtomicBool::new(early.is_some()));
-        registry.live.insert(download_id.clone(), flag.clone());
-        flag
-    };
+    let cancelled = downloads.lock().start(&download_id);
 
     let outcome = stream_download(&app, &url, &download_id, &cancelled).await;
 
-    downloads.lock().live.remove(&download_id);
+    downloads.lock().finish(&download_id);
     outcome.map(tauri::ipc::Response::new)
 }
 
 #[tauri::command(rename_all = "snake_case")]
 fn cancel_download(downloads: State<'_, Downloads>, download_id: String) {
-    let mut registry = downloads.lock();
-    if let Some(flag) = registry.live.get(&download_id) {
-        flag.store(true, Ordering::Relaxed);
-        return;
-    }
-    if registry.early_cancels.iter().any(|id| id == &download_id) {
-        return;
-    }
-    // A cancel whose download never starts is harmless, so the queue is bounded.
-    if registry.early_cancels.len() >= 32 {
-        registry.early_cancels.pop_front();
-    }
-    registry.early_cancels.push_back(download_id);
+    downloads.lock().cancel(download_id);
 }
 
 async fn stream_download(
@@ -484,5 +566,65 @@ mod tests {
 
         assert!(read_export_preview(&path, 8).is_err());
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn cancel_before_start_cancels_the_running_download() {
+        let mut registry = DownloadRegistry::default();
+
+        registry.cancel("early".into());
+        let flag = registry.start("early");
+
+        assert!(flag.load(Ordering::Relaxed));
+        assert!(matches!(
+            registry.states.get("early"),
+            Some(DownloadState::Running(_))
+        ));
+        assert_eq!(registry.pending_count(), 0);
+    }
+
+    #[test]
+    fn cancel_during_run_sets_the_live_flag() {
+        let mut registry = DownloadRegistry::default();
+        let flag = registry.start("live");
+
+        assert!(!flag.load(Ordering::Relaxed));
+        registry.cancel("live".into());
+
+        assert!(flag.load(Ordering::Relaxed));
+        assert_eq!(registry.pending_count(), 0);
+    }
+
+    #[test]
+    fn cancel_after_finish_becomes_an_early_cancel_again() {
+        let mut registry = DownloadRegistry::default();
+        registry.start("done");
+        registry.finish("done");
+
+        assert!(registry.states.is_empty());
+
+        registry.cancel("done".into());
+        let flag = registry.start("done");
+
+        assert!(flag.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn early_cancels_keep_at_most_thirty_two_in_fifo_order() {
+        let mut registry = DownloadRegistry::default();
+        for index in 0..MAX_EARLY_CANCELS {
+            registry.cancel(index.to_string());
+        }
+
+        // Cancelling an id already queued neither reorders nor evicts.
+        registry.cancel("0".into());
+        assert_eq!(registry.pending_count(), MAX_EARLY_CANCELS);
+
+        registry.cancel("overflow".into());
+
+        assert_eq!(registry.pending_count(), MAX_EARLY_CANCELS);
+        assert!(!registry.start("0").load(Ordering::Relaxed));
+        assert!(registry.start("1").load(Ordering::Relaxed));
+        assert!(registry.start("overflow").load(Ordering::Relaxed));
     }
 }
