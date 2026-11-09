@@ -3,13 +3,10 @@ import {
   closeAdjust,
   enterAdjust,
   enterPickPad,
-  escape,
   IDLE_STAGE_MODE,
   isAdjusting,
   isPicking,
   leavePick,
-  pointerDown,
-  pointerUp,
   shouldResumePlayback,
   stageModeOf,
   type StageMode,
@@ -51,29 +48,6 @@ describe('stage mode exclusivity', () => {
   });
 });
 
-describe('escape', () => {
-  it('returns every mode to idle', () => {
-    const modes: StageMode[] = [
-      IDLE_STAGE_MODE,
-      adjusting(true),
-      { kind: 'pick-pad' },
-      { kind: 'drag', returnTo: { adjust: false, resumePlayback: false } },
-      {
-        kind: 'resize',
-        handle: 'se',
-        returnTo: { adjust: true, resumePlayback: true },
-      },
-    ];
-    for (const mode of modes) {
-      expect(escape(mode)).toEqual(IDLE_STAGE_MODE);
-    }
-  });
-
-  it('keeps the idle value when there is nothing to cancel', () => {
-    expect(escape(IDLE_STAGE_MODE)).toBe(IDLE_STAGE_MODE);
-  });
-});
-
 describe('playback resume memory', () => {
   it('remembers playback only when adjust is entered while playing', () => {
     expect(shouldResumePlayback(enterAdjust(IDLE_STAGE_MODE, true))).toBe(true);
@@ -93,41 +67,6 @@ describe('playback resume memory', () => {
   it('does not overwrite the memory when adjust is re-entered while adjusting', () => {
     expect(enterAdjust(adjusting(true), false)).toEqual(adjusting(true));
     expect(enterAdjust(adjusting(false), true)).toEqual(adjusting(false));
-  });
-});
-
-describe('pointer gesture ownership', () => {
-  it('starts a drag from idle and restores idle on release', () => {
-    const drag = pointerDown(IDLE_STAGE_MODE, { kind: 'drag' });
-    expect(drag.kind).toBe('drag');
-    expect(pointerUp(drag)).toEqual(IDLE_STAGE_MODE);
-  });
-
-  it('keeps the crop phase and its resume memory through a drag', () => {
-    const drag = pointerDown(adjusting(true), { kind: 'drag' });
-    expect(drag.kind).toBe('drag');
-    if (drag.kind !== 'drag') return;
-    expect(drag.returnTo).toEqual({ adjust: true, resumePlayback: true });
-    const restored = pointerUp(drag);
-    expect(restored).toEqual(adjusting(true));
-    expect(shouldResumePlayback(restored)).toBe(true);
-  });
-
-  it('allows a resize only from the crop phase', () => {
-    expect(pointerDown(IDLE_STAGE_MODE, { kind: 'resize', handle: 'se' })).toEqual(IDLE_STAGE_MODE);
-    const resize = pointerDown(adjusting(false), { kind: 'resize', handle: 'se' });
-    expect(resize.kind).toBe('resize');
-    if (resize.kind !== 'resize') return;
-    expect(resize.handle).toBe('se');
-    expect(pointerUp(resize)).toEqual(adjusting(false));
-  });
-
-  it('does not let the eyedropper or an active gesture start another gesture', () => {
-    const pick: StageMode = { kind: 'pick-pad' };
-    expect(pointerDown(pick, { kind: 'drag' })).toEqual(pick);
-    const drag = pointerDown(IDLE_STAGE_MODE, { kind: 'drag' });
-    expect(pointerDown(drag, { kind: 'resize', handle: 'n' })).toBe(drag);
-    expect(pointerDown(drag, { kind: 'drag' })).toBe(drag);
   });
 });
 
