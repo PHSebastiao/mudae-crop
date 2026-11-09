@@ -231,4 +231,72 @@ describe('optimizeGif', () => {
 
     await expect(attempt).rejects.toBeInstanceOf(OptimizeCancelledError);
   });
+
+  it('treats an undecodable base as terminal without calling the compressor', async () => {
+    const base = new Uint8Array([0x47, 0x49, 0x46]);
+    const compress = vi.fn(async () => tinyGif());
+
+    const result = await optimizeGif(base, settings({ lossy: 40, targetBytes: 1 }), { compress });
+
+    expect(compress).not.toHaveBeenCalled();
+    expect(result.bytes).toBe(base);
+    expect(result.attempts).toBe(0);
+    expect(result.met).toBe(false);
+    expect(result.error).toBe('O GIF base é inválido.');
+  });
+
+  it('keeps the base when a decoded candidate is not smaller than the best', async () => {
+    const base = await baseGif();
+    const compress = vi.fn(async () => base);
+    const result = await optimizeGif(base, settings({ lossy: 40, targetBytes: 1 }), { compress });
+
+    expect(compress).toHaveBeenCalled();
+    expect(result.bytes).toBe(base);
+    expect(result.met).toBe(false);
+    expect(result.error).toBeUndefined();
+  });
+
+  it('never lets an undecodable candidate replace the base', async () => {
+    const base = await baseGif();
+    const result = await optimizeGif(base, settings({ lossy: 40, targetBytes: 1 }), {
+      compress: async () => new Uint8Array([1, 2, 3]),
+    });
+
+    expect(result.bytes).toBe(base);
+    expect(result.size).toBe(base.length);
+    expect(result.error).toContain('inválido');
+  });
+
+  it('runs the chosen lossy and colour passes once each when the target is off', async () => {
+    const base = await baseGif();
+    const tiny = tinyGif();
+    const compress = vi.fn(async () => tiny);
+
+    const result = await optimizeGif(
+      base,
+      settings({ targetEnabled: false, lossy: 40, reduceColors: true, colors: 128 }),
+      { compress },
+    );
+
+    expect(compress).toHaveBeenCalledTimes(2);
+    expect(result.targetBytes).toBeNull();
+    expect(result.met).toBeNull();
+  });
+
+  it('cancels before the first attempt when the signal is already aborted', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const compress = vi.fn(async () => tinyGif());
+
+    const attempt = optimizeGif(
+      await baseGif(),
+      settings({ lossy: 40, targetBytes: 1 }),
+      { compress },
+      0,
+      { signal: controller.signal },
+    );
+
+    await expect(attempt).rejects.toBeInstanceOf(OptimizeCancelledError);
+    expect(compress).not.toHaveBeenCalled();
+  });
 });

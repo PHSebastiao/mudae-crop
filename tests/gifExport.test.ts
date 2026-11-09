@@ -2,13 +2,16 @@ import { createCanvas, type Canvas } from '@napi-rs/canvas';
 import { describe, expect, it, vi } from 'vitest';
 import {
   ExportError,
+  ExportJob,
   exportKindFor,
   renderGif,
   type EncodableCanvas,
   type ExportAdapter,
+  type RenderProgress,
 } from '../src/core/export';
 import { decodeGif } from '../src/core/gif';
 import { DEFAULT_OPTIMIZE, withTrim, withTrimEnabled } from '../src/core/document';
+import type { GifOptimizer } from '../src/core/optimize';
 import { makeAnimatedSource, makeDoc, makeSource } from './helpers';
 
 const adapter: ExportAdapter = {
@@ -203,6 +206,90 @@ describe('GIF Export', () => {
     await expect(attempt).rejects.toMatchObject({ cancelled: true });
   });
 
+  it('flushes the merged pending frame when the last frames are duplicates', async () => {
+    const duplicate = makeAnimatedSource(
+      225,
+      350,
+      ['#D94F6D', '#2B9C8F', '#2B9C8F'],
+      [100, 50, 80],
+      0,
+    );
+    const doc = {
+      ...makeDoc(duplicate),
+      optimize: { ...DEFAULT_OPTIMIZE, enabled: true },
+    };
+
+    const decoded = decodeGif(await renderGif(doc, adapter));
+
+    expect(decoded.frames).toHaveLength(2);
+    expect(decoded.frames.map((frame) => frame.delayMs)).toEqual([100, 130]);
+  });
+
+  it('cancels between rendering and finishing after the pending flush', async () => {
+    const controller = new AbortController();
+    const doc = {
+      ...makeDoc(source),
+      optimize: { ...DEFAULT_OPTIMIZE, enabled: true },
+    };
+
+    const attempt = renderGif(doc, adapter, {
+      signal: controller.signal,
+      onProgress: (progress) => {
+        if (progress.done === progress.total) controller.abort();
+      },
+    });
+
+    await expect(attempt).rejects.toMatchObject({ cancelled: true });
+  });
+
+  it('cancels while optimizing and never reports an optimized result', async () => {
+    const controller = new AbortController();
+    const onOptimized = vi.fn();
+    const optimizer: GifOptimizer = {
+      async compress() {
+        controller.abort();
+        return new Uint8Array(0);
+      },
+    };
+    const doc = {
+      ...makeDoc(source),
+      optimize: { ...DEFAULT_OPTIMIZE, enabled: true, targetEnabled: true, targetBytes: 1 },
+    };
+
+    const attempt = renderGif(doc, adapter, {
+      signal: controller.signal,
+      optimizer,
+      onOptimized,
+    });
+
+    await expect(attempt).rejects.toMatchObject({ cancelled: true });
+    expect(onOptimized).not.toHaveBeenCalled();
+  });
+
+  it('reports optimize progress after the render progress', async () => {
+    const progress: RenderProgress[] = [];
+    const optimizer: GifOptimizer = { compress: async (bytes) => bytes };
+    const doc = {
+      ...makeDoc(source),
+      optimize: { ...DEFAULT_OPTIMIZE, enabled: true, targetEnabled: true },
+    };
+
+    await renderGif(doc, adapter, {
+      optimizer,
+      onProgress: (next) => progress.push(next),
+    });
+
+    expect(progress.slice(0, 4)).toEqual([
+      { phase: 'render', done: 1, total: 4 },
+      { phase: 'render', done: 2, total: 4 },
+      { phase: 'render', done: 3, total: 4 },
+      { phase: 'render', done: 4, total: 4 },
+    ]);
+    // The base already fits the default target, so the chosen pass runs once.
+    expect(progress[4]).toEqual({ phase: 'optimize', done: 1, total: 1 });
+    expect(progress).toHaveLength(5);
+  });
+
   it('refuses a still Source and an empty document', async () => {
     await expect(renderGif(makeDoc(makeSource(10, 10)), adapter)).rejects.toMatchObject({
       message: 'A Source não é animada.',
@@ -210,5 +297,86 @@ describe('GIF Export', () => {
     await expect(renderGif(makeDoc(null), adapter)).rejects.toMatchObject({
       message: 'Não há Source para exportar.',
     });
+  });
+});
+
+describe('Export job stages', () => {
+  it('walks preparing -> rendering -> finishing -> optimizing -> done', () => {
+    const job = new ExportJob();
+
+    expect(job.stage).toBe('preparing');
+    job.enter('rendering');
+    job.enter('finishing');
+    job.enter('optimizing');
+    job.enter('done');
+
+    expect(job.stage).toBe('done');
+    expect(job.terminal).toBe(true);
+  });
+
+  it('skips optimizing when there is nothing to optimize', () => {
+    const job = new ExportJob();
+
+    job.enter('rendering');
+    job.enter('finishing');
+    job.enter('done');
+
+    expect(job.stage).toBe('done');
+  });
+
+  it('refuses to optimize before the encoder is finished', () => {
+    const job = new ExportJob();
+    job.enter('rendering');
+
+    expect(() => job.enter('optimizing')).toThrow(
+      'Invalid Export transition: rendering -> optimizing.',
+    );
+    expect(job.stage).toBe('rendering');
+  });
+
+  it('refuses to finish or optimize after cancelling', () => {
+    const job = new ExportJob();
+    job.enter('rendering');
+    job.cancel();
+
+    expect(job.stage).toBe('cancelled');
+    expect(job.terminal).toBe(true);
+    expect(() => job.enter('finishing')).toThrow();
+    expect(() => job.enter('optimizing')).toThrow();
+  });
+
+  it('cannot leave a terminal stage', () => {
+    const job = new ExportJob();
+    job.enter('rendering');
+    job.enter('finishing');
+    job.enter('done');
+
+    expect(() => job.enter('rendering')).toThrow();
+  });
+
+  it('treats a validation failure as a failed terminal', () => {
+    const job = new ExportJob();
+    const reason = new Error('boom');
+
+    expect(job.fail(reason)).toBe(reason);
+    expect(job.stage).toBe('failed');
+    expect(job.terminal).toBe(true);
+    expect(() => job.enter('rendering')).toThrow();
+  });
+
+  it('derives the progress phase from the stage', () => {
+    const job = new ExportJob();
+    job.enter('rendering');
+
+    expect(job.recordProgress(1, 4)).toEqual({ phase: 'render', done: 1, total: 4 });
+
+    job.enter('finishing');
+    expect(job.recordProgress(4, 4)).toEqual({ phase: 'render', done: 4, total: 4 });
+
+    job.enter('optimizing');
+    expect(job.recordProgress(1, 3)).toEqual({ phase: 'optimize', done: 1, total: 3 });
+
+    job.enter('done');
+    expect(() => job.recordProgress(2, 3)).toThrow();
   });
 });

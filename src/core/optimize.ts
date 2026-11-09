@@ -108,6 +108,107 @@ function isValidGif(bytes: Uint8Array, width: number, height: number): boolean {
 }
 
 /**
+ * The three ways an Optimize run can end. `OptimizeResult.met` stays
+ * `boolean | null` for the panel; this union is what the loop reasons about,
+ * and the tri-state is derived from it in one place.
+ */
+type OptimizeOutcome =
+  { readonly kind: 'no-target' } | { readonly kind: 'met' } | { readonly kind: 'missed' };
+
+/** The passes the planner chose for this run. */
+interface OptimizePlan {
+  readonly lossy: readonly number[];
+  readonly colors: readonly number[];
+  /**
+   * True when the size target is off or the base already fits it. Then only
+   * the user's chosen lossy/colour setting runs, never the search ladder —
+   * even below the target, the chosen pass still runs.
+   */
+  readonly firstPassOnly: boolean;
+}
+
+/** The best result seen so far; it starts as the untouched base bytes. */
+interface BestSoFar {
+  bytes: Uint8Array;
+  lossy: number;
+  colors: number | null;
+}
+
+function planFor(
+  settings: OptimizeSettings,
+  target: number | null,
+  baseLength: number,
+): OptimizePlan {
+  const firstPassOnly = target === null || baseLength <= target;
+  const lossy = firstPassOnly
+    ? settings.lossy > 0
+      ? [settings.lossy]
+      : []
+    : uniqueAscending([settings.lossy, 40, 60, 80, 100, 140, 180, 200], 200);
+  const colors = settings.reduceColors
+    ? firstPassOnly
+      ? [settings.colors]
+      : uniqueDescending([settings.colors, 128, 96, 64, 48, 32, 24, 16], 8).filter(
+          (value) => value <= settings.colors,
+        )
+    : [];
+  return { lossy, colors, firstPassOnly };
+}
+
+function outcomeOf(target: number | null, size: number): OptimizeOutcome {
+  if (target === null) return { kind: 'no-target' };
+  return size <= target ? { kind: 'met' } : { kind: 'missed' };
+}
+
+/** Project the internal outcome onto the public tri-state. */
+function metOf(outcome: OptimizeOutcome): boolean | null {
+  switch (outcome.kind) {
+    case 'no-target':
+      return null;
+    case 'met':
+      return true;
+    case 'missed':
+      return false;
+  }
+}
+
+/**
+ * The early-exit rule: stop as soon as the best bytes fit the target. With the
+ * target off it never fires, so every planned pass runs.
+ */
+function reachedTarget(outcome: OptimizeOutcome): boolean {
+  return outcome.kind === 'met';
+}
+
+/**
+ * The colour pass follows the lossy passes. It always runs in first-pass mode
+ * (target off or already met) and otherwise only while the target is missed.
+ */
+function shouldRunColorPass(plan: OptimizePlan, outcome: OptimizeOutcome): boolean {
+  if (plan.colors.length === 0) return false;
+  return plan.firstPassOnly || !reachedTarget(outcome);
+}
+
+/**
+ * The best-so-far replacement rule. Invariant: a candidate may only replace
+ * the base once it decodes (see `isValidGif`, checked before this call), so a
+ * corrupt or resized compressor result never becomes the returned bytes. A
+ * candidate no smaller than the current best is ignored.
+ */
+function replaceBestSoFar(
+  best: BestSoFar,
+  candidate: Uint8Array,
+  lossy: number,
+  colors: number | null,
+): boolean {
+  if (candidate.length >= best.bytes.length) return false;
+  best.bytes = candidate;
+  best.lossy = lossy;
+  best.colors = colors;
+  return true;
+}
+
+/**
  * Compress an already-encoded GIF toward a target size. Lossy strength is the
  * primary lever; colour reduction is an optional second pass. Each candidate
  * is decoded (with the same dimensions) before it can replace the base, so a
@@ -120,12 +221,14 @@ export async function optimizeGif(
   droppedFrames = 0,
   hooks: OptimizeHooks = {},
 ): Promise<OptimizeResult> {
-  let bestBytes = baseBytes;
-  let bestLossy = settings.lossy;
-  let bestColors: number | null = null;
+  const target = settings.targetEnabled ? settings.targetBytes : null;
+  const best: BestSoFar = {
+    bytes: baseBytes,
+    lossy: settings.lossy,
+    colors: null,
+  };
   let attempts = 0;
   let error: string | undefined;
-  const target = settings.targetEnabled ? settings.targetBytes : null;
 
   let width = 0;
   let height = 0;
@@ -134,12 +237,14 @@ export async function optimizeGif(
     width = base.width;
     height = base.height;
   } catch {
+    // An undecodable base is terminal: there is nothing safe to compress or
+    // return, so report it and keep the original bytes.
     return {
-      bytes: baseBytes,
-      size: baseBytes.length,
+      bytes: best.bytes,
+      size: best.bytes.length,
       baseSize: baseBytes.length,
       targetBytes: target,
-      met: target === null ? null : baseBytes.length <= target,
+      met: metOf(outcomeOf(target, best.bytes.length)),
       lossy: settings.lossy,
       colors: null,
       attempts: 0,
@@ -148,26 +253,11 @@ export async function optimizeGif(
     };
   }
 
-  const alreadyUnderTarget = target !== null && baseBytes.length <= target;
-  const lossyCandidates =
-    target === null || alreadyUnderTarget
-      ? settings.lossy > 0
-        ? [settings.lossy]
-        : []
-      : uniqueAscending([settings.lossy, 40, 60, 80, 100, 140, 180, 200], 200);
-  const colorCandidates = settings.reduceColors
-    ? target === null || alreadyUnderTarget
-      ? [settings.colors]
-      : uniqueDescending([settings.colors, 128, 96, 64, 48, 32, 24, 16], 8).filter(
-          (colors) => colors <= settings.colors,
-        )
-    : [];
+  const plan = planFor(settings, target, baseBytes.length);
+  const planned = plan.lossy.length + plan.colors.length;
+  const outcome = () => outcomeOf(target, best.bytes.length);
 
-  const planned = lossyCandidates.length + colorCandidates.length;
-
-  const met = () => target !== null && bestBytes.length <= target;
-
-  const tryCompress = async (lossy: number, colors: number | null): Promise<boolean> => {
+  const tryCompress = async (lossy: number, colors: number | null): Promise<void> => {
     if (hooks.signal?.aborted) throw new OptimizeCancelledError();
     attempts += 1;
     hooks.onProgress?.(attempts, Math.max(attempts, planned));
@@ -179,42 +269,37 @@ export async function optimizeGif(
       });
       if (!isValidGif(candidate, width, height)) {
         error = 'O compressor devolveu um GIF inválido.';
-        return false;
+        return;
       }
-      if (candidate.length >= bestBytes.length) return false;
-      bestBytes = candidate;
-      bestLossy = lossy;
-      bestColors = colors;
-      error = undefined;
-      return true;
+      if (replaceBestSoFar(best, candidate, lossy, colors)) error = undefined;
     } catch {
       error = 'Não foi possível comprimir o GIF; o arquivo sem otimização foi mantido.';
-      return false;
     }
   };
 
-  for (const lossy of lossyCandidates) {
+  for (const lossy of plan.lossy) {
     if (hooks.signal?.aborted) throw new OptimizeCancelledError();
     await tryCompress(lossy, null);
-    if (met()) break;
+    if (reachedTarget(outcome())) break;
   }
 
-  if (colorCandidates.length > 0 && (target === null || alreadyUnderTarget || !met())) {
-    for (const colors of colorCandidates) {
+  if (shouldRunColorPass(plan, outcome())) {
+    for (const colors of plan.colors) {
       if (hooks.signal?.aborted) throw new OptimizeCancelledError();
-      await tryCompress(bestLossy, colors);
-      if (met()) break;
+      await tryCompress(best.lossy, colors);
+      if (reachedTarget(outcome())) break;
     }
   }
 
+  const final = outcome();
   return {
-    bytes: bestBytes,
-    size: bestBytes.length,
+    bytes: best.bytes,
+    size: best.bytes.length,
     baseSize: baseBytes.length,
     targetBytes: target,
-    met: target === null ? null : bestBytes.length <= target,
-    lossy: bestLossy,
-    colors: bestColors,
+    met: metOf(final),
+    lossy: best.lossy,
+    colors: best.colors,
     attempts,
     droppedFrames,
     ...(error ? { error } : {}),
