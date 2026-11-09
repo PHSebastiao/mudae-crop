@@ -30,6 +30,24 @@ import {
 } from './core/document';
 import { normalizeHexColor } from './core/color';
 import {
+  beginActivity,
+  canCancelDownload,
+  clearNotice as clearedNotice,
+  dismissError,
+  endActivity,
+  endDownload,
+  errorNotice,
+  finishDownload,
+  infoNotice,
+  reportDownload,
+  startDownload,
+  type Activity,
+  type ActivityLabel,
+  type DownloadPhase,
+  type Notice,
+  type NoticeAction,
+} from './core/appState';
+import {
   formatFps,
   formatPlaybackDuration,
   trimDurationMs,
@@ -103,11 +121,6 @@ import { FrameGrid } from './components/FrameGrid';
 import { SettingsDialog, type TokenTestResult } from './components/SettingsDialog';
 import { useFrameCrop } from './hooks/useFrameCrop';
 
-interface NoticeAction {
-  readonly label: string;
-  readonly run: () => void;
-}
-
 function messageOf(error: unknown): string {
   if (typeof error === 'string') return error;
   if (error instanceof Error && error.message) return error.message;
@@ -116,10 +129,8 @@ function messageOf(error: unknown): string {
 
 export default function App() {
   const [doc, setDoc] = useState<DocumentState>(emptyDocument);
-  const [error, setError] = useState<string | null>(null);
-  const [status, setStatus] = useState<string | null>(null);
-  const [noticeAction, setNoticeAction] = useState<NoticeAction | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [activity, setActivity] = useState<Activity>({ kind: 'idle' });
+  const [notice, setNotice] = useState<Notice>({ kind: 'none' });
   const [uploading, setUploading] = useState(false);
   const [link, setLink] = useState('');
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
@@ -133,10 +144,7 @@ export default function App() {
   const [paletteVersion, setPaletteVersion] = useState(0);
   const [pickTarget, setPickTarget] = useState<'pad' | null>(null);
   const [cooldownSeconds, setCooldownSeconds] = useState(0);
-  const [downloadProgress, setDownloadProgress] = useState<{
-    received: number;
-    total: number | null;
-  } | null>(null);
+  const [downloadPhase, setDownloadPhase] = useState<DownloadPhase>({ kind: 'idle' });
   const [renderProgress, setRenderProgress] = useState<RenderProgress | null>(null);
   const [optimizeResult, setOptimizeResult] = useState<OptimizeResult | null>(null);
   const [sizeEstimate, setSizeEstimate] = useState<SizeEstimate | null>(null);
@@ -150,8 +158,12 @@ export default function App() {
   frameIndexRef.current = frameIndex;
   const frameAnimation = effectiveAnimation(doc);
   const hasFrames = frameAnimation !== null;
+  const busy = activity.kind === 'running';
   const estimateVersionRef = useRef(0);
-  const runningRef = useRef(false);
+  const activityRef = useRef<Activity>(activity);
+  activityRef.current = activity;
+  const downloadPhaseRef = useRef<DownloadPhase>(downloadPhase);
+  downloadPhaseRef.current = downloadPhase;
   const cancelDownloadRef = useRef<(() => void) | null>(null);
   const cancelRenderRef = useRef<AbortController | null>(null);
   const settingsRef = useRef(settings);
@@ -171,33 +183,35 @@ export default function App() {
 
   const openSettings = useCallback(() => {
     setPickTarget(null);
-    setNoticeAction(null);
-    setError(null);
+    setNotice((current) => dismissError(current));
     setSettingsOpen(true);
   }, []);
 
   const fail = useCallback((message: string, action: NoticeAction | null = null) => {
-    setError(message);
-    setStatus(null);
-    setNoticeAction(action);
+    setNotice(errorNotice(message, action));
   }, []);
 
   const inform = useCallback((message: string) => {
-    setError(null);
-    setStatus(message);
-    setNoticeAction(null);
+    setNotice(infoNotice(message));
   }, []);
 
-  const beginRun = useCallback(() => {
-    if (runningRef.current) return false;
-    runningRef.current = true;
-    setBusy(true);
-    return true;
+  const clearNotice = useCallback(() => {
+    setNotice(clearedNotice());
   }, []);
 
-  const endRun = useCallback(() => {
-    runningRef.current = false;
-    setBusy(false);
+  const beginRun = useCallback((label: ActivityLabel) => {
+    const result = beginActivity(activityRef.current, label);
+    if (result.kind === 'started') {
+      activityRef.current = result.activity;
+      setActivity(result.activity);
+    }
+    return result;
+  }, []);
+
+  const endRun = useCallback((label: ActivityLabel) => {
+    const next = endActivity(activityRef.current, label);
+    activityRef.current = next;
+    setActivity(next);
   }, []);
 
   const persistSettings = useCallback(
@@ -440,10 +454,6 @@ export default function App() {
 
   useEffect(() => () => docRef.current.source?.video?.dispose(), []);
 
-  const refuseBecauseBusy = useCallback(() => {
-    fail('Termine a operação em andamento antes de importar outra Source.');
-  }, [fail]);
-
   const applyCandidate = useCallback(
     async (candidate: SourceCandidate) => {
       const source = await loadSource(candidate, decodeWithBrowser);
@@ -458,10 +468,34 @@ export default function App() {
     [inform],
   );
 
+  const startDownloadPhase = useCallback(() => {
+    downloadPhaseRef.current = startDownload();
+    setDownloadPhase(downloadPhaseRef.current);
+  }, []);
+
+  const reportDownloadPhase = useCallback((amount: { received: number; total: number | null }) => {
+    downloadPhaseRef.current = reportDownload(downloadPhaseRef.current, amount);
+    setDownloadPhase(downloadPhaseRef.current);
+  }, []);
+
+  const finishDownloadPhase = useCallback(() => {
+    // The link is down; decoding is local and no longer cancellable.
+    cancelDownloadRef.current = null;
+    downloadPhaseRef.current = finishDownload(downloadPhaseRef.current);
+    setDownloadPhase(downloadPhaseRef.current);
+  }, []);
+
+  const endDownloadPhase = useCallback(() => {
+    cancelDownloadRef.current = null;
+    downloadPhaseRef.current = endDownload();
+    setDownloadPhase(downloadPhaseRef.current);
+  }, []);
+
   const importCandidate = useCallback(
     async (candidate: SourceCandidate) => {
-      if (!beginRun()) {
-        refuseBecauseBusy();
+      const started = beginRun('import');
+      if (started.kind === 'refused') {
+        fail(started.message);
         return;
       }
       try {
@@ -469,16 +503,17 @@ export default function App() {
       } catch (reason) {
         fail(importErrorMessage(reason));
       } finally {
-        endRun();
+        endRun('import');
       }
     },
-    [applyCandidate, beginRun, endRun, fail, refuseBecauseBusy],
+    [applyCandidate, beginRun, endRun, fail],
   );
 
   const importPath = useCallback(
     async (path: string) => {
-      if (!beginRun()) {
-        refuseBecauseBusy();
+      const started = beginRun('import');
+      if (started.kind === 'refused') {
+        fail(started.message);
         return;
       }
       const name = fileNameOf(path);
@@ -496,10 +531,10 @@ export default function App() {
           fail(importErrorMessage(reason));
         }
       } finally {
-        endRun();
+        endRun('import');
       }
     },
-    [applyCandidate, beginRun, endRun, fail, refuseBecauseBusy],
+    [applyCandidate, beginRun, endRun, fail],
   );
 
   const importFromUrl = useCallback(
@@ -508,26 +543,23 @@ export default function App() {
         fail('Importar por link só funciona no app desktop.');
         return;
       }
-      if (!beginRun()) {
-        refuseBecauseBusy();
+      const started = beginRun('download');
+      if (started.kind === 'refused') {
+        fail(started.message);
         return;
       }
 
       const controller = new AbortController();
       cancelDownloadRef.current = () => controller.abort();
-      setError(null);
-      setStatus(null);
-      setNoticeAction(null);
-      setDownloadProgress({ received: 0, total: null });
+      clearNotice();
+      startDownloadPhase();
       try {
         const candidate = await downloadSource(raw, {
           transport: tauriDownloadTransport,
           signal: controller.signal,
-          onProgress: (progress) => setDownloadProgress(progress),
+          onProgress: reportDownloadPhase,
         });
-        // The link is down; decoding is local and no longer cancellable.
-        cancelDownloadRef.current = null;
-        setDownloadProgress(null);
+        finishDownloadPhase();
         await applyCandidate(candidate);
         setLink('');
       } catch (reason) {
@@ -537,20 +569,31 @@ export default function App() {
           fail(downloadErrorMessage(reason));
         }
       } finally {
-        cancelDownloadRef.current = null;
-        setDownloadProgress(null);
-        endRun();
+        endDownloadPhase();
+        endRun('download');
       }
     },
-    [applyCandidate, beginRun, endRun, fail, inform, refuseBecauseBusy],
+    [
+      applyCandidate,
+      beginRun,
+      clearNotice,
+      endDownloadPhase,
+      endRun,
+      fail,
+      finishDownloadPhase,
+      inform,
+      reportDownloadPhase,
+      startDownloadPhase,
+    ],
   );
 
   const cancelDownload = useCallback(() => {
+    if (!canCancelDownload(downloadPhaseRef.current)) return;
     cancelDownloadRef.current?.();
   }, []);
 
   const handleOpen = useCallback(async () => {
-    if (runningRef.current) return;
+    if (activityRef.current.kind === 'running') return;
     try {
       if (!isDesktop()) {
         fail('Abrir arquivos só funciona no app desktop.');
@@ -639,7 +682,7 @@ export default function App() {
       fail('Exportar só funciona no app desktop.');
       return;
     }
-    if (!beginRun()) return;
+    if (beginRun('export').kind === 'refused') return;
     const kind = exportKindFor(effectiveSource(current), settingsRef.current.exportFormat);
     const extension = kind.format;
     const label = kind.label;
@@ -695,7 +738,7 @@ export default function App() {
       }
     } finally {
       setRenderProgress(null);
-      endRun();
+      endRun('export');
     }
   }, [beginRun, endRun, fail, inform, persistHistory, persistSettings, renderWithProgress]);
 
@@ -730,7 +773,7 @@ export default function App() {
     const current = docRef.current;
     if (!current.source) return;
     // A double click or a repeated Ctrl+Enter never starts a second upload.
-    if (runningRef.current) return;
+    if (activityRef.current.kind === 'running') return;
     if (!isDesktop()) {
       fail('O upload só funciona no app desktop.');
       return;
@@ -754,16 +797,14 @@ export default function App() {
       fail(`Aguarde ${cooldownSeconds}s antes de subir de novo.`);
       return;
     }
-    if (!beginRun()) return;
+    if (beginRun('upload').kind === 'refused') return;
 
     const kind = exportKindFor(effectiveSource(current), settingsRef.current.exportFormat);
     const extension = kind.format;
     const contentType = kind.contentType;
 
     setUploading(true);
-    setError(null);
-    setStatus(null);
-    setNoticeAction(null);
+    clearNotice();
     try {
       const bytes = await renderWithProgress(current, frameIndexRef.current);
       const size = outputSize(current);
@@ -818,10 +859,11 @@ export default function App() {
     } finally {
       setRenderProgress(null);
       setUploading(false);
-      endRun();
+      endRun('upload');
     }
   }, [
     beginRun,
+    clearNotice,
     cooldownSeconds,
     endRun,
     fail,
@@ -1315,12 +1357,6 @@ export default function App() {
   /** What the Source bar currently holds, so the button can name the action. */
   const linkTarget = sourceUrlFrom(link) ? 'link' : localPathFrom(link) ? 'path' : null;
 
-  const clearNotice = () => {
-    setError(null);
-    setStatus(null);
-    setNoticeAction(null);
-  };
-
   return (
     <div className="app">
       <header className="topbar">
@@ -1392,15 +1428,15 @@ export default function App() {
         </div>
       </header>
 
-      {downloadProgress ? (
+      {downloadPhase.kind === 'downloading' ? (
         <div className="notice download" role="status">
           <span>
-            Baixando link… {formatBytes(downloadProgress.received)}
-            {downloadProgress.total ? ` de ${formatBytes(downloadProgress.total)}` : ''}
+            Baixando link… {formatBytes(downloadPhase.received)}
+            {downloadPhase.total ? ` de ${formatBytes(downloadPhase.total)}` : ''}
           </span>
           <progress
-            value={downloadProgress.total ? downloadProgress.received : undefined}
-            max={downloadProgress.total ?? undefined}
+            value={downloadPhase.total ? downloadPhase.received : undefined}
+            max={downloadPhase.total ?? undefined}
           />
           <button type="button" onClick={cancelDownload}>
             cancelar
@@ -1420,21 +1456,22 @@ export default function App() {
             cancelar
           </button>
         </div>
-      ) : (
-        (error || status) && (
-          <div className={`notice${error ? ' error' : ''}`} role={error ? 'alert' : 'status'}>
-            <span>{error ?? status}</span>
-            {noticeAction && (
-              <button type="button" className="notice-action" onClick={noticeAction.run}>
-                {noticeAction.label}
-              </button>
-            )}
-            <button type="button" aria-label="Fechar aviso" onClick={clearNotice}>
-              x
+      ) : notice.kind !== 'none' ? (
+        <div
+          className={`notice${notice.kind === 'error' ? ' error' : ''}`}
+          role={notice.kind === 'error' ? 'alert' : 'status'}
+        >
+          <span>{notice.message}</span>
+          {notice.kind === 'error' && notice.action && (
+            <button type="button" className="notice-action" onClick={notice.action.run}>
+              {notice.action.label}
             </button>
-          </div>
-        )
-      )}
+          )}
+          <button type="button" aria-label="Fechar aviso" onClick={clearNotice}>
+            x
+          </button>
+        </div>
+      ) : null}
 
       <main className="workspace">
         <ToolRail
@@ -1503,7 +1540,7 @@ export default function App() {
         <ExportPanel
           doc={doc}
           busy={busy}
-          downloading={downloadProgress !== null}
+          downloading={downloadPhase.kind === 'downloading'}
           uploading={uploading}
           settings={settings}
           history={history}
