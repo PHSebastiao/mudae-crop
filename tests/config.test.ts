@@ -34,7 +34,7 @@ describe('config store', () => {
 
   it('persists settings and history in separate files', async () => {
     const store = new MemoryStore();
-    const settings = { ...DEFAULT_SETTINGS, token: 'abc', exportScale: 2 as const };
+    const settings = { ...DEFAULT_SETTINGS, token: 'abc', frameRatio: 16 / 9 };
     const history: HistoryEntry[] = [makeUploadEntry(1), makeExportEntry(2)];
 
     await saveSettings(store, settings);
@@ -52,6 +52,15 @@ describe('config store', () => {
 
     expect(await loadSettings(store)).toEqual(DEFAULT_SETTINGS);
     expect(await loadHistory(store)).toEqual([]);
+  });
+
+  it('round-trips the Frame ratio and snapping preference', async () => {
+    const store = new MemoryStore();
+    const settings = { ...DEFAULT_SETTINGS, frameRatio: 16 / 9, snapRatios: false };
+
+    await saveSettings(store, settings);
+
+    expect(await loadSettings(store)).toEqual(settings);
   });
 
   it('caps history on save even if the caller sends more', async () => {

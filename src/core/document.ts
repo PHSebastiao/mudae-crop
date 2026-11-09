@@ -1,5 +1,7 @@
 import { normalizeHexColor } from './color';
 import { MAX_MEDIA_BYTES } from './limits';
+import { MUDAE_RATIO } from './ratios';
+import { fitRect, nativeSize } from './rect';
 import { MUDAE_SIZE_GUIDANCE_BYTES } from './size';
 
 export type ImageFormat = 'png' | 'jpg' | 'gif' | 'webp' | 'apng' | 'mp4' | 'mov' | 'webm';
@@ -193,88 +195,46 @@ export function effectiveSource(doc: DocumentState): Source | null {
   return { ...source, animation };
 }
 
-export type FrameId = 'mudae' | 'mudae-landscape' | 'square';
-
+/** The Frame's only identity: width / height, always > 0. */
 export interface Frame {
-  readonly id: FrameId;
-  readonly label: string;
+  readonly ratio: number;
+}
+
+export const DEFAULT_FRAME: Frame = Object.freeze({ ratio: MUDAE_RATIO });
+
+/** A rectangle in the rotated Source's pixel space. */
+export interface Rect {
+  readonly x: number;
+  readonly y: number;
   readonly width: number;
   readonly height: number;
 }
 
-export const MUDAE_FRAME: Frame = Object.freeze({
-  id: 'mudae',
-  label: 'Mudae 225×350',
-  width: 225,
-  height: 350,
-});
-
-export const MUDAE_LANDSCAPE_FRAME: Frame = Object.freeze({
-  id: 'mudae-landscape',
-  label: 'Mudae landscape 350×225',
-  width: 350,
-  height: 225,
-});
-
-export const SQUARE_FRAME: Frame = Object.freeze({
-  id: 'square',
-  label: 'Square 350×350',
-  width: 350,
-  height: 350,
-});
-
-export type Preset = 'mudae' | 'square';
-export type Orientation = 'portrait' | 'landscape';
-
-/**
- * Mudae is the portrait card and Square is the profile card. Orientation only
- * has a meaning for Mudae; Square stays 350×350 either way.
- */
-export function frameFor(preset: Preset, orientation: Orientation): Frame {
-  if (preset === 'square') return SQUARE_FRAME;
-  return orientation === 'landscape' ? MUDAE_LANDSCAPE_FRAME : MUDAE_FRAME;
-}
-
-export function presetOf(frame: Frame): Preset {
-  return frame.id === 'square' ? 'square' : 'mudae';
-}
-
-export function orientationOf(frame: Frame): Orientation {
-  return frame.id === 'mudae-landscape' ? 'landscape' : 'portrait';
-}
-
-/** The same Preset with the Frame swapped between portrait and landscape. */
-export function swappedFrame(frame: Frame): Frame {
-  return frameFor(presetOf(frame), orientationOf(frame) === 'portrait' ? 'landscape' : 'portrait');
-}
-
 /**
  * Fit covers the Frame, Pad contains it, and the two snaps match one axis.
- * The mode decides the base scale; zoom is a multiplier on top of it.
+ * The mode decides the base rect; zoom shrinks it from there.
  */
 export type ScaleMode = 'fit' | 'pad' | 'full-width' | 'full-height';
 
 export type Rotation = 0 | 90 | 180 | 270;
 
+const EMPTY_RECT: Rect = Object.freeze({ x: 0, y: 0, width: 0, height: 0 });
+
 /**
- * Crop offsets are measured in Frame pixels at 1×, relative to the Source
- * centred in the Frame. Zoom is a multiplier on the mode's scale.
+ * The Frame window over the rotated Source, in rotated Source pixels. The
+ * rect's ratio is the Frame's ratio; zoom and offsets are derived readouts.
  */
 export interface Crop {
   readonly mode: ScaleMode;
-  readonly zoom: number;
-  readonly offsetX: number;
-  readonly offsetY: number;
+  readonly rect: Rect;
   readonly rotation: Rotation;
 }
 
 export function defaultCrop(mode: ScaleMode = 'fit', rotation: Rotation = 0): Crop {
-  return { mode, zoom: 1, offsetX: 0, offsetY: 0, rotation };
+  return { mode, rect: EMPTY_RECT, rotation };
 }
 
 export const FIT_CROP: Crop = Object.freeze(defaultCrop());
-
-export type ExportScale = 1 | 2;
 
 export const DEFAULT_PAD_COLOR = '#FFFFFF';
 
@@ -313,6 +273,29 @@ export function clampResize(resize: ExportResize): ExportResize {
   return {
     width: clampExportSide(resize.width),
     height: clampExportSide(resize.height),
+  };
+}
+
+/**
+ * Clamp an Export size proportionally: when either side exceeds the largest
+ * allowed side, both shrink by the same factor, so the 4096 memory bound can
+ * never distort the aspect.
+ */
+export function clampExportSize(resize: ExportResize): ExportResize {
+  const width = Number.isFinite(resize.width)
+    ? Math.max(MIN_EXPORT_SIDE, resize.width)
+    : MIN_EXPORT_SIDE;
+  const height = Number.isFinite(resize.height)
+    ? Math.max(MIN_EXPORT_SIDE, resize.height)
+    : MIN_EXPORT_SIDE;
+  const largest = Math.max(width, height);
+  if (largest <= MAX_EXPORT_SIDE) {
+    return { width: Math.round(width), height: Math.round(height) };
+  }
+  const scale = MAX_EXPORT_SIDE / largest;
+  return {
+    width: Math.max(MIN_EXPORT_SIDE, Math.round(width * scale)),
+    height: Math.max(MIN_EXPORT_SIDE, Math.round(height * scale)),
   };
 }
 
@@ -375,8 +358,7 @@ export interface DocumentState {
   readonly border: Border;
   /** Unsharp-mask strength from 0 (off) to 100. */
   readonly sharpness: number;
-  readonly exportScale: ExportScale;
-  /** A custom Export size; null follows the Frame × exportScale. */
+  /** A custom Export size; null follows the native crop size. */
   readonly resize: ExportResize | null;
   /** Keeps width and height proportional when the user edits one of them. */
   readonly resizeLocked: boolean;
@@ -398,13 +380,12 @@ export interface DocumentState {
 export function emptyDocument(): DocumentState {
   return {
     source: null,
-    frame: MUDAE_FRAME,
+    frame: DEFAULT_FRAME,
     crop: FIT_CROP,
     padColor: DEFAULT_PAD_COLOR,
     padColorExplicit: false,
     border: DEFAULT_BORDER,
     sharpness: 0,
-    exportScale: 1,
     resize: null,
     resizeLocked: true,
     trim: null,
@@ -424,7 +405,11 @@ export function withSource(doc: DocumentState, source: Source): DocumentState {
   return {
     ...doc,
     source,
-    crop: FIT_CROP,
+    crop: {
+      mode: 'fit',
+      rect: fitRect({ width: source.width, height: source.height }, doc.frame.ratio),
+      rotation: 0,
+    },
     trim: initialTrim(source),
     animation: source.animation ?? null,
     trimEnabled: false,
@@ -521,30 +506,35 @@ export function withSpeed(doc: DocumentState, speed: number): DocumentState {
   return next === doc.speed ? doc : { ...doc, speed: next };
 }
 
-/** A custom size always follows the current Frame while the lock is on. */
+/**
+ * A custom size always follows the Frame proportion while the lock is on. The
+ * height is derived from the width and both sides are capped proportionally, so
+ * the 4096 bound never changes the aspect. Unlocked keeps each side as typed
+ * (the deliberate stretch escape hatch).
+ */
 function resizeForFrame(
   resize: ExportResize | null,
-  frame: Frame,
+  ratio: number,
   locked: boolean,
 ): ExportResize | null {
   if (!resize) return null;
-  const clamped = clampResize(resize);
-  if (!locked) return clamped;
-  return clampResize({
-    width: clamped.width,
-    height: Math.round((clamped.width * frame.height) / frame.width),
-  });
+  if (!locked) return clampResize(resize);
+  const width = Number.isFinite(resize.width)
+    ? Math.max(MIN_EXPORT_SIDE, resize.width)
+    : MIN_EXPORT_SIDE;
+  const height = ratio > 0 ? width / ratio : width;
+  return clampExportSize({ width, height });
 }
 
 export function withResize(doc: DocumentState, resize: ExportResize | null): DocumentState {
-  return { ...doc, resize: resizeForFrame(resize, doc.frame, doc.resizeLocked) };
+  return { ...doc, resize: resizeForFrame(resize, doc.frame.ratio, doc.resizeLocked) };
 }
 
 export function withResizeLocked(doc: DocumentState, resizeLocked: boolean): DocumentState {
   return {
     ...doc,
     resizeLocked,
-    resize: resizeForFrame(doc.resize, doc.frame, resizeLocked),
+    resize: resizeForFrame(doc.resize, doc.frame.ratio, resizeLocked),
   };
 }
 
@@ -554,14 +544,6 @@ export function withOptimize(doc: DocumentState, patch: Partial<OptimizeSettings
 
 export function withCrop(doc: DocumentState, crop: Crop): DocumentState {
   return { ...doc, crop };
-}
-
-export function withFrame(doc: DocumentState, frame: Frame): DocumentState {
-  return {
-    ...doc,
-    frame,
-    resize: resizeForFrame(doc.resize, frame, doc.resizeLocked),
-  };
 }
 
 export function withPadColor(doc: DocumentState, padColor: string): DocumentState {
@@ -589,14 +571,7 @@ export function withSharpness(doc: DocumentState, sharpness: number): DocumentSt
   return next === doc.sharpness ? doc : { ...doc, sharpness: next };
 }
 
-export function withExportScale(doc: DocumentState, exportScale: ExportScale): DocumentState {
-  return { ...doc, exportScale, resize: null, resizeLocked: true };
-}
-
 export function outputSize(doc: DocumentState): { width: number; height: number } {
   if (doc.resize) return doc.resize;
-  return {
-    width: Math.round(doc.frame.width * doc.exportScale),
-    height: Math.round(doc.frame.height * doc.exportScale),
-  };
+  return clampExportSize(nativeSize(doc.crop.rect));
 }

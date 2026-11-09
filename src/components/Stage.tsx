@@ -1,18 +1,41 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
+} from 'react';
 import { toHexColor } from '../core/color';
 import {
   animationFrameCount,
   effectiveSource,
   isAnimated,
+  outputSize,
   type DocumentState,
 } from '../core/document';
 import { formatFps, formatPlaybackDuration } from '../core/animation';
 import { formatBytes } from '../core/download';
-import { drawSource, renderFrame } from '../core/render';
+import { frameRect, nativeSize } from '../core/geometry';
+import { stageLayout, type Handle } from '../core/rect';
+import { ratioLabel } from '../core/ratios';
+import { drawSource, frameBorderStroke, paintsPadColor, renderFrame } from '../core/render';
 
-const PAD = 84;
-const MIN_STAGE_SCALE = 0.35;
-const MAX_STAGE_SCALE = 1.4;
+/** Screen pixels of drag before a free resize starts snapping. */
+const SNAP_START_PX = 6;
+
+const HANDLES: readonly Handle[] = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
+
+const HANDLE_LABELS: Record<Handle, string> = {
+  nw: 'canto superior esquerdo',
+  n: 'borda superior',
+  ne: 'canto superior direito',
+  e: 'borda direita',
+  se: 'canto inferior direito',
+  s: 'borda inferior',
+  sw: 'canto inferior esquerdo',
+  w: 'borda esquerda',
+};
+
 const MAGNIFIER_SIZE = 184;
 const MAGNIFIER_CANVAS = 180;
 const MAGNIFIER_REGION = 9;
@@ -33,10 +56,27 @@ interface StageProps {
   readonly frameIndex: number;
   /** Bumped after an async video seek so the canvas is redrawn. */
   readonly frameVersion?: number;
-  /** Delta in Frame pixels at 1×; the caller applies it to its latest Crop. */
-  readonly onPan: (dx: number, dy: number) => void;
-  /** Zoom multiplier around a Frame point; the caller applies it to its latest Crop. */
+  /**
+   * Delta in rotated Source pixels plus the centre-snap state; the caller
+   * applies it to its latest Crop.
+   */
+  readonly onPan: (dx: number, dy: number, snapCenter: boolean, threshold: number) => void;
+  /** Zoom multiplier around a rotated Source point; the caller applies its latest Crop. */
   readonly onZoomAt: (point: { x: number; y: number }, factor: number) => void;
+  /** Delta in rotated Source pixels and the ratio-lock state of a handle drag. */
+  readonly onResize: (
+    handle: Handle,
+    dx: number,
+    dy: number,
+    locked: boolean,
+    snap: boolean,
+    /** The proportion the drag started on; excluded from snapping. */
+    startRatio?: number,
+  ) => void;
+  /** Whether the Frame resize handles are shown. */
+  readonly adjustFrame: boolean;
+  /** Whether free resizes snap to a nearby ratio preset. */
+  readonly snapRatios: boolean;
   readonly onOpen: () => void;
   readonly busy: boolean;
   /** True while the Pad eyedropper is armed. */
@@ -51,6 +91,9 @@ export function Stage({
   frameVersion = 0,
   onPan,
   onZoomAt,
+  onResize,
+  adjustFrame,
+  snapRatios,
   onOpen,
   busy,
   picking,
@@ -63,6 +106,16 @@ export function Stage({
   const pickRef = useRef<HTMLCanvasElement | null>(null);
   const magnifierRef = useRef<HTMLCanvasElement>(null);
   const dragRef = useRef<{ id: number; x: number; y: number } | null>(null);
+  const resizeRef = useRef<{
+    id: number;
+    handle: Handle;
+    x: number;
+    y: number;
+    startX: number;
+    startY: number;
+    startRatio: number;
+    scale: number;
+  } | null>(null);
   const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
   const [dragging, setDragging] = useState(false);
   const [magnifier, setMagnifier] = useState<MagnifierState | null>(null);
@@ -78,61 +131,144 @@ export function Stage({
     return () => observer.disconnect();
   }, []);
 
-  const scale =
-    stageSize.width && stageSize.height
-      ? Math.max(
-          MIN_STAGE_SCALE,
-          Math.min(
-            (stageSize.width - PAD * 2) / doc.frame.width,
-            (stageSize.height - PAD * 2) / doc.frame.height,
-            MAX_STAGE_SCALE,
-          ),
-        )
-      : 1;
-
-  const frameWidth = doc.frame.width * scale;
-  const frameHeight = doc.frame.height * scale;
-  const sceneWidth = frameWidth + PAD * 2;
-  const sceneHeight = frameHeight + PAD * 2;
+  const rect = frameRect(doc);
+  const native = nativeSize(doc);
+  const dpr = window.devicePixelRatio || 1;
+  const layout = stageLayout(doc, stageSize, dpr, adjustFrame);
+  const {
+    adjusting,
+    scale,
+    frameLeft,
+    frameTop,
+    frameWidth,
+    frameHeight,
+    sceneWidth,
+    sceneHeight,
+    framePixelWidth,
+    framePixelHeight,
+    scenePixelWidth,
+    scenePixelHeight,
+  } = layout;
   const sourceView = effectiveSource(doc);
+  // The adjust mask needs the window rectangle to keep it opaque while the
+  // feather fades only the dimmed surround.
+  const sceneStyle = {
+    width: sceneWidth,
+    height: sceneHeight,
+    '--frame-left': `${frameLeft}px`,
+    '--frame-top': `${frameTop}px`,
+    '--frame-width': `${frameWidth}px`,
+    '--frame-height': `${frameHeight}px`,
+  } as CSSProperties;
 
   useEffect(() => {
     const frameCanvas = frameRef.current;
     const backdrop = backdropRef.current;
     if (!frameCanvas || !backdrop) return;
-    const dpr = window.devicePixelRatio || 1;
+    // Before the stage has a measured size, scale is 0: never draw (or size a
+    // canvas) at the Source's own resolution.
+    if (!(frameWidth >= 1) || !(frameHeight >= 1)) return;
 
-    frameCanvas.width = Math.round(frameWidth * dpr);
-    frameCanvas.height = Math.round(frameHeight * dpr);
-    frameCanvas.style.width = `${frameWidth}px`;
-    frameCanvas.style.height = `${frameHeight}px`;
-    const frameContext = frameCanvas.getContext('2d');
-    if (!frameContext) return;
-    renderFrame(frameContext, doc, { scale: scale * dpr, frameIndex });
+    if (adjusting) {
+      // The Frame is a window cut out of the dim overlay: the Frame canvas is
+      // hidden, so nothing is re-rendered or resampled inside it while the
+      // window moves. The window shows the backdrop's own Source, exactly
+      // continuous with the surround, and the Source never moves. The CSS mask
+      // keeps the window itself opaque so the feather only fades the surround.
+      frameCanvas.style.display = 'none';
+    } else {
+      frameCanvas.style.display = 'block';
+      if (frameCanvas.width !== framePixelWidth || frameCanvas.height !== framePixelHeight) {
+        frameCanvas.width = framePixelWidth;
+        frameCanvas.height = framePixelHeight;
+      }
+      const frameContext = frameCanvas.getContext('2d');
+      if (!frameContext) return;
+      renderFrame(frameContext, doc, {
+        outputWidth: frameCanvas.width,
+        outputHeight: frameCanvas.height,
+        // The empty Frame has no Export size yet; a constant 1px keeps it visible.
+        border: doc.source
+          ? { scale: frameCanvas.width / outputSize(doc).width, minPx: 1 }
+          : undefined,
+        frameIndex,
+      });
+    }
 
-    backdrop.width = Math.round(sceneWidth * dpr);
-    backdrop.height = Math.round(sceneHeight * dpr);
-    backdrop.style.width = `${sceneWidth}px`;
-    backdrop.style.height = `${sceneHeight}px`;
+    if (backdrop.width !== scenePixelWidth || backdrop.height !== scenePixelHeight) {
+      backdrop.width = scenePixelWidth;
+      backdrop.height = scenePixelHeight;
+      backdrop.style.width = `${scenePixelWidth / dpr}px`;
+      backdrop.style.height = `${scenePixelHeight / dpr}px`;
+    }
     const backdropContext = backdrop.getContext('2d');
     if (!backdropContext) return;
     backdropContext.clearRect(0, 0, backdrop.width, backdrop.height);
     if (!doc.source) return;
 
-    drawSource(backdropContext, doc, scale * dpr, scale * dpr, PAD * dpr, PAD * dpr, frameIndex);
-
-    // Dim everything the Crop leaves outside the Frame.
-    const pad = PAD * dpr;
+    const fullWidth = backdrop.width;
+    const fullHeight = backdrop.height;
+    const left = frameLeft * dpr;
+    const top = frameTop * dpr;
     const width = frameWidth * dpr;
     const height = frameHeight * dpr;
-    const fullWidth = sceneWidth * dpr;
-    const fullHeight = sceneHeight * dpr;
+
+    // A Pad window paints its uncovered area with the Pad color. In Fit the
+    // Source always covers the window, so only the other modes need it.
+    if (adjusting && paintsPadColor(doc)) {
+      backdropContext.fillStyle = doc.padColor;
+      backdropContext.fillRect(left, top, width, height);
+    }
+
+    // The backdrop draws the whole Source at the same scale as the Frame, so the
+    // crop window and its surround stay exactly continuous.
+    drawSource(
+      backdropContext,
+      doc,
+      scale * dpr,
+      scale * dpr,
+      frameLeft * dpr,
+      frameTop * dpr,
+      frameIndex,
+    );
+
+    // Dim everything the Crop leaves outside the Frame.
     backdropContext.fillStyle = 'rgba(8, 7, 11, 0.55)';
-    backdropContext.fillRect(0, 0, fullWidth, pad);
-    backdropContext.fillRect(0, pad + height, fullWidth, fullHeight - pad - height);
-    backdropContext.fillRect(0, pad, pad, height);
-    backdropContext.fillRect(pad + width, pad, fullWidth - pad - width, height);
-  }, [doc, scale, frameWidth, frameHeight, sceneWidth, sceneHeight, frameIndex, frameVersion]);
+    backdropContext.fillRect(0, 0, fullWidth, top);
+    backdropContext.fillRect(0, top + height, fullWidth, fullHeight - top - height);
+    backdropContext.fillRect(0, top, left, height);
+    backdropContext.fillRect(left + width, top, fullWidth - left - width, height);
+
+    // In the adjust phase the Frame canvas is hidden, so the Border is stroked
+    // on the backdrop at the same preview scale.
+    const stroke = frameBorderStroke(doc, width, outputSize(doc).width);
+    if (adjusting && stroke > 0) {
+      backdropContext.strokeStyle = doc.border.color;
+      backdropContext.lineWidth = stroke;
+      backdropContext.strokeRect(
+        left + stroke / 2,
+        top + stroke / 2,
+        width - stroke,
+        height - stroke,
+      );
+    }
+  }, [
+    doc,
+    adjusting,
+    scale,
+    frameLeft,
+    frameTop,
+    frameWidth,
+    frameHeight,
+    sceneWidth,
+    sceneHeight,
+    framePixelWidth,
+    framePixelHeight,
+    scenePixelWidth,
+    scenePixelHeight,
+    frameIndex,
+    frameVersion,
+  ]);
 
   // The visible Frame includes the Border. The eyedropper should read the
   // image underneath it, matching the Palette's border:false sample.
@@ -143,7 +279,6 @@ export function Stage({
     }
     const frameCanvas = frameRef.current;
     if (!frameCanvas) return;
-    const dpr = window.devicePixelRatio || 1;
     const canvas = pickRef.current ?? document.createElement('canvas');
     canvas.width = frameCanvas.width;
     canvas.height = frameCanvas.height;
@@ -152,7 +287,12 @@ export function Stage({
       pickRef.current = null;
       return;
     }
-    renderFrame(context, doc, { scale: scale * dpr, border: false, frameIndex });
+    renderFrame(context, doc, {
+      outputWidth: canvas.width,
+      outputHeight: canvas.height,
+      border: false,
+      frameIndex,
+    });
     pickRef.current = canvas;
   }, [doc, picking, scale, frameIndex, frameVersion]);
 
@@ -171,17 +311,18 @@ export function Stage({
       if (picking) return;
       const frameCanvas = frameRef.current;
       if (!frameCanvas) return;
-      const rect = frameCanvas.getBoundingClientRect();
+      const bounds = frameCanvas.getBoundingClientRect();
+      // The wheel works in displayed crop pixels; zoomAt needs Source pixels.
       const point = {
-        x: (event.clientX - rect.left) / scale,
-        y: (event.clientY - rect.top) / scale,
+        x: rect.x + (event.clientX - bounds.left) / scale,
+        y: rect.y + (event.clientY - bounds.top) / scale,
       };
       const factor = Math.exp(-event.deltaY * 0.0015);
       onZoomAt(point, factor);
     };
     element.addEventListener('wheel', onWheel, { passive: false });
     return () => element.removeEventListener('wheel', onWheel);
-  }, [doc.source, onZoomAt, picking, scale]);
+  }, [doc.source, onZoomAt, picking, scale, rect.x, rect.y]);
 
   function framePixelAt(clientX: number, clientY: number): { sx: number; sy: number } | null {
     const frameCanvas = frameRef.current;
@@ -291,7 +432,9 @@ export function Stage({
     const dx = (event.clientX - drag.x) / scale;
     const dy = (event.clientY - drag.y) / scale;
     dragRef.current = { id: drag.id, x: event.clientX, y: event.clientY };
-    onPan(dx, dy);
+    // Alt releases the centre snap, the same key that releases the ratio snap.
+    const snapThreshold = scale > 0 ? 6 / scale : 0;
+    onPan(dx, dy, !event.altKey && snapThreshold > 0, snapThreshold);
   }
 
   function endDrag(event: ReactPointerEvent<HTMLDivElement>) {
@@ -299,6 +442,57 @@ export function Stage({
       dragRef.current = null;
       setDragging(false);
     }
+  }
+
+  function startResize(event: ReactPointerEvent<HTMLButtonElement>, handle: Handle) {
+    if (event.button !== 0) return;
+    // Keep the stage's pan-drag out of a handle grab. Do not preventDefault:
+    // the button must still take focus so the arrow keys can nudge it.
+    event.stopPropagation();
+    event.currentTarget.focus();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    resizeRef.current = {
+      id: event.pointerId,
+      handle,
+      x: event.clientX,
+      y: event.clientY,
+      startX: event.clientX,
+      startY: event.clientY,
+      startRatio: doc.frame.ratio,
+      scale,
+    };
+  }
+
+  function moveResize(event: ReactPointerEvent<HTMLButtonElement>) {
+    const resize = resizeRef.current;
+    if (!resize || resize.id !== event.pointerId) return;
+    // The delta belongs to the display scale of the previous event, so a
+    // growing Frame that makes the scene zoom out never amplifies the drag.
+    const dx = (event.clientX - resize.x) / resize.scale;
+    const dy = (event.clientY - resize.y) / resize.scale;
+    // Do not snap on the first pixels of a grab: the frame would jump to a
+    // neighbouring preset before the user has actually dragged.
+    const moved =
+      Math.hypot(event.clientX - resize.startX, event.clientY - resize.startY) > SNAP_START_PX;
+    resizeRef.current = {
+      ...resize,
+      x: event.clientX,
+      y: event.clientY,
+      scale,
+    };
+    onResize(
+      resize.handle,
+      dx,
+      dy,
+      !event.shiftKey,
+      snapRatios && !event.altKey && moved,
+      resize.startRatio,
+    );
+  }
+
+  function endResize(event: ReactPointerEvent<HTMLButtonElement>) {
+    if (resizeRef.current?.id !== event.pointerId) return;
+    resizeRef.current = null;
   }
 
   useEffect(() => {
@@ -365,36 +559,92 @@ export function Stage({
   return (
     <div
       ref={hostRef}
-      className={`stage${doc.source ? ' has-source' : ''}${dragging ? ' dragging' : ''}${
-        picking ? ' picking' : ''
-      }`}
+      className={`stage${doc.source ? ' has-source' : ''}${adjusting ? ' adjusting' : ''}${
+        dragging ? ' dragging' : ''
+      }${picking ? ' picking' : ''}`}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={endDrag}
       onPointerCancel={endDrag}
       onPointerLeave={() => setMagnifier(null)}
       aria-label="Palco do Crop"
+      role="group"
     >
-      <div className="scene" style={{ width: sceneWidth, height: sceneHeight }}>
+      <div className="scene" style={sceneStyle}>
         <canvas ref={backdropRef} className="backdrop" />
         <canvas
           ref={frameRef}
           className="frame-canvas"
-          style={{ left: PAD, top: PAD, width: frameWidth, height: frameHeight }}
+          style={{ left: frameLeft, top: frameTop, width: frameWidth, height: frameHeight }}
         />
+        {doc.source && (adjusting || dragging) && (
+          <div
+            className="frame-guides"
+            style={{ left: frameLeft, top: frameTop, width: frameWidth, height: frameHeight }}
+            aria-hidden="true"
+          >
+            <span className="guide vertical" style={{ left: '33.3333%' }} />
+            <span className="guide vertical" style={{ left: '66.6667%' }} />
+            <span className="guide horizontal" style={{ top: '33.3333%' }} />
+            <span className="guide horizontal" style={{ top: '66.6667%' }} />
+          </div>
+        )}
+        {adjustFrame && doc.source && !picking && (
+          <div
+            className="frame-handles"
+            style={{ left: frameLeft, top: frameTop, width: frameWidth, height: frameHeight }}
+          >
+            <div className="frame-outline" />
+            {HANDLES.map((handle) => (
+              <button
+                key={handle}
+                type="button"
+                className={`frame-handle ${handle}`}
+                aria-label={`Ajustar Frame: ${HANDLE_LABELS[handle]}`}
+                title={`${HANDLE_LABELS[handle]} · setas ajustam 1 px na tela · Shift solta a proporção`}
+                onPointerDown={(event) => startResize(event, handle)}
+                onPointerMove={moveResize}
+                onPointerUp={endResize}
+                onPointerCancel={endResize}
+                onKeyDown={(event) => {
+                  if (!(scale > 0)) return;
+                  const step = 1 / Math.max(scale, 0.001);
+                  const horizontal =
+                    event.key === 'ArrowRight' ? step : event.key === 'ArrowLeft' ? -step : 0;
+                  const vertical =
+                    event.key === 'ArrowDown' ? step : event.key === 'ArrowUp' ? -step : 0;
+                  if (horizontal === 0 && vertical === 0) return;
+                  event.preventDefault();
+                  onResize(
+                    handle,
+                    horizontal,
+                    vertical,
+                    !event.shiftKey,
+                    // A keyboard nudge has no drag session to exclude its own
+                    // proportion, so it does not snap at all.
+                    false,
+                  );
+                }}
+              />
+            ))}
+          </div>
+        )}
         {!doc.source && (
           <div
             className="empty-frame"
             style={{
-              left: PAD,
-              top: PAD,
+              left: frameLeft,
+              top: frameTop,
               width: frameWidth,
               height: frameHeight,
             }}
           >
             <div className="empty-inner">
               <strong>Traga uma Source</strong>
-              <p>PNG, JPG, GIF, WebP, APNG, MP4, MOV ou WebM entra no Frame {doc.frame.label}.</p>
+              <p>
+                PNG, JPG, GIF, WebP, APNG, MP4, MOV ou WebM entra no Frame{' '}
+                {ratioLabel(doc.frame.ratio)}.
+              </p>
               <button type="button" className="primary" onClick={onOpen} disabled={busy}>
                 Abrir arquivo…
               </button>
@@ -402,6 +652,16 @@ export function Stage({
               <p className="hint">ou Ctrl+V para colar da área de transferência</p>
               <p className="hint">ou cole um link ou caminho na barra acima</p>
             </div>
+          </div>
+        )}
+        {adjustFrame && doc.source && (
+          <div
+            className="snap-badge"
+            style={{ left: frameLeft + frameWidth / 2, top: frameTop - 10 }}
+            role="status"
+            aria-live="polite"
+          >
+            {`${native.width}×${native.height} · ${ratioLabel(doc.frame.ratio)}`}
           </div>
         )}
       </div>
@@ -424,7 +684,11 @@ export function Stage({
           <div className="stage-hint">
             {picking
               ? 'clique na imagem para pegar a cor · Esc cancela'
-              : 'arraste para mover · roda do mouse para zoom'}
+              : adjustFrame
+                ? `arraste as bordas para ajustar o Frame · Shift proporção livre · ${
+                    snapRatios ? 'Alt sem encaixe' : 'encaixe desligado'
+                  } · roda para zoom`
+                : 'arraste para mover · roda do mouse para zoom'}
           </div>
         </>
       )}

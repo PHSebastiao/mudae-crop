@@ -122,7 +122,7 @@ describe('video Sources', () => {
     });
 
     const reference = createCanvas(225, 350);
-    renderFrame(contextOf(reference), doc, { scale: 1, frameIndex: 1 });
+    renderFrame(contextOf(reference), doc, { outputWidth: 225, outputHeight: 350, frameIndex: 1 });
     const expected = new Uint8Array(reference.toBuffer('image/png'));
 
     expect(Buffer.from(bytes).equals(Buffer.from(expected))).toBe(true);

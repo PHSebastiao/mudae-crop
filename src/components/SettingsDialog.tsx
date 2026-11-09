@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { ExportScale } from '../core/document';
 import { IMAGE_CHEST_API_KEY_URL, PRIVACY_OPTIONS } from '../core/imagechest';
 import type { Settings } from '../core/settings';
 import { NumberField } from './NumberField';
@@ -195,21 +194,6 @@ export function SettingsDialog({
               força PNG
             </span>
           </div>
-          <div className="settings-row">
-            <span className="settings-key">Escala</span>
-            <div className="toggle" role="group" aria-label="Escala padrão do Export">
-              {([1, 2] as ExportScale[]).map((scale) => (
-                <button
-                  key={scale}
-                  type="button"
-                  className={settings.exportScale === scale ? 'on' : ''}
-                  onClick={() => onChange({ exportScale: scale })}
-                >
-                  {scale}×
-                </button>
-              ))}
-            </div>
-          </div>
         </section>
 
         <section>
@@ -239,8 +223,8 @@ export function SettingsDialog({
             </span>
           </div>
           <p className="settings-hint">
-            A Borda é desenhada no Export e escala junto com a escala do Export; estes valores
-            também são guardados para a próxima sessão.
+            A Borda é desenhada no Export em pixels do arquivo final; estes valores também são
+            guardados para a próxima sessão.
           </p>
         </section>
 

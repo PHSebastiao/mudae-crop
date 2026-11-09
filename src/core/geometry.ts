@@ -1,185 +1,255 @@
 import {
-  defaultCrop,
   withCrop,
   withPadColor,
+  withResize,
   type Crop,
   type DocumentState,
+  type Rect,
   type Rotation,
   type ScaleMode,
 } from './document';
-
-export const MAX_ZOOM = 8;
-
-export interface Bounds {
-  readonly width: number;
-  readonly height: number;
-}
+import {
+  anchoredRect,
+  baseRect,
+  clampRect,
+  nativeSize as rectNativeSize,
+  rectLimits,
+  rectZoom,
+  resizeRect,
+  rotatedSize,
+  type Handle,
+  type Size,
+} from './rect';
+import { SNAP_TOLERANCE, mudaeExportSize, mudaeScaleOf, presetForRatio, snapRatio } from './ratios';
 
 /**
- * A Source rotated by 90° or 270° swaps its axes. Every scale and pan limit is
+ * A Source rotated by 90° or 270° swaps its axes. Every rect and clamp is
  * computed from these bounds, so a rotated Source is never squashed.
  */
-function boundsFor(doc: DocumentState, rotation: Rotation): Bounds {
-  if (!doc.source) return { width: 0, height: 0 };
-  return rotation === 90 || rotation === 270
-    ? { width: doc.source.height, height: doc.source.width }
-    : { width: doc.source.width, height: doc.source.height };
+function boundsFor(doc: DocumentState, rotation: Rotation): Size {
+  return rotatedSize(doc.source, rotation);
 }
 
-export function rotatedBounds(doc: DocumentState): Bounds {
+export function rotatedBounds(doc: DocumentState): Size {
   return boundsFor(doc, doc.crop.rotation);
 }
 
-function coverScale(bounds: Bounds, doc: DocumentState): number {
-  return Math.max(doc.frame.width / bounds.width, doc.frame.height / bounds.height);
+/** The Frame window over the rotated Source. */
+export function frameRect(doc: DocumentState): Rect {
+  return doc.crop.rect;
 }
 
-function containScale(bounds: Bounds, doc: DocumentState): number {
-  return Math.min(doc.frame.width / bounds.width, doc.frame.height / bounds.height);
+/** The mode's rect at zoom 1 for the crop being applied. */
+export function baseRectFor(doc: DocumentState, crop: Crop = doc.crop): Rect {
+  return baseRect(boundsFor(doc, crop.rotation), doc.frame.ratio, crop.mode);
 }
 
-/** The Fit scale: the larger ratio, so there are never bars. */
-export function fitScale(doc: DocumentState): number {
-  if (!doc.source) return 1;
-  return coverScale(boundsFor(doc, doc.crop.rotation), doc);
-}
-
-/** The Pad scale: the smaller ratio, so the whole Source stays inside. */
-export function padScale(doc: DocumentState): number {
-  if (!doc.source) return 1;
-  return containScale(boundsFor(doc, doc.crop.rotation), doc);
-}
-
-/** The base scale of a mode, before zoom is applied. */
-export function scaleForMode(doc: DocumentState, crop: Crop = doc.crop): number {
-  if (!doc.source) return 1;
-  const bounds = boundsFor(doc, crop.rotation);
-  switch (crop.mode) {
-    case 'pad':
-      return containScale(bounds, doc);
-    case 'full-width':
-      return doc.frame.width / bounds.width;
-    case 'full-height':
-      return doc.frame.height / bounds.height;
-    case 'fit':
-    default:
-      return coverScale(bounds, doc);
-  }
-}
-
-/** The uniform scale applied to the Source, combining the mode and zoom. */
-export function effectiveScale(doc: DocumentState): number {
-  return scaleForMode(doc) * doc.crop.zoom;
-}
-
-/**
- * Zoom limits as multipliers of the mode's scale. The resulting absolute scale
- * runs from the Pad scale (or Fit, which must always cover) up to 8× Fit.
- */
-export function zoomLimitsFor(doc: DocumentState, crop: Crop): { min: number; max: number } {
-  if (!doc.source) return { min: 1, max: 1 };
-  const bounds = boundsFor(doc, crop.rotation);
-  const base = scaleForMode(doc, crop);
-  const cover = coverScale(bounds, doc);
-  const low = crop.mode === 'fit' ? cover : containScale(bounds, doc);
-  return { min: low / base, max: (MAX_ZOOM * cover) / base };
-}
-
-export function zoomLimits(doc: DocumentState): { min: number; max: number } {
-  return zoomLimitsFor(doc, doc.crop);
-}
-
-export function clampZoomFor(doc: DocumentState, crop: Crop, zoom: number): number {
-  if (!Number.isFinite(zoom)) return 1;
-  const limits = zoomLimitsFor(doc, crop);
-  return Math.min(limits.max, Math.max(limits.min, zoom));
-}
-
-export function clampZoom(doc: DocumentState, zoom: number): number {
-  return clampZoomFor(doc, doc.crop, zoom);
-}
-
-function withoutNegativeZero(value: number): number {
-  return value === 0 ? 0 : value;
-}
-
-/**
- * The largest offset that still lets the Source cover the Frame on each axis.
- * An axis the Source cannot cover stays centred, so Pad never drifts.
- */
-export function panLimitsAtCrop(doc: DocumentState, crop: Crop): { x: number; y: number } {
-  if (!doc.source) return { x: 0, y: 0 };
-  const bounds = boundsFor(doc, crop.rotation);
-  const scale = scaleForMode(doc, crop) * crop.zoom;
-  return {
-    x: Math.max(0, (bounds.width * scale - doc.frame.width) / 2),
-    y: Math.max(0, (bounds.height * scale - doc.frame.height) / 2),
-  };
-}
-
-export function panLimits(doc: DocumentState): { x: number; y: number } {
-  return panLimitsAtCrop(doc, doc.crop);
+export function zoomOf(doc: DocumentState): number {
+  return rectZoom(rotatedBounds(doc), doc.frame.ratio, doc.crop.mode, doc.crop.rect);
 }
 
 export function clampCrop(doc: DocumentState, crop: Crop): Crop {
-  const zoom = clampZoomFor(doc, crop, crop.zoom);
-  // Limits belong to the zoom being applied, not the one in the document.
-  const limits = panLimitsAtCrop(doc, { ...crop, zoom });
-  return {
-    ...crop,
-    zoom,
-    offsetX: withoutNegativeZero(Math.min(limits.x, Math.max(-limits.x, crop.offsetX))),
-    offsetY: withoutNegativeZero(Math.min(limits.y, Math.max(-limits.y, crop.offsetY))),
-  };
+  const rect = clampRect(boundsFor(doc, crop.rotation), doc.frame.ratio, crop.mode, crop.rect);
+  return { ...crop, rect };
 }
 
-/** Pan by a delta expressed in Frame pixels at 1×. */
-export function panBy(doc: DocumentState, crop: Crop, dx: number, dy: number): Crop {
-  return clampCrop(doc, { ...crop, offsetX: crop.offsetX + dx, offsetY: crop.offsetY + dy });
+export interface PanOptions {
+  /** Snap the window's centre to the Source's centre on each axis. */
+  readonly snapCenter?: boolean;
+  /** Distance in rotated Source px within which the centre snaps. */
+  readonly threshold?: number;
+}
+
+/** Pan by a delta expressed in rotated Source pixels. */
+export function panBy(
+  doc: DocumentState,
+  crop: Crop,
+  dx: number,
+  dy: number,
+  options: PanOptions = {},
+): Crop {
+  let nextDx = dx;
+  let nextDy = dy;
+  if (options.snapCenter && doc.source) {
+    const bounds = boundsFor(doc, crop.rotation);
+    const threshold = Math.max(0, options.threshold ?? 0);
+    const rect = crop.rect;
+    const centreX = rect.x + rect.width / 2 + dx;
+    const centreY = rect.y + rect.height / 2 + dy;
+    if (Math.abs(centreX - bounds.width / 2) <= threshold) {
+      nextDx = bounds.width / 2 - (rect.x + rect.width / 2);
+    }
+    if (Math.abs(centreY - bounds.height / 2) <= threshold) {
+      nextDy = bounds.height / 2 - (rect.y + rect.height / 2);
+    }
+  }
+  return clampCrop(doc, {
+    ...crop,
+    rect: { ...crop.rect, x: crop.rect.x + nextDx, y: crop.rect.y + nextDy },
+  });
+}
+
+export interface ResizeOptions {
+  readonly locked: boolean;
+  readonly snap: boolean;
+  /**
+   * The proportion the drag started on. It is excluded from snapping so the
+   * drag never pulls back to where it began; a snapped target still holds.
+   */
+  readonly startRatio?: number;
 }
 
 /**
- * Zoom while keeping the Source point under `point` (Frame pixels at 1×) in
- * place. The combined mode + zoom scale changes, so the offset is recomputed
- * before being clamped.
+ * Resize the Frame window from a handle drag. Locked keeps the Frame proportion;
+ * a free drag returns the new ratio. With snapping on, a free ratio within 2%
+ * of a preset lands exactly on it while preserving the dragged axis.
+ */
+export function resizeCrop(
+  doc: DocumentState,
+  crop: Crop,
+  handle: Handle,
+  dx: number,
+  dy: number,
+  options: ResizeOptions,
+): { crop: Crop; ratio: number } {
+  const bounds = boundsFor(doc, crop.rotation);
+  const resized = resizeRect(
+    bounds,
+    doc.frame.ratio,
+    crop.rect,
+    handle,
+    dx,
+    dy,
+    options.locked,
+    crop.mode,
+  );
+  let ratio = resized.ratio;
+  let rect = resized.rect;
+
+  // Exclude only the proportion the drag started on. Every other preset stays a
+  // target, so once the drag snaps it keeps holding for the rest of the drag.
+  if (!options.locked && options.snap) {
+    const preset = snapRatio(ratio, SNAP_TOLERANCE, options.startRatio ?? doc.frame.ratio);
+    if (preset) {
+      ratio = preset.ratio;
+      const horizontal = handle.includes('e') || handle.includes('w');
+      // Edge drags keep their manipulated axis; corners keep the width.
+      const width = horizontal ? rect.width : rect.height * ratio;
+      const height = horizontal ? width / ratio : rect.height;
+      rect = clampRect(bounds, ratio, crop.mode, anchoredRect(crop.rect, handle, width, height));
+    }
+  }
+
+  return { crop: { ...crop, rect }, ratio };
+}
+
+/**
+ * The one place that writes both halves of the document invariant: the Frame
+ * proportion and the Crop rect always change together, and a locked Export size
+ * follows the new proportion.
+ */
+function withFrameRect(doc: DocumentState, ratio: number, rect: Rect): DocumentState {
+  const next: DocumentState = { ...doc, frame: { ratio }, crop: { ...doc.crop, rect } };
+  return doc.resize && doc.resizeLocked ? withResize(next, doc.resize) : next;
+}
+
+/** Apply a handle drag to the document, Frame and Crop together. */
+export function resizeFrame(
+  doc: DocumentState,
+  handle: Handle,
+  dx: number,
+  dy: number,
+  options: ResizeOptions,
+): DocumentState {
+  if (!doc.source) return doc;
+  const result = resizeCrop(doc, doc.crop, handle, dx, dy, options);
+  return withFrameRect(doc, result.ratio, result.crop.rect);
+}
+
+/**
+ * Set the zoom readout: the rect keeps the Frame proportion around its centre,
+ * then clamps to the mode's limits.
+ */
+export function zoomTo(doc: DocumentState, zoom: number): DocumentState {
+  const base = baseRectFor(doc);
+  if (base.width <= 0 || !Number.isFinite(zoom) || zoom <= 0) return doc;
+  const rect = doc.crop.rect;
+  const width = base.width / zoom;
+  const height = base.height / zoom;
+  const centreX = rect.x + rect.width / 2;
+  const centreY = rect.y + rect.height / 2;
+  const clamped = clampCrop(doc, {
+    ...doc.crop,
+    rect: { x: centreX - width / 2, y: centreY - height / 2, width, height },
+  });
+  return withFrameRect(doc, doc.frame.ratio, clamped.rect);
+}
+
+function clampWidth(bounds: Size, doc: DocumentState, crop: Crop, width: number): number {
+  const { minWidth, maxWidth } = rectLimits(bounds, doc.frame.ratio, crop.mode);
+  if (!Number.isFinite(width)) return maxWidth;
+  return Math.min(maxWidth, Math.max(minWidth, width));
+}
+
+/**
+ * Zoom by `factor` while keeping the rotated Source point under `point` in
+ * place. The rect keeps the Frame proportion, so the two axes scale together.
  */
 export function zoomAt(
   doc: DocumentState,
   crop: Crop,
-  nextZoom: number,
+  factor: number,
   point: { x: number; y: number },
 ): Crop {
   if (!doc.source) return crop;
-  const zoom = clampZoomFor(doc, crop, nextZoom);
-  const base = scaleForMode(doc, crop);
-  const before = base * crop.zoom;
-  const after = base * zoom;
+  if (!Number.isFinite(factor) || factor <= 0) return crop;
+  if (crop.rect.width <= 0 || crop.rect.height <= 0) return crop;
   const bounds = boundsFor(doc, crop.rotation);
+  const width = clampWidth(bounds, doc, crop, crop.rect.width / factor);
+  const height = width / doc.frame.ratio;
+  const scale = width / crop.rect.width;
 
-  // Source fraction under the pointer, using the current draw rectangle.
-  const left = doc.frame.width / 2 + crop.offsetX - (bounds.width * before) / 2;
-  const u = (point.x - left) / (bounds.width * before);
-
-  // Keep that fraction under the same Frame point at the new scale.
-  const offsetX = point.x + (0.5 - u) * bounds.width * after - doc.frame.width / 2;
-  const offsetY = (() => {
-    const top = doc.frame.height / 2 + crop.offsetY - (bounds.height * before) / 2;
-    const v = (point.y - top) / (bounds.height * before);
-    return point.y + (0.5 - v) * bounds.height * after - doc.frame.height / 2;
-  })();
-
-  return clampCrop(doc, { ...crop, zoom, offsetX, offsetY });
+  return clampCrop(doc, {
+    ...crop,
+    rect: {
+      x: point.x - (point.x - crop.rect.x) * scale,
+      y: point.y - (point.y - crop.rect.y) * scale,
+      width,
+      height,
+    },
+  });
 }
 
-/** Rotate in 90° steps, keeping the pan inside the new, swapped bounds. */
+/** Rotate in 90° steps, moving the rect's centre into the new bounds. */
 export function rotate90(doc: DocumentState, crop: Crop): Crop {
   const rotation = ((crop.rotation + 90) % 360) as Rotation;
-  return clampCrop(doc, { ...crop, rotation });
+  if (!doc.source) return { ...crop, rotation };
+  const before = boundsFor(doc, crop.rotation);
+  const centreX = crop.rect.x + crop.rect.width / 2;
+  const centreY = crop.rect.y + crop.rect.height / 2;
+  // Clockwise: the old bottom-left becomes the new top-left.
+  const nextCentreX = before.height - centreY;
+  const nextCentreY = centreX;
+
+  return clampCrop(doc, {
+    ...crop,
+    rotation,
+    rect: {
+      x: nextCentreX - crop.rect.width / 2,
+      y: nextCentreY - crop.rect.height / 2,
+      width: crop.rect.width,
+      height: crop.rect.height,
+    },
+  });
 }
 
-/** A Scale mode change snaps the Crop to that mode's default zoom and centring. */
-export function setScaleMode(crop: Crop, mode: ScaleMode): Crop {
-  return defaultCrop(mode, crop.rotation);
+/** Reset zoom, pan and rotation to the current Scale mode's default. */
+export function resetCrop(doc: DocumentState): Crop {
+  return {
+    mode: doc.crop.mode,
+    rect: baseRectFor(doc, { ...doc.crop, rotation: 0 }),
+    rotation: 0,
+  };
 }
 
 /**
@@ -187,34 +257,72 @@ export function setScaleMode(crop: Crop, mode: ScaleMode): Crop {
  * starts from the current Border color; after that the two stay independent.
  */
 export function applyScaleMode(doc: DocumentState, mode: ScaleMode): DocumentState {
-  const next = withCrop(doc, clampCrop(doc, setScaleMode(doc.crop, mode)));
+  const next = withCrop(
+    doc,
+    clampCrop(doc, {
+      mode,
+      rotation: doc.crop.rotation,
+      rect: baseRectFor(doc, { ...doc.crop, mode }),
+    }),
+  );
   if (mode === 'pad' && doc.crop.mode !== 'pad' && !doc.padColorExplicit) {
     return withPadColor(next, doc.border.color);
   }
   return next;
 }
 
-/** Reset zoom, pan and rotation to the current Scale mode's default. */
-export function resetCrop(crop: Crop): Crop {
-  return defaultCrop(crop.mode);
+/**
+ * Change the Frame proportion keeping the current long side and the rect centre,
+ * then clamp. A requested ratio within 0.1% of a preset is stored as that
+ * preset's exact value, so labels, Carta and persistence agree.
+ */
+export function applyRatio(doc: DocumentState, ratio: number): DocumentState {
+  if (!Number.isFinite(ratio) || ratio <= 0) return doc;
+  // A ratio close enough to be *called* a preset is stored as the exact one, so
+  // labels, Carta presets, snapping and persistence all agree.
+  const preset = presetForRatio(ratio);
+  const target = preset ? preset.ratio : ratio;
+  const keptCarta = doc.resize ? mudaeScaleOf(doc.resize, doc.frame.ratio) : null;
+  const rect = doc.crop.rect;
+  // Keep the axis that currently holds the long side, and derive the other
+  // axis from the new ratio: 9:14 → 16:9 keeps the height and grows the width.
+  // A square has no long side, so it keeps its width.
+  const keepWidth = rect.width >= rect.height;
+  const width = keepWidth ? rect.width : rect.height * target;
+  const height = keepWidth ? rect.width / target : rect.height;
+  const centreX = rect.x + rect.width / 2;
+  const centreY = rect.y + rect.height / 2;
+  const framed: DocumentState = { ...doc, frame: { ratio: target } };
+  const clamped = clampCrop(framed, {
+    ...doc.crop,
+    rect: {
+      x: centreX - width / 2,
+      y: centreY - height / 2,
+      width,
+      height,
+    },
+  });
+  const next = withFrameRect(doc, target, clamped.rect);
+  if (!next.resize) return next;
+  // Flipping between the Mudae orientations keeps the chosen Carta, instead of
+  // re-deriving its height from the new proportion (which would not be a Carta).
+  // A Carta stays a Carta even if the lock was switched off.
+  const carta = keptCarta !== null ? mudaeExportSize(target, keptCarta) : null;
+  return carta ? withResize(next, carta) : next;
 }
 
-/** The rotated Source draw rectangle inside the Frame at 1×, before output scaling. */
-export function sourceRect(doc: DocumentState): {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-} {
-  if (!doc.source) return { x: 0, y: 0, width: 0, height: 0 };
-  const scale = effectiveScale(doc);
+/** The native Export size: the rect's pixels, rounded and at least 1. */
+export function nativeSize(doc: DocumentState): Size {
+  return rectNativeSize(doc.crop.rect);
+}
+
+/** The rect centre's offset from the Source centre, as a fraction of the rect. */
+export function offsetPct(doc: DocumentState): { x: number; y: number } {
   const bounds = rotatedBounds(doc);
-  const width = bounds.width * scale;
-  const height = bounds.height * scale;
+  const rect = doc.crop.rect;
+  if (rect.width <= 0 || rect.height <= 0) return { x: 0, y: 0 };
   return {
-    x: doc.frame.width / 2 + doc.crop.offsetX - width / 2,
-    y: doc.frame.height / 2 + doc.crop.offsetY - height / 2,
-    width,
-    height,
+    x: (rect.x + rect.width / 2 - bounds.width / 2) / rect.width,
+    y: (rect.y + rect.height / 2 - bounds.height / 2) / rect.height,
   };
 }

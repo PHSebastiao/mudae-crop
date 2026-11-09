@@ -1,14 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_OPTIMIZE,
-  withExportScale,
   withResize,
   withTrim,
   withTrimEnabled,
   type DocumentState,
   type Source,
 } from '../src/core/document';
-import { ExportError, estimateExportSize, renderGif, renderPng } from '../src/core/export';
+import { estimateExportSize, renderGif, renderPng } from '../src/core/export';
 import { makeDoc, makePaintedAnimation, makeSource, testExportAdapter as adapter } from './helpers';
 
 const CELL_COLORS = Array.from({ length: 64 }, (_, index) => {
@@ -51,13 +50,22 @@ describe('estimateExportSize', () => {
     expect(estimate).toEqual({ bytes: bytes.length, exact: true });
   });
 
-  it('still measures a large still instead of skipping the readout', async () => {
+  it('estimates a large still from a reduced raster instead of encoding it whole', async () => {
     const doc = withResize(makeDoc(makeSource(16, 16)), { width: 2000, height: 2000 });
 
     const estimate = await estimateExportSize(doc, adapter, { format: 'png' });
 
-    expect(estimate.exact).toBe(true);
+    expect(estimate.exact).toBe(false);
     expect(estimate.bytes).toBeGreaterThan(0);
+  });
+
+  it('keeps a small still exact', async () => {
+    const doc = makeDoc(makeSource(900, 1400));
+
+    const estimate = await estimateExportSize(doc, adapter, { format: 'png' });
+    const bytes = await renderPng(doc, adapter, { frameIndex: 0 });
+
+    expect(estimate).toEqual({ bytes: bytes.length, exact: true });
   });
 
   it('encodes the whole GIF when the Trim fits under the sample cap', async () => {
@@ -79,14 +87,18 @@ describe('estimateExportSize', () => {
     expect(Math.abs(estimate.bytes - bytes.length) / bytes.length).toBeLessThan(0.25);
   });
 
-  it('grows with the Trim and with the Export scale', async () => {
+  it('grows with the Trim and with an explicit bigger Export size', async () => {
     const source = texturedAnimation(4);
     const short = trimmed(makeDoc(source), 0, 1);
     const long = trimmed(makeDoc(source), 0, 3);
 
     const shortSize = await estimateExportSize(short, adapter, { format: 'gif' });
     const longSize = await estimateExportSize(long, adapter, { format: 'gif' });
-    const doubled = await estimateExportSize(withExportScale(short, 2), adapter, { format: 'gif' });
+    const doubled = await estimateExportSize(
+      withResize(short, { width: 450, height: 700 }),
+      adapter,
+      { format: 'gif' },
+    );
 
     expect(longSize.bytes).toBeGreaterThan(shortSize.bytes);
     expect(doubled.bytes).toBeGreaterThan(shortSize.bytes);
@@ -108,12 +120,77 @@ describe('estimateExportSize', () => {
     expect(estimate.exact).toBe(false);
   });
 
-  it('refuses a GIF too large to encode on every edit', async () => {
+  it('keeps estimating above the pixel budget by sampling a reduced raster', async () => {
     const doc = withResize(makeDoc(texturedAnimation(2)), { width: 2000, height: 2000 });
 
-    await expect(estimateExportSize(doc, adapter, { format: 'gif' })).rejects.toBeInstanceOf(
-      ExportError,
-    );
+    const estimate = await estimateExportSize(doc, adapter, { format: 'gif', maxPixels: 20_000 });
+
+    expect(estimate.exact).toBe(false);
+    expect(estimate.bytes).toBeGreaterThan(0);
+  });
+
+  it('keeps the sampled canvas within the pixel budget for a small explicit resize', async () => {
+    const created: Array<{ width: number; height: number }> = [];
+    const recording = {
+      createCanvas(width: number, height: number) {
+        created.push({ width, height });
+        return adapter.createCanvas(width, height);
+      },
+      encodePng: adapter.encodePng,
+    };
+    const source = makePaintedAnimation(1200, 1800, 2, (ctx) => {
+      ctx.fillStyle = '#335577';
+      ctx.fillRect(0, 0, 1200, 1800);
+      ctx.fillStyle = '#d94f6d';
+      ctx.fillRect(0, 0, 600, 900);
+    });
+    const doc = withResize(makeDoc(source), { width: 300, height: 450 });
+
+    const estimate = await estimateExportSize(doc, recording, {
+      format: 'gif',
+      maxPixels: 100_000,
+    });
+
+    expect(estimate.exact).toBe(false);
+    const largest = created.reduce((area, size) => Math.max(area, size.width * size.height), 0);
+    expect(largest).toBeLessThanOrEqual(110_000);
+  });
+
+  it('floors the sampled tile to the crop when the crop is tiny', async () => {
+    const created: Array<{ width: number; height: number }> = [];
+    const recording = {
+      createCanvas(width: number, height: number) {
+        created.push({ width, height });
+        return adapter.createCanvas(width, height);
+      },
+      encodePng: adapter.encodePng,
+    };
+    const source = makePaintedAnimation(32, 32, 2, (ctx) => {
+      ctx.fillStyle = '#335577';
+      ctx.fillRect(0, 0, 32, 32);
+    });
+    const doc = withResize(makeDoc(source), { width: 4096, height: 4096 });
+
+    const estimate = await estimateExportSize(doc, recording, { format: 'gif' });
+
+    expect(estimate.exact).toBe(false);
+    const largest = created.reduce((area, size) => Math.max(area, size.width * size.height), 0);
+    // The 64px floor is clamped by the tiny Crop, so the tile is the whole Crop
+    // instead of collapsing to a few pixels.
+    expect(largest).toBeGreaterThan(600);
+    expect(largest).toBeLessThanOrEqual(64 * 64);
+  });
+
+  it('runs the sampled path when the pixel budget is forced small', async () => {
+    const doc = makeDoc(texturedAnimation(2));
+
+    const exact = await estimateExportSize(doc, adapter, { format: 'gif' });
+    const sampled = await estimateExportSize(doc, adapter, { format: 'gif', maxPixels: 10_000 });
+
+    expect(exact.exact).toBe(true);
+    expect(sampled.exact).toBe(false);
+    expect(sampled.bytes).toBeGreaterThan(exact.bytes);
+    expect(sampled.bytes / exact.bytes).toBeLessThan(10);
   });
 
   it('refuses a still when a GIF was asked for', async () => {

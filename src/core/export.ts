@@ -17,7 +17,7 @@ import {
   type GifOptimizer,
   type OptimizeResult,
 } from './optimize';
-import { renderFrame, type RenderContext } from './render';
+import { renderFrame, type BorderScale, type RenderContext } from './render';
 
 export class ExportError extends Error {
   /** True when the user cancelled a long render; the document is untouched. */
@@ -87,6 +87,8 @@ export interface SizeEstimate {
 export interface SizeEstimateOptions {
   readonly format: ExportFileFormat;
   readonly frameIndex?: number;
+  /** Override the sampling pixel budget (tests use a tiny one). */
+  readonly maxPixels?: number;
 }
 
 /** Render one Frame and pack it exactly as the GIF writer consumes it. */
@@ -95,10 +97,12 @@ function renderedGifFrame(
   doc: DocumentState,
   size: { width: number; height: number },
   frameIndex: number,
+  border?: BorderScale,
 ): GifEncodeFrame {
   renderFrame(ctx, doc, {
     outputWidth: size.width,
     outputHeight: size.height,
+    border,
     frameIndex,
   });
   const image = ctx.getImageData(0, 0, size.width, size.height);
@@ -140,11 +144,14 @@ export async function renderPng(
 
 /**
  * Estimate the Export's file size without writing it. A still PNG is encoded
- * for real. A GIF encodes up to MAX_ESTIMATE_FRAMES evenly spaced frames and
- * scales by the active Trim length; every frame carries its own palette and
- * LZW data, so the cost is close to additive. An enabled Optimize caps the
- * estimate at its target (the panel shows it as "≤"), because the optimizer
- * can miss the goal; the estimate is never called exact then. A video Source
+ * for real when it fits the pixel budget; above it, a reduced raster is encoded
+ * and the bytes scaled by area (marked approximate). A GIF encodes up to
+ * MAX_ESTIMATE_FRAMES evenly spaced frames and scales by the active Trim length;
+ * every frame carries its own palette and LZW data, so the cost is close to
+ * additive. Above the same budget a native-resolution tile stands in for the
+ * whole frame. An enabled Optimize caps the estimate at its target (the panel
+ * shows it as "≤"), because the optimizer can miss the goal; the estimate is
+ * never called exact then. A video Source
  * samples the frame currently on screen, since seeking every sample would
  * flicker Preview.
  */
@@ -157,6 +164,30 @@ export async function estimateExportSize(
   if (!source) throw new ExportError('Não há Source para exportar.');
 
   if (options.format === 'png') {
+    const size = outputSize(doc);
+    const pixelCount = size.width * size.height;
+    const budget = Math.max(1, options.maxPixels ?? MAX_ESTIMATE_PIXELS);
+    if (pixelCount > budget) {
+      // Encoding 10+ megapixels on every debounced edit is too slow. Encode a
+      // reduced raster and scale by area; the panel marks it approximate.
+      const ratio = Math.sqrt(budget / pixelCount);
+      const sample = {
+        width: Math.max(1, Math.round(size.width * ratio)),
+        height: Math.max(1, Math.round(size.height * ratio)),
+      };
+      const canvas = adapter.createCanvas(sample.width, sample.height);
+      renderFrame(canvas.getContext('2d'), doc, {
+        outputWidth: sample.width,
+        outputHeight: sample.height,
+        border: { scale: sample.width / size.width, minPx: 0 },
+        frameIndex: options.frameIndex ?? 0,
+      });
+      const bytes = await adapter.encodePng(canvas);
+      return {
+        bytes: Math.round((bytes.length * pixelCount) / (sample.width * sample.height)),
+        exact: false,
+      };
+    }
     const bytes = await renderPng(doc, adapter, { frameIndex: options.frameIndex ?? 0 });
     return { bytes: bytes.length, exact: true };
   }
@@ -167,34 +198,76 @@ export async function estimateExportSize(
   if (!trim) throw new ExportError('A Source não é animada.');
 
   const size = outputSize(doc);
-  if (size.width * size.height > MAX_ESTIMATE_PIXELS) {
-    throw new ExportError('Export grande demais para estimar; o tamanho aparece ao exportar.');
+  // Above the pixel budget, estimate from a native-resolution tile in the
+  // middle of the Crop and scale by area. A downscaled render would change the
+  // per-pixel compression cost; a tile keeps the Source's own detail.
+  const pixelCount = size.width * size.height;
+  const budget = Math.max(1, options.maxPixels ?? MAX_ESTIMATE_PIXELS);
+  const sampling = pixelCount > budget;
+  let estimateDoc = doc;
+  let sampleSize = size;
+  if (sampling) {
+    // The tile is cut from the native Crop, so the budget must be measured
+    // against the larger of the output and the Crop: an export smaller than its
+    // Crop would otherwise sample more native pixels than the budget allows.
+    const ratio =
+      size.width > 0 && size.height > 0
+        ? Math.sqrt(budget / Math.max(pixelCount, doc.crop.rect.width * doc.crop.rect.height))
+        : 1;
+    const rect = doc.crop.rect;
+    // A floor keeps a tiny Crop from collapsing to a one-pixel tile; a Crop
+    // smaller than the floor is only coarsely estimated.
+    const tileWidth = Math.min(rect.width, Math.max(64, rect.width * ratio));
+    const tileHeight = Math.min(rect.height, Math.max(64, rect.height * ratio));
+    estimateDoc = {
+      ...doc,
+      crop: {
+        ...doc.crop,
+        rect: {
+          x: rect.x + (rect.width - tileWidth) / 2,
+          y: rect.y + (rect.height - tileHeight) / 2,
+          width: tileWidth,
+          height: tileHeight,
+        },
+      },
+    };
+    sampleSize = {
+      width: Math.max(1, Math.round(tileWidth)),
+      height: Math.max(1, Math.round(tileHeight)),
+    };
   }
+  const samplePixels = sampleSize.width * sampleSize.height;
 
   const total = trimFrameCount(view, trim);
   const indices = sampleTrimIndices(view, trim, MAX_ESTIMATE_FRAMES);
-  const canvas = adapter.createCanvas(size.width, size.height);
+  const canvas = adapter.createCanvas(sampleSize.width, sampleSize.height);
   const ctx = canvas.getContext('2d');
   const writer = new GifWriter({
-    width: size.width,
-    height: size.height,
+    width: sampleSize.width,
+    height: sampleSize.height,
     loopCount: view.video ? 0 : (view.animation?.loopCount ?? null),
   });
   for (const [slot, frameIndex] of indices.entries()) {
-    writer.addFrame(renderedGifFrame(ctx, doc, size, frameIndex));
+    // The tile carries the Border at the real export's proportion, not at the
+    // tile's own scale, so the area scaling does not inflate it.
+    const border = sampling ? { scale: sampleSize.width / size.width, minPx: 0 } : undefined;
+    writer.addFrame(renderedGifFrame(ctx, estimateDoc, sampleSize, frameIndex, border));
     // Keep the window responsive while a large GIF is measured.
     if (slot + 1 < indices.length) await yieldToUi();
   }
 
   const sampled = writer.finish();
   const whole = indices.length >= total;
-  const rawBytes = whole ? sampled.length : Math.round((sampled.length * total) / indices.length);
+  const sampledBytes = whole
+    ? sampled.length
+    : Math.round((sampled.length * total) / indices.length);
+  const rawBytes = sampling ? Math.round(sampledBytes * (pixelCount / samplePixels)) : sampledBytes;
 
   if (doc.optimize.enabled) {
     const target = doc.optimize.targetEnabled ? doc.optimize.targetBytes : null;
     return { bytes: target === null ? rawBytes : Math.min(rawBytes, target), exact: false };
   }
-  return { bytes: rawBytes, exact: whole };
+  return { bytes: rawBytes, exact: whole && !sampling };
 }
 
 export interface RenderProgress {

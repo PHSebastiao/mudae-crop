@@ -3,9 +3,6 @@ import { createCanvas, type Canvas, type SKRSContext2D } from '@napi-rs/canvas';
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_BORDER,
-  FIT_CROP,
-  SQUARE_FRAME,
-  defaultCrop,
   withBorder,
   withCrop,
   withPadColor,
@@ -13,8 +10,8 @@ import {
   type DocumentState,
   type Rotation,
 } from '../src/core/document';
-import { rotate90 } from '../src/core/geometry';
-import { renderFrame } from '../src/core/render';
+import { panBy, rotate90, zoomAt } from '../src/core/geometry';
+import { drawSource, frameBorderStroke, renderFrame } from '../src/core/render';
 import { contextOf, makeDoc, makeSource } from './helpers';
 
 /**
@@ -46,17 +43,17 @@ function pixelsOf(canvas: Canvas) {
 
 function hashOf(doc: DocumentState, width: number, height: number): string {
   const canvas = createCanvas(width, height);
-  renderFrame(contextOf(canvas), doc, { scale: 1 });
+  renderFrame(contextOf(canvas), doc, { outputWidth: width, outputHeight: height });
   return createHash('sha256')
     .update(Buffer.from(pixelsOf(canvas)))
     .digest('hex');
 }
 
 describe('render seam at 1×', () => {
-  it('renders the Mudae Frame at exactly 225×350', () => {
+  it('renders a Mudae-proportion output at exactly 225×350', () => {
     const doc = makeDoc(fixtureSource());
     const canvas = createCanvas(225, 350);
-    renderFrame(contextOf(canvas), doc, { scale: 1 });
+    renderFrame(contextOf(canvas), doc, { outputWidth: 225, outputHeight: 350 });
     const pixels = canvas.getContext('2d').getImageData(0, 0, 225, 350);
     expect(pixels.width).toBe(225);
     expect(pixels.height).toBe(350);
@@ -70,7 +67,7 @@ describe('render seam at 1×', () => {
   it('keeps fixture colors where the Crop puts them', () => {
     const doc = makeDoc(fixtureSource());
     const canvas = createCanvas(225, 350);
-    renderFrame(contextOf(canvas), doc, { scale: 1 });
+    renderFrame(contextOf(canvas), doc, { outputWidth: 225, outputHeight: 350 });
     const ctx = canvas.getContext('2d');
     expect(Array.from(ctx.getImageData(20, 20, 1, 1).data)).toEqual([0xd9, 0x4f, 0x6d, 255]);
     expect(Array.from(ctx.getImageData(200, 20, 1, 1).data)).toEqual([0x2b, 0x9c, 0x8f, 255]);
@@ -78,32 +75,70 @@ describe('render seam at 1×', () => {
     expect(Array.from(ctx.getImageData(200, 320, 1, 1).data)).toEqual([0x23, 0x20, 0x2c, 255]);
   });
 
-  it('zooms around the Frame centre without stretching either axis', () => {
-    const doc = {
-      ...makeDoc(fixtureSource()),
-      crop: { ...FIT_CROP, zoom: 2 },
+  it('zooms around a Source point without stretching either axis', () => {
+    const doc = makeDoc(fixtureSource());
+    const zoomed = {
+      ...doc,
+      crop: zoomAt(doc, doc.crop, 2, { x: 112.5, y: 175 }),
     };
     const canvas = createCanvas(225, 350);
-    renderFrame(contextOf(canvas), doc, { scale: 1 });
+    renderFrame(contextOf(canvas), zoomed, { outputWidth: 225, outputHeight: 350 });
     const ctx = canvas.getContext('2d');
     // At 2× the Source overflows evenly on both axes, so the quadrant
-    // boundaries (112 and 175 in Source space) land at −112 and 0 on screen.
-    // The four corners therefore still show four different quadrants.
+    // boundaries land outside the Frame and its four corners still show four
+    // different quadrants.
     expect(Array.from(ctx.getImageData(2, 2, 1, 1).data)).toEqual([0xd9, 0x4f, 0x6d, 255]);
     expect(Array.from(ctx.getImageData(222, 2, 1, 1).data)).toEqual([0x2b, 0x9c, 0x8f, 255]);
     expect(Array.from(ctx.getImageData(2, 347, 1, 1).data)).toEqual([0xf0, 0xd7, 0xa8, 255]);
     expect(Array.from(ctx.getImageData(222, 347, 1, 1).data)).toEqual([0x23, 0x20, 0x2c, 255]);
   });
+
+  it('draws the surround at the Frame origin, so it continues the Crop exactly', () => {
+    // 25px bands: a shifted origin lands on a different band, so a wrong origin
+    // cannot pass this by luck.
+    const source = makeSource(400, 400, (ctx) => {
+      const colors = ['#d94f6d', '#2b9c8f', '#f0d7a8', '#23202c'];
+      for (let band = 0; band < 16; band += 1) {
+        ctx.fillStyle = colors[band % colors.length];
+        ctx.fillRect(band * 25, 0, 25, 400);
+      }
+    });
+    const doc = withCrop(makeDoc(source, 9 / 14), {
+      mode: 'fit',
+      rect: { x: 50, y: 20, width: 200, height: 200 / (9 / 14) },
+      rotation: 0,
+    });
+    const width = 100;
+    const height = Math.round(100 / (9 / 14));
+    const frameCanvas = createCanvas(width, height);
+    renderFrame(contextOf(frameCanvas), doc, {
+      outputWidth: width,
+      outputHeight: height,
+      border: false,
+    });
+
+    const origin = 20;
+    const scene = createCanvas(width + origin * 2, height + origin * 2);
+    drawSource(
+      contextOf(scene),
+      doc,
+      width / doc.crop.rect.width,
+      height / doc.crop.rect.height,
+      origin,
+      origin,
+    );
+
+    const framePixels = frameCanvas.getContext('2d').getImageData(0, 0, width, height).data;
+    const scenePixels = scene.getContext('2d').getImageData(origin, origin, width, height).data;
+    expect(Buffer.from(scenePixels).equals(Buffer.from(framePixels))).toBe(true);
+  });
 });
 
 describe('Pad', () => {
   it('contains the Source and fills the bars with the Pad color', () => {
-    const doc = withPadColor(
-      withCrop(makeDoc(makeSource(400, 800)), defaultCrop('pad')),
-      '#ff0000',
-    );
+    const doc = withPadColor(makeDoc(makeSource(400, 800), 9 / 14, 'pad'), '#ff0000');
     const canvas = createCanvas(225, 350);
-    renderFrame(contextOf(canvas), doc, { scale: 1 });
+    renderFrame(contextOf(canvas), doc, { outputWidth: 225, outputHeight: 350 });
     const ctx = canvas.getContext('2d');
     expect(Array.from(ctx.getImageData(10, 175, 1, 1).data)).toEqual([255, 0, 0, 255]);
     expect(Array.from(ctx.getImageData(112, 175, 1, 1).data)).toEqual([0x33, 0x55, 0xaa, 255]);
@@ -113,7 +148,7 @@ describe('Pad', () => {
   it('leaves Fit uncovered areas to the Source instead of the Pad color', () => {
     const doc = withPadColor(makeDoc(makeSource(400, 800)), '#ff0000');
     const canvas = createCanvas(225, 350);
-    renderFrame(contextOf(canvas), doc, { scale: 1 });
+    renderFrame(contextOf(canvas), doc, { outputWidth: 225, outputHeight: 350 });
     const ctx = canvas.getContext('2d');
     expect(Array.from(ctx.getImageData(2, 2, 1, 1).data)).toEqual([0x33, 0x55, 0xaa, 255]);
     expect(Array.from(ctx.getImageData(2, 347, 1, 1).data)).toEqual([0x33, 0x55, 0xaa, 255]);
@@ -123,16 +158,12 @@ describe('Pad', () => {
 describe('rotation', () => {
   function squareDoc(rotation: Rotation): DocumentState {
     const source = makeSource(350, 350, paintQuadrants);
-    return {
-      ...makeDoc(source),
-      frame: SQUARE_FRAME,
-      crop: defaultCrop('fit', rotation),
-    };
+    return makeDoc(source, 1, 'fit', rotation);
   }
 
   it('turns the Source in 90° steps instead of resampling it', () => {
     const canvas = createCanvas(350, 350);
-    renderFrame(contextOf(canvas), squareDoc(90), { scale: 1 });
+    renderFrame(contextOf(canvas), squareDoc(90), { outputWidth: 350, outputHeight: 350 });
     const ctx = canvas.getContext('2d');
     // Clockwise: the old bottom-left lands top-left.
     expect(Array.from(ctx.getImageData(10, 10, 1, 1).data)).toEqual([0xf0, 0xd7, 0xa8, 255]);
@@ -142,23 +173,36 @@ describe('rotation', () => {
   });
 
   it('produces the same pixels after four 90° steps, so blur never compounds', () => {
-    const doc = makeDoc(fixtureSource());
+    const doc = squareDoc(0);
     let crop = doc.crop;
     for (let step = 0; step < 4; step += 1) {
       crop = rotate90(doc, crop);
     }
-    expect(crop).toEqual(FIT_CROP);
+    expect(crop.rotation).toBe(0);
+    expect(crop).toEqual(doc.crop);
     const rotated = { ...doc, crop };
-    expect(hashOf(rotated, 225, 350)).toBe(hashOf(doc, 225, 350));
+    expect(hashOf(rotated, 350, 350)).toBe(hashOf(doc, 350, 350));
   });
 
   it('renders a rotated Source into the Square Frame without stretching', () => {
     const canvas = createCanvas(350, 350);
-    renderFrame(contextOf(canvas), squareDoc(180), { scale: 1 });
+    renderFrame(contextOf(canvas), squareDoc(180), { outputWidth: 350, outputHeight: 350 });
     const ctx = canvas.getContext('2d');
     // Half a turn swaps opposite quadrants.
     expect(Array.from(ctx.getImageData(10, 10, 1, 1).data)).toEqual([0x23, 0x20, 0x2c, 255]);
     expect(Array.from(ctx.getImageData(340, 340, 1, 1).data)).toEqual([0xd9, 0x4f, 0x6d, 255]);
+  });
+
+  it('keeps the quadrant mapping under a non-uniform export', () => {
+    const doc = makeDoc(makeSource(400, 400, paintQuadrants), 1, 'fit', 90);
+    const canvas = createCanvas(200, 400);
+    renderFrame(contextOf(canvas), doc, { outputWidth: 200, outputHeight: 400 });
+    const ctx = canvas.getContext('2d');
+    // Clockwise: BL → TL, TL → TR, BR → BL, TR → BR.
+    expect(Array.from(ctx.getImageData(2, 2, 1, 1).data)).toEqual([0xf0, 0xd7, 0xa8, 255]);
+    expect(Array.from(ctx.getImageData(197, 2, 1, 1).data)).toEqual([0xd9, 0x4f, 0x6d, 255]);
+    expect(Array.from(ctx.getImageData(2, 397, 1, 1).data)).toEqual([0x23, 0x20, 0x2c, 255]);
+    expect(Array.from(ctx.getImageData(197, 397, 1, 1).data)).toEqual([0x2b, 0x9c, 0x8f, 255]);
   });
 
   it('draws the rotated bitmap at the Crop scale, not the output scale', () => {
@@ -171,16 +215,12 @@ describe('rotation', () => {
       ctx.fillRect(0, 0, 20, 800);
       ctx.fillRect(380, 0, 20, 800);
     });
-    // At the right pan limit the Source's left edge sits on the Frame's left
-    // edge, so the rotated border must be visible there. The old path drew it
-    // with the output scale, pushing the edge far outside the Frame.
-    const doc = {
-      ...makeDoc(source),
-      frame: SQUARE_FRAME,
-      crop: { ...defaultCrop('fit', 90), offsetX: 175 },
-    };
+    // At the left pan limit the Source's edge sits on the Frame's edge, so the
+    // rotated border must be visible there.
+    const doc = makeDoc(source, 1, 'fit', 90);
+    const panned = { ...doc, crop: panBy(doc, doc.crop, -10_000, 0) };
     const canvas = createCanvas(350, 350);
-    renderFrame(contextOf(canvas), doc, { scale: 1 });
+    renderFrame(contextOf(canvas), panned, { outputWidth: 350, outputHeight: 350 });
     const ctx = canvas.getContext('2d');
     expect(Array.from(ctx.getImageData(2, 175, 1, 1).data)).toEqual([0xff, 0x00, 0xff, 255]);
     expect(Array.from(ctx.getImageData(2, 2, 1, 1).data)).toEqual([0xff, 0x00, 0xff, 255]);
@@ -195,7 +235,11 @@ function renderContext(
   scale = 1,
 ): SKRSContext2D {
   const canvas = createCanvas(width, height);
-  renderFrame(contextOf(canvas), doc, { scale });
+  renderFrame(contextOf(canvas), doc, {
+    outputWidth: width * scale,
+    outputHeight: height * scale,
+    border: { scale, minPx: 1 },
+  });
   return canvas.getContext('2d');
 }
 
@@ -217,16 +261,42 @@ describe('Border', () => {
     expect(pixel(ctx, 1, 1)).toEqual([0xd9, 0x4f, 0x6d, 255]);
   });
 
-  it('scales the Border width with the Export scale', () => {
+  it('scales the Preview Border with the display scale', () => {
     const doc = makeDoc(fixtureSource());
     const one = renderContext(doc, 225, 350, 1);
-    const two = renderContext(doc, 450, 700, 2);
+    const two = renderContext(doc, 225, 350, 2);
 
     // At 1× only pixel 0 is Border; at 2× the 2px stroke covers 0 and 1.
     expect(pixel(one, 0, 0)).toEqual([255, 255, 255, 255]);
     expect(pixel(one, 1, 1)).toEqual([0xd9, 0x4f, 0x6d, 255]);
     expect(pixel(two, 1, 1)).toEqual([255, 255, 255, 255]);
     expect(pixel(two, 2, 2)).toEqual([0xd9, 0x4f, 0x6d, 255]);
+  });
+
+  it('draws the Border at its width in output pixels at any size', () => {
+    const doc = makeDoc(makeSource(450, 700, paintQuadrants));
+    const canvas = createCanvas(450, 700);
+    // No preview border scale: this is the real Export path.
+    renderFrame(contextOf(canvas), doc, { outputWidth: 450, outputHeight: 700 });
+    const ctx = canvas.getContext('2d');
+
+    expect(pixel(ctx, 0, 0)).toEqual([255, 255, 255, 255]);
+    expect(pixel(ctx, 1, 1)).not.toEqual([255, 255, 255, 255]);
+    expect(pixel(ctx, 0, 350)).toEqual([255, 255, 255, 255]);
+  });
+
+  it('clamps a scaled-down Preview Border to one canvas pixel', () => {
+    const doc = makeDoc(makeSource(450, 700, paintQuadrants));
+    const canvas = createCanvas(450, 700);
+    renderFrame(contextOf(canvas), doc, {
+      outputWidth: 450,
+      outputHeight: 700,
+      border: { scale: 0.5, minPx: 1 },
+    });
+    const ctx = canvas.getContext('2d');
+
+    expect(pixel(ctx, 0, 0)).toEqual([255, 255, 255, 255]);
+    expect(pixel(ctx, 1, 1)).not.toEqual([255, 255, 255, 255]);
   });
 
   it('draws nothing when the width is 0', () => {
@@ -237,15 +307,20 @@ describe('Border', () => {
     expect(pixel(ctx, 224, 349)).toEqual([0x23, 0x20, 0x2c, 255]);
   });
 
+  it('shares one preview stroke formula with the adjust overlay', () => {
+    const doc = withBorder(makeDoc(makeSource(450, 700, paintQuadrants)), { width: 2 });
+
+    expect(frameBorderStroke(doc, 225, 450)).toBe(1);
+    expect(frameBorderStroke(doc, 900, 450)).toBe(4);
+    expect(frameBorderStroke(doc, 450, 450)).toBe(2);
+    expect(frameBorderStroke(withBorder(doc, { width: 0 }), 900, 450)).toBe(0);
+  });
+
   it('stays aligned to the Frame when the Source is rotated', () => {
-    const doc = {
-      ...withBorder(makeDoc(makeSource(350, 350, paintQuadrants)), {
-        color: '#FF0000',
-        width: 4,
-      }),
-      frame: SQUARE_FRAME,
-      crop: defaultCrop('fit', 90),
-    };
+    const doc = withBorder(makeDoc(makeSource(350, 350, paintQuadrants), 1, 'fit', 90), {
+      color: '#FF0000',
+      width: 4,
+    });
     const ctx = renderContext(doc, 350, 350);
 
     expect(pixel(ctx, 0, 0)).toEqual([255, 0, 0, 255]);

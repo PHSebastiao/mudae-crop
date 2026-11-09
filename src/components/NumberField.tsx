@@ -4,6 +4,7 @@ interface NumberFieldProps {
   readonly value: number;
   readonly onCommit: (value: number) => void;
   readonly label: string;
+  readonly title?: string;
   readonly precision?: number;
   readonly disabled?: boolean;
 }
@@ -26,6 +27,7 @@ export function NumberField({
   value,
   onCommit,
   label,
+  title,
   precision = 0,
   disabled = false,
 }: NumberFieldProps) {
@@ -59,6 +61,7 @@ export function NumberField({
       inputMode="decimal"
       value={draft}
       aria-label={label}
+      title={title}
       disabled={disabled}
       onChange={(event) => setDraft(event.target.value)}
       onFocus={(event) => {

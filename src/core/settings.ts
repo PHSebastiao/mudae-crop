@@ -1,4 +1,5 @@
-import { DEFAULT_BORDER, clampBorderWidth, type ExportScale } from './document';
+import { DEFAULT_BORDER, clampBorderWidth } from './document';
+import { MUDAE_RATIO } from './ratios';
 import { isPostId, type Privacy } from './imagechest';
 import { normalizeHexColor } from './color';
 import { asRecord, parseJson } from './json';
@@ -18,7 +19,10 @@ export interface Settings {
   readonly borderColor: string;
   readonly borderWidth: number;
   readonly exportFormat: ExportFormat;
-  readonly exportScale: ExportScale;
+  /** The ratio a fresh document starts at. */
+  readonly frameRatio: number;
+  /** Whether a free Frame resize snaps to a nearby ratio preset. */
+  readonly snapRatios: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = Object.freeze({
@@ -29,7 +33,8 @@ export const DEFAULT_SETTINGS: Settings = Object.freeze({
   borderColor: DEFAULT_BORDER.color,
   borderWidth: DEFAULT_BORDER.width,
   exportFormat: 'gif',
-  exportScale: 1,
+  frameRatio: MUDAE_RATIO,
+  snapRatios: true,
 });
 
 const PRIVACY: ReadonlyArray<Privacy> = ['public', 'hidden', 'secret'];
@@ -44,12 +49,19 @@ function readPrivacy(value: unknown): Privacy {
     : DEFAULT_SETTINGS.defaultPrivacy;
 }
 
-function readScale(value: unknown): ExportScale {
-  return value === 2 ? 2 : 1;
-}
-
 function readFormat(value: unknown): ExportFormat {
   return value === 'gif' ? 'gif' : 'png';
+}
+
+function readFrameRatio(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+    return DEFAULT_SETTINGS.frameRatio;
+  }
+  return value;
+}
+
+function readBoolean(value: unknown, fallback: boolean): boolean {
+  return typeof value === 'boolean' ? value : fallback;
 }
 
 function readBorderWidth(value: unknown): number {
@@ -89,7 +101,8 @@ export function parseSettings(raw: string | null | undefined): Settings {
     borderColor,
     borderWidth: readBorderWidth(data.borderWidth),
     exportFormat: readFormat(data.exportFormat),
-    exportScale: readScale(data.exportScale),
+    frameRatio: readFrameRatio(data.frameRatio),
+    snapRatios: readBoolean(data.snapRatios, DEFAULT_SETTINGS.snapRatios),
   };
 }
 

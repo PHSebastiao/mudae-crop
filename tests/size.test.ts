@@ -7,17 +7,27 @@ import {
   formatAspect,
 } from '../src/core/size';
 
-const frame = { width: 350, height: 225 };
+const ratio = 350 / 225;
 
 describe('export size helpers', () => {
   it('accepts the screenshot custom size as proportional within tolerance', () => {
-    expect(aspectMatches({ width: 1920, height: 1234 }, frame)).toBe(true);
-    expect(aspectMatches({ width: 700, height: 450 }, frame)).toBe(true);
+    expect(aspectMatches({ width: 1920, height: 1234 }, ratio)).toBe(true);
+    expect(aspectMatches({ width: 700, height: 450 }, ratio)).toBe(true);
   });
 
   it('detects a stretched output once the ratio drifts', () => {
-    expect(aspectMatches({ width: 1920, height: 1080 }, frame)).toBe(false);
-    expect(aspectMatches({ width: 400, height: 400 }, frame)).toBe(false);
+    expect(aspectMatches({ width: 1920, height: 1080 }, ratio)).toBe(false);
+    expect(aspectMatches({ width: 400, height: 400 }, ratio)).toBe(false);
+  });
+
+  it('accepts a tiny rounded native crop as proportional', () => {
+    expect(aspectMatches({ width: 13, height: 19 }, 9 / 14)).toBe(true);
+    expect(aspectMatches({ width: 10, height: 19 }, 9 / 14)).toBe(false);
+  });
+
+  it('rejects an invalid ratio or a zero height', () => {
+    expect(aspectMatches({ width: 350, height: 225 }, 0)).toBe(false);
+    expect(aspectMatches({ width: 350, height: 0 }, ratio)).toBe(false);
   });
 
   it('formats landscape and portrait ratios with a decimal comma', () => {
