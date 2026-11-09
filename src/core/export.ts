@@ -1,4 +1,5 @@
 import {
+  baseOutputSize,
   effectiveDelayMs,
   effectiveSource,
   effectiveTrim,
@@ -17,7 +18,15 @@ import {
   type GifOptimizer,
   type OptimizeResult,
 } from './optimize';
-import { renderFrame, type BorderScale, type RenderContext } from './render';
+import {
+  applySharpness,
+  paintFrameBorder,
+  prepareContext,
+  renderFrame,
+  type BorderScale,
+  type RenderContext,
+} from './render';
+import { Waifu2xError } from './waifu2x';
 
 export class ExportError extends Error {
   /** True when the user cancelled a long render; the document is untouched. */
@@ -39,6 +48,88 @@ export interface EncodableCanvas {
 export interface ExportAdapter {
   createCanvas(width: number, height: number): EncodableCanvas;
   encodePng(canvas: EncodableCanvas): Promise<Uint8Array>;
+  /**
+   * Turn the sidecar's PNG back into a drawable. Only the waifu2x path needs
+   * it, so a caller that never enables waifu2x may omit it.
+   */
+  decodePng?(bytes: Uint8Array): Promise<CanvasImageSource>;
+}
+
+export interface Waifu2xFrameRequest {
+  /** The rendered Crop as a PNG, before the Border. */
+  readonly input: Uint8Array;
+  readonly frameIndex: number;
+  readonly signal?: AbortSignal;
+}
+
+/** The waifu2x seam: one rendered PNG in, one processed PNG out. */
+export type Waifu2xFrameRunner = (request: Waifu2xFrameRequest) => Promise<Uint8Array>;
+
+/**
+ * Render one output raster through the normal pipeline and, when a waifu2x
+ * runner is present, through the sidecar before the Border. Sharpness is
+ * deferred to the final raster in that case, so denoise sees the raw Crop
+ * instead of a sharpened one.
+ */
+async function renderOutputFrame(
+  doc: DocumentState,
+  adapter: ExportAdapter,
+  options: {
+    readonly base: { width: number; height: number };
+    readonly output: { width: number; height: number };
+    readonly frameIndex: number;
+    readonly waifu2x?: Waifu2xFrameRunner;
+    readonly signal?: AbortSignal;
+  },
+): Promise<EncodableCanvas> {
+  const { base, output } = options;
+  const baseCanvas = adapter.createCanvas(base.width, base.height);
+  const baseCtx = baseCanvas.getContext('2d');
+  renderFrame(baseCtx, options.waifu2x ? { ...doc, sharpness: 0 } : doc, {
+    outputWidth: base.width,
+    outputHeight: base.height,
+    border: false,
+    frameIndex: options.frameIndex,
+  });
+
+  if (!options.waifu2x) {
+    if (doc.border.width > 0) {
+      paintFrameBorder(baseCtx, doc, base.width, base.height);
+    }
+    return baseCanvas;
+  }
+
+  const input = await adapter.encodePng(baseCanvas);
+  let processed: Uint8Array;
+  try {
+    processed = await options.waifu2x({
+      input,
+      frameIndex: options.frameIndex,
+      signal: options.signal,
+    });
+  } catch (reason) {
+    throw waifu2xExportError(reason);
+  }
+  if (!adapter.decodePng) {
+    throw new ExportError('A saída do waifu2x não pôde ser lida.');
+  }
+  const image = await adapter.decodePng(processed);
+
+  const canvas = adapter.createCanvas(output.width, output.height);
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, output.width, output.height);
+  prepareContext(ctx);
+  ctx.drawImage(image, 0, 0, output.width, output.height);
+  const rect = doc.crop.rect;
+  const scale =
+    rect.width > 0 && rect.height > 0
+      ? Math.max(output.width / rect.width, output.height / rect.height)
+      : 1;
+  applySharpness(ctx, doc.sharpness, output.width, output.height, scale);
+  if (doc.border.width > 0) {
+    paintFrameBorder(ctx, doc, output.width, output.height);
+  }
+  return canvas;
 }
 
 /** The file formats the Export path can write today. */
@@ -116,11 +207,16 @@ export interface PngExportOptions {
   readonly frameIndex?: number;
   /** Video Sources need this seek before the synchronous render. */
   readonly prepare?: () => Promise<void>;
+  readonly signal?: AbortSignal;
+  /** Present only while waifu2x is on. */
+  readonly waifu2x?: Waifu2xFrameRunner;
 }
 
 /**
  * Render one frame through the same entry point as Preview and encode it as
- * PNG. The caller writes the bytes wherever the user chose in the save dialog.
+ * PNG. With waifu2x on, the Crop is rendered at the base size, processed, then
+ * sharpened and bordered at the final Export size. The caller writes the bytes
+ * wherever the user chose in the save dialog.
  */
 export async function renderPng(
   doc: DocumentState,
@@ -130,14 +226,18 @@ export async function renderPng(
   if (!doc.source) {
     throw new ExportError('Não há Source para exportar.');
   }
+  if (doc.waifu2x.enabled && !options.waifu2x) {
+    throw new ExportError('O waifu2x não está disponível.');
+  }
   await options.prepare?.();
-  const size = outputSize(doc);
-  const canvas = adapter.createCanvas(size.width, size.height);
-  const ctx = canvas.getContext('2d');
-  renderFrame(ctx, doc, {
-    outputWidth: size.width,
-    outputHeight: size.height,
+  const base = baseOutputSize(doc);
+  const output = outputSize(doc);
+  const canvas = await renderOutputFrame(doc, adapter, {
+    base,
+    output,
     frameIndex: options.frameIndex ?? 0,
+    waifu2x: options.waifu2x,
+    signal: options.signal,
   });
   return adapter.encodePng(canvas);
 }
@@ -163,8 +263,16 @@ export async function estimateExportSize(
   const source = doc.source;
   if (!source) throw new ExportError('Não há Source para exportar.');
 
+  // waifu2x cannot run inside a size estimate (it would spawn the sidecar on
+  // every debounced edit). Estimate the final raster without it and mark the
+  // result approximate; the processed file compresses differently.
+  const waifu = doc.waifu2x.enabled;
+  const measureDoc = waifu
+    ? { ...doc, waifu2x: { ...doc.waifu2x, enabled: false }, resize: outputSize(doc) }
+    : doc;
+
   if (options.format === 'png') {
-    const size = outputSize(doc);
+    const size = outputSize(measureDoc);
     const pixelCount = size.width * size.height;
     const budget = Math.max(1, options.maxPixels ?? MAX_ESTIMATE_PIXELS);
     if (pixelCount > budget) {
@@ -176,7 +284,7 @@ export async function estimateExportSize(
         height: Math.max(1, Math.round(size.height * ratio)),
       };
       const canvas = adapter.createCanvas(sample.width, sample.height);
-      renderFrame(canvas.getContext('2d'), doc, {
+      renderFrame(canvas.getContext('2d'), measureDoc, {
         outputWidth: sample.width,
         outputHeight: sample.height,
         border: { scale: sample.width / size.width, minPx: 0 },
@@ -188,8 +296,8 @@ export async function estimateExportSize(
         exact: false,
       };
     }
-    const bytes = await renderPng(doc, adapter, { frameIndex: options.frameIndex ?? 0 });
-    return { bytes: bytes.length, exact: true };
+    const bytes = await renderPng(measureDoc, adapter, { frameIndex: options.frameIndex ?? 0 });
+    return { bytes: bytes.length, exact: !waifu };
   }
 
   const view = effectiveSource(doc);
@@ -197,14 +305,14 @@ export async function estimateExportSize(
   const trim = effectiveTrim(doc);
   if (!trim) throw new ExportError('A Source não é animada.');
 
-  const size = outputSize(doc);
+  const size = outputSize(measureDoc);
   // Above the pixel budget, estimate from a native-resolution tile in the
   // middle of the Crop and scale by area. A downscaled render would change the
   // per-pixel compression cost; a tile keeps the Source's own detail.
   const pixelCount = size.width * size.height;
   const budget = Math.max(1, options.maxPixels ?? MAX_ESTIMATE_PIXELS);
   const sampling = pixelCount > budget;
-  let estimateDoc = doc;
+  let estimateDoc = measureDoc;
   let sampleSize = size;
   if (sampling) {
     // The tile is cut from the native Crop, so the budget must be measured
@@ -212,17 +320,19 @@ export async function estimateExportSize(
     // Crop would otherwise sample more native pixels than the budget allows.
     const ratio =
       size.width > 0 && size.height > 0
-        ? Math.sqrt(budget / Math.max(pixelCount, doc.crop.rect.width * doc.crop.rect.height))
+        ? Math.sqrt(
+            budget / Math.max(pixelCount, measureDoc.crop.rect.width * measureDoc.crop.rect.height),
+          )
         : 1;
-    const rect = doc.crop.rect;
+    const rect = measureDoc.crop.rect;
     // A floor keeps a tiny Crop from collapsing to a one-pixel tile; a Crop
     // smaller than the floor is only coarsely estimated.
     const tileWidth = Math.min(rect.width, Math.max(64, rect.width * ratio));
     const tileHeight = Math.min(rect.height, Math.max(64, rect.height * ratio));
     estimateDoc = {
-      ...doc,
+      ...measureDoc,
       crop: {
-        ...doc.crop,
+        ...measureDoc.crop,
         rect: {
           x: rect.x + (rect.width - tileWidth) / 2,
           y: rect.y + (rect.height - tileHeight) / 2,
@@ -267,11 +377,11 @@ export async function estimateExportSize(
     const target = doc.optimize.targetEnabled ? doc.optimize.targetBytes : null;
     return { bytes: target === null ? rawBytes : Math.min(rawBytes, target), exact: false };
   }
-  return { bytes: rawBytes, exact: whole && !sampling };
+  return { bytes: rawBytes, exact: whole && !sampling && !waifu };
 }
 
 export interface RenderProgress {
-  readonly phase: 'render' | 'optimize';
+  readonly phase: 'render' | 'waifu2x' | 'optimize';
   readonly done: number;
   readonly total: number;
 }
@@ -281,6 +391,8 @@ export interface GifExportOptions {
   readonly onProgress?: (progress: RenderProgress) => void;
   readonly optimizer?: GifOptimizer;
   readonly onOptimized?: (result: OptimizeResult) => void;
+  /** Present only while waifu2x is on. */
+  readonly waifu2x?: Waifu2xFrameRunner;
 }
 
 function yieldToUi(): Promise<void> {
@@ -289,6 +401,14 @@ function yieldToUi(): Promise<void> {
 
 function cancelledError(): ExportError {
   return new ExportError('Export cancelado.', true);
+}
+
+/** A cancelled sidecar is an ordinary cancelled Export, not a crash. */
+function waifu2xExportError(reason: unknown): unknown {
+  if (reason instanceof Waifu2xError) {
+    return reason.cancelled ? cancelledError() : new ExportError(reason.message);
+  }
+  return reason;
 }
 
 /**
@@ -310,9 +430,19 @@ export async function renderGif(
   if (!trim) {
     throw new ExportError('A Source não é animada.');
   }
+  if (doc.waifu2x.enabled && !options.waifu2x) {
+    throw new ExportError('O waifu2x não está disponível.');
+  }
 
+  const baseSize = baseOutputSize(doc);
   const size = outputSize(doc);
-  const canvas = adapter.createCanvas(size.width, size.height);
+  const usingWaifu2x = doc.waifu2x.enabled;
+  // The plain path keeps one canvas for every frame; waifu2x needs a new base
+  // and output canvas per frame because the sidecar owns the decode.
+  const canvas = adapter.createCanvas(
+    usingWaifu2x ? baseSize.width : size.width,
+    usingWaifu2x ? baseSize.height : size.height,
+  );
   const ctx = canvas.getContext('2d');
   const total = trimFrameCount(view, trim);
   const writer = new GifWriter({
@@ -327,7 +457,24 @@ export async function renderGif(
     if (options.signal?.aborted) throw cancelledError();
     const frameIndex = trim.start + offset;
     await prepareFrame(view, frameIndex);
-    const frame = renderedGifFrame(ctx, doc, size, frameIndex);
+
+    let frame: GifEncodeFrame;
+    if (usingWaifu2x) {
+      const outputCanvas = await renderOutputFrame(doc, adapter, {
+        base: baseSize,
+        output: size,
+        frameIndex,
+        waifu2x: options.waifu2x,
+        signal: options.signal,
+      });
+      const outputCtx = outputCanvas.getContext('2d');
+      frame = {
+        pixels: new Uint8ClampedArray(outputCtx.getImageData(0, 0, size.width, size.height).data),
+        delayMs: effectiveDelayMs(view, frameIndex, doc.speed),
+      };
+    } else {
+      frame = renderedGifFrame(ctx, doc, size, frameIndex);
+    }
 
     if (doc.optimize.enabled) {
       // Stream the previous frame out and keep only one in memory while
@@ -343,7 +490,11 @@ export async function renderGif(
       writer.addFrame(frame);
     }
 
-    options.onProgress?.({ phase: 'render', done: offset + 1, total });
+    options.onProgress?.({
+      phase: usingWaifu2x ? 'waifu2x' : 'render',
+      done: offset + 1,
+      total,
+    });
     // Give the progress notice and the cancel button a chance to paint.
     if (offset + 1 < total) await yieldToUi();
   }

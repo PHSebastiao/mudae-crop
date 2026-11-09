@@ -1,9 +1,10 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use futures_util::StreamExt;
 use serde::Serialize;
@@ -480,6 +481,492 @@ fn reveal_path(app: AppHandle, path: String) -> Result<(), String> {
         .map_err(|error| error.to_string())
 }
 
+// ---------------------------------------------------------------------------
+// waifu2x sidecar
+//
+// The binary and its cunet model live together in a `waifu2x` folder next to
+// the app, in the resource directory, or in the per-user data directory. The
+// front-end owns the arguments and the progress parsing; this side writes the
+// rendered PNG to a temp file, substitutes the path placeholders, streams
+// stderr lines as events, enforces cancellation and returns the output bytes.
+// ---------------------------------------------------------------------------
+
+const WAIFU2X_BINARY: &str = if cfg!(windows) {
+    "waifu2x-ncnn-vulkan.exe"
+} else {
+    "waifu2x-ncnn-vulkan"
+};
+const WAIFU2X_MODEL: &str = "models-cunet";
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Waifu2xProbe {
+    /// ready | unsupported | missing | failed
+    status: String,
+    detail: Option<String>,
+}
+
+#[derive(Default)]
+struct Waifu2xProbeCache(Mutex<Option<Waifu2xProbe>>);
+
+impl Waifu2xProbeCache {
+    fn lock(&self) -> MutexGuard<'_, Option<Waifu2xProbe>> {
+        self.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+}
+
+/// Cancellation for one sidecar run. A cancel can arrive before the process
+/// command has started, so `early` remembers those ids until `start` consumes
+/// them. The queue is bounded exactly like the download registry's.
+#[derive(Default)]
+struct Waifu2xRuns {
+    live: Mutex<HashMap<String, Arc<AtomicBool>>>,
+    early: Mutex<VecDeque<String>>,
+}
+
+impl Waifu2xRuns {
+    fn start(&self, job_id: &str) -> Arc<AtomicBool> {
+        let cancelled = {
+            let mut queue = self.early.lock().unwrap_or_else(|p| p.into_inner());
+            match queue.iter().position(|id| id == job_id) {
+                Some(index) => {
+                    queue.remove(index);
+                    true
+                }
+                None => false,
+            }
+        };
+        let flag = Arc::new(AtomicBool::new(cancelled));
+        self.live
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .insert(job_id.to_string(), flag.clone());
+        flag
+    }
+
+    fn cancel(&self, job_id: String) {
+        if let Some(flag) = self
+            .live
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .get(&job_id)
+        {
+            flag.store(true, Ordering::Relaxed);
+            return;
+        }
+        let mut queue = self.early.lock().unwrap_or_else(|p| p.into_inner());
+        if queue.len() >= MAX_EARLY_CANCELS {
+            queue.pop_front();
+        }
+        if !queue.iter().any(|id| id == &job_id) {
+            queue.push_back(job_id);
+        }
+    }
+
+    fn finish(&self, job_id: &str) {
+        self.live
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .remove(job_id);
+    }
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Waifu2xLog {
+    id: String,
+    line: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Waifu2xFailure {
+    code: &'static str,
+    detail: Option<String>,
+}
+
+impl Waifu2xFailure {
+    fn new(code: &'static str) -> Self {
+        Self { code, detail: None }
+    }
+
+    fn detail(code: &'static str, detail: String) -> Self {
+        Self {
+            code,
+            detail: Some(detail),
+        }
+    }
+}
+
+fn waifu2x_roots(app: &AppHandle) -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+    if let Ok(dir) = app.path().app_local_data_dir() {
+        roots.push(dir.join("waifu2x"));
+    }
+    if let Ok(dir) = app.path().resource_dir() {
+        roots.push(dir.join("waifu2x"));
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            roots.push(dir.join("waifu2x"));
+        }
+    }
+    // `npm run tauri dev` runs from target/debug, so the repo folder is the
+    // only place a developer's sidecar can be found without bundling first.
+    #[cfg(debug_assertions)]
+    {
+        roots.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("waifu2x"));
+    }
+    roots
+}
+
+fn find_waifu2x(app: &AppHandle) -> Option<(PathBuf, PathBuf)> {
+    for root in waifu2x_roots(app) {
+        let binary = root.join(WAIFU2X_BINARY);
+        let models = root.join(WAIFU2X_MODEL);
+        if binary.is_file() && models.is_dir() {
+            return Some((binary, models));
+        }
+    }
+    None
+}
+
+/// Tauri's resource dir is an extended-length `\\?\` path on Windows, which the
+/// sidecar's `_wfopen` does not understand when it appends a model file name.
+/// Give it a plain absolute path instead.
+fn plain_path(path: &Path) -> String {
+    let text = path.to_string_lossy();
+    if let Some(rest) = text.strip_prefix(r"\\?\UNC\") {
+        return format!(r"\\{rest}");
+    }
+    if let Some(rest) = text.strip_prefix(r"\\?\") {
+        return rest.to_string();
+    }
+    text.into_owned()
+}
+
+/// The front-end chooses the job id, but it becomes part of a temp path, so
+/// strip anything that could walk out of the directory.
+fn sanitize_job_id(job_id: &str) -> String {
+    let cleaned: String = job_id
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric() || *ch == '-' || *ch == '_')
+        .take(64)
+        .collect();
+    if cleaned.is_empty() {
+        "job".into()
+    } else {
+        cleaned
+    }
+}
+
+/// Keep the useful tail of a sidecar failure and name the common Vulkan case.
+fn waifu2x_failure_detail(stderr: &str) -> String {
+    let text = stderr.trim();
+    if text.is_empty() {
+        return "O waifu2x falhou sem detalhes.".into();
+    }
+    let lower = text.to_lowercase();
+    let mut tail: Vec<&str> = text.lines().rev().take(3).collect();
+    tail.reverse();
+    let summary = tail.join(" · ");
+    let summary: String = summary.chars().take(400).collect();
+    if lower.contains("vulkan") || lower.contains("no device") || lower.contains("vkcreate") {
+        format!("Este computador não tem uma GPU com Vulkan. {summary}")
+    } else {
+        summary
+    }
+}
+
+/// Run the sidecar once on `input` and return its output bytes. The child is
+/// polled so a cancel or the timeout can kill it even while stderr is being
+/// drained on another thread.
+fn execute_waifu2x(
+    app: &AppHandle,
+    binary: &Path,
+    models: &Path,
+    args: &[String],
+    input: &[u8],
+    job_id: &str,
+    cancel: &AtomicBool,
+    timeout: Duration,
+    emit_log: bool,
+) -> Result<Vec<u8>, Waifu2xFailure> {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0);
+    let dir = std::env::temp_dir().join(format!(
+        "mudae-crop-waifu2x-{}-{}-{}",
+        std::process::id(),
+        nanos,
+        sanitize_job_id(job_id)
+    ));
+    std::fs::create_dir_all(&dir).map_err(|error| {
+        Waifu2xFailure::detail("failed", format!("Não foi possível criar o diretório temporário: {error}"))
+    })?;
+    let input_path = dir.join("input.png");
+    let output_path = dir.join("output.png");
+    if let Err(error) = std::fs::write(&input_path, input) {
+        let _ = std::fs::remove_dir_all(&dir);
+        return Err(Waifu2xFailure::detail(
+            "failed",
+            format!("Não foi possível gravar a imagem para o waifu2x: {error}"),
+        ));
+    }
+
+    let input_text = plain_path(&input_path);
+    let output_text = plain_path(&output_path);
+    let models_text = plain_path(models);
+    let resolved: Vec<String> = args
+        .iter()
+        .map(|arg| {
+            arg.replace("{input}", &input_text)
+                .replace("{output}", &output_text)
+                .replace("{models}", &models_text)
+        })
+        .collect();
+
+    let mut child = match Command::new(binary)
+        .args(&resolved)
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+    {
+        Ok(child) => child,
+        Err(error) => {
+            let _ = std::fs::remove_dir_all(&dir);
+            return Err(Waifu2xFailure::detail(
+                "failed",
+                format!("Não foi possível iniciar o waifu2x: {error}"),
+            ));
+        }
+    };
+
+    let mut stderr = match child.stderr.take() {
+        Some(stderr) => stderr,
+        None => {
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = std::fs::remove_dir_all(&dir);
+            return Err(Waifu2xFailure::detail(
+                "failed",
+                "O waifu2x não abriu a saída de erro.".into(),
+            ));
+        }
+    };
+
+    let app_for_log = app.clone();
+    let id_for_log = job_id.to_string();
+    let reader = std::thread::spawn(move || {
+        let mut collected = String::new();
+        let mut pending = String::new();
+        let mut chunk = [0u8; 4096];
+        loop {
+            match stderr.read(&mut chunk) {
+                Ok(0) => break,
+                Ok(count) => {
+                    let text = String::from_utf8_lossy(&chunk[..count]).into_owned();
+                    collected.push_str(&text);
+                    pending.push_str(&text);
+                    loop {
+                        let split = pending.find(|ch| ch == '\n' || ch == '\r');
+                        let Some(index) = split else { break };
+                        let line = pending[..index].to_string();
+                        pending = pending[index + 1..].to_string();
+                        if emit_log && !line.is_empty() {
+                            let _ = app_for_log.emit(
+                                "waifu2x-log",
+                                Waifu2xLog {
+                                    id: id_for_log.clone(),
+                                    line,
+                                },
+                            );
+                        }
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+        if emit_log && !pending.is_empty() {
+            let _ = app_for_log.emit(
+                "waifu2x-log",
+                Waifu2xLog {
+                    id: id_for_log,
+                    line: pending,
+                },
+            );
+        }
+        collected
+    });
+
+    let started = Instant::now();
+    loop {
+        if cancel.load(Ordering::Relaxed) {
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = reader.join();
+            let _ = std::fs::remove_dir_all(&dir);
+            return Err(Waifu2xFailure::new("cancelled"));
+        }
+        if started.elapsed() > timeout {
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = reader.join();
+            let _ = std::fs::remove_dir_all(&dir);
+            return Err(Waifu2xFailure::detail(
+                "failed",
+                "O waifu2x demorou demais para responder.".into(),
+            ));
+        }
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                let stderr_text = reader.join().unwrap_or_default();
+                if !status.success() {
+                    let _ = std::fs::remove_dir_all(&dir);
+                    return Err(Waifu2xFailure::detail(
+                        "failed",
+                        waifu2x_failure_detail(&stderr_text),
+                    ));
+                }
+                let bytes = match std::fs::read(&output_path) {
+                    Ok(bytes) => bytes,
+                    Err(error) => {
+                        let _ = std::fs::remove_dir_all(&dir);
+                        return Err(Waifu2xFailure::detail(
+                            "failed",
+                            format!("O waifu2x não gravou a imagem: {error}"),
+                        ));
+                    }
+                };
+                let _ = std::fs::remove_dir_all(&dir);
+                if bytes.is_empty() {
+                    return Err(Waifu2xFailure::detail(
+                        "failed",
+                        "O waifu2x gravou uma imagem vazia.".into(),
+                    ));
+                }
+                return Ok(bytes);
+            }
+            Ok(None) => std::thread::sleep(Duration::from_millis(40)),
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                let _ = reader.join();
+                let _ = std::fs::remove_dir_all(&dir);
+                return Err(Waifu2xFailure::detail(
+                    "failed",
+                    format!("O waifu2x falhou: {error}"),
+                ));
+            }
+        }
+    }
+}
+
+fn probe_waifu2x(app: &AppHandle, args: &[String], input: &[u8]) -> Waifu2xProbe {
+    let Some((binary, models)) = find_waifu2x(app) else {
+        return Waifu2xProbe {
+            status: "missing".into(),
+            detail: Some(
+                "O waifu2x não está instalado nesta build. Rode scripts/install-waifu2x.ps1 e gere o app de novo."
+                    .into(),
+            ),
+        };
+    };
+    let cancel = AtomicBool::new(false);
+    match execute_waifu2x(
+        app,
+        &binary,
+        &models,
+        args,
+        input,
+        "probe",
+        &cancel,
+        Duration::from_secs(30),
+        false,
+    ) {
+        Ok(bytes) if !bytes.is_empty() => Waifu2xProbe {
+            status: "ready".into(),
+            detail: None,
+        },
+        Ok(_) => Waifu2xProbe {
+            status: "failed".into(),
+            detail: Some("O waifu2x não produziu uma imagem de teste.".into()),
+        },
+        Err(failure) => {
+            let detail = failure.detail.unwrap_or_else(|| "falha do waifu2x".into());
+            let unsupported = detail.to_lowercase().contains("vulkan");
+            Waifu2xProbe {
+                status: if unsupported { "unsupported" } else { "failed" }.into(),
+                detail: Some(detail),
+            }
+        }
+    }
+}
+
+#[tauri::command(rename_all = "snake_case")]
+async fn waifu2x_probe(
+    app: AppHandle,
+    cache: State<'_, Waifu2xProbeCache>,
+    args: Vec<String>,
+    input: Vec<u8>,
+) -> Result<Waifu2xProbe, String> {
+    if let Some(cached) = cache.lock().clone() {
+        return Ok(cached);
+    }
+    let probe = tauri::async_runtime::spawn_blocking(move || probe_waifu2x(&app, &args, &input))
+        .await
+        .unwrap_or_else(|_| Waifu2xProbe {
+            status: "failed".into(),
+            detail: Some("A verificação do waifu2x falhou.".into()),
+        });
+    *cache.lock() = Some(probe.clone());
+    Ok(probe)
+}
+
+#[tauri::command(rename_all = "snake_case")]
+async fn waifu2x_process(
+    app: AppHandle,
+    runs: State<'_, Waifu2xRuns>,
+    args: Vec<String>,
+    input: Vec<u8>,
+    job_id: String,
+) -> Result<tauri::ipc::Response, Waifu2xFailure> {
+    let Some((binary, models)) = find_waifu2x(&app) else {
+        return Err(Waifu2xFailure::new("missing"));
+    };
+    let cancel = runs.start(&job_id);
+
+    let app_for_run = app.clone();
+    let id_for_run = job_id.clone();
+    let outcome = tauri::async_runtime::spawn_blocking(move || {
+        execute_waifu2x(
+            &app_for_run,
+            &binary,
+            &models,
+            &args,
+            &input,
+            &id_for_run,
+            &cancel,
+            Duration::from_secs(300),
+            true,
+        )
+    })
+    .await;
+
+    runs.finish(&job_id);
+    match outcome {
+        Ok(Ok(bytes)) => Ok(tauri::ipc::Response::new(bytes)),
+        Ok(Err(failure)) => Err(failure),
+        Err(error) => Err(Waifu2xFailure::detail("failed", error.to_string())),
+    }
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn cancel_waifu2x(runs: State<'_, Waifu2xRuns>, job_id: String) {
+    runs.cancel(job_id);
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -487,6 +974,8 @@ pub fn run() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_opener::init())
         .manage(Downloads::default())
+        .manage(Waifu2xRuns::default())
+        .manage(Waifu2xProbeCache::default())
         .invoke_handler(tauri::generate_handler![
             read_file_bytes,
             write_file_bytes,
@@ -498,7 +987,10 @@ pub fn run() {
             imagechest_request,
             copy_text,
             open_external,
-            reveal_path
+            reveal_path,
+            waifu2x_probe,
+            waifu2x_process,
+            cancel_waifu2x
         ])
         .run(tauri::generate_context!())
         .expect("error while running mudae crop");
@@ -600,6 +1092,66 @@ mod tests {
         let flag = registry.start("done");
 
         assert!(flag.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn waifu2x_cancel_before_start_cancels_the_run() {
+        let runs = Waifu2xRuns::default();
+
+        runs.cancel("early".into());
+        let flag = runs.start("early");
+
+        assert!(flag.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn waifu2x_cancel_during_run_sets_the_live_flag() {
+        let runs = Waifu2xRuns::default();
+        let flag = runs.start("live");
+
+        runs.cancel("live".into());
+        runs.finish("live");
+
+        assert!(flag.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn waifu2x_early_cancels_stay_bounded() {
+        let runs = Waifu2xRuns::default();
+        for index in 0..MAX_EARLY_CANCELS {
+            runs.cancel(index.to_string());
+        }
+        runs.cancel("overflow".into());
+
+        assert!(!runs.start("0").load(Ordering::Relaxed));
+        assert!(runs.start("overflow").load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn waifu2x_paths_lose_the_extended_length_prefix() {
+        assert_eq!(plain_path(Path::new(r"\\?\C:\x\y")), r"C:\x\y");
+        assert_eq!(
+            plain_path(Path::new(r"\\?\UNC\server\share\y")),
+            r"\\server\share\y"
+        );
+        assert_eq!(plain_path(Path::new(r"C:\x\y")), r"C:\x\y");
+    }
+
+    #[test]
+    fn waifu2x_failure_names_a_vulkan_problem() {
+        let detail = waifu2x_failure_detail("vkCreateInstance failed");
+        assert!(detail.to_lowercase().contains("vulkan"));
+        assert_eq!(waifu2x_failure_detail("boom"), "boom");
+    }
+
+    #[test]
+    fn waifu2x_job_ids_cannot_escape_the_temp_directory() {
+        let cleaned = sanitize_job_id("../x y/..\\z");
+        assert!(!cleaned.contains(".."));
+        assert!(!cleaned.contains('/'));
+        assert!(!cleaned.contains('\\'));
+        assert_eq!(cleaned, "xyz");
+        assert_eq!(sanitize_job_id("!!!"), "job");
     }
 
     #[test]

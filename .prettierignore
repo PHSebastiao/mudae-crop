@@ -3,3 +3,4 @@ node_modules
 package-lock.json
 src-tauri/target
 src-tauri/gen
+src-tauri/waifu2x

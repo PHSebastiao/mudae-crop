@@ -2,7 +2,7 @@ import { parseHexColor, toHexColor, type Rgb } from './color';
 import { sampleTrimIndices } from './animation';
 import { effectiveSource, effectiveTrim, type DocumentState } from './document';
 import { nativeSize } from './geometry';
-import { renderFrame, type RenderContext } from './render';
+import { applySharpness, renderFrame, type RenderContext } from './render';
 
 export const MIN_PALETTE = 4;
 export const MAX_PALETTE = 10;
@@ -31,7 +31,21 @@ export interface PaletteCanvas {
 
 export interface PaletteAdapter {
   createCanvas(width: number, height: number): PaletteCanvas;
+  /**
+   * Encode a sampled frame so the waifu2x Palette can send it through the
+   * sidecar. Only the waifu2x path needs it.
+   */
+  encodePng?(canvas: PaletteCanvas): Promise<Uint8Array>;
 }
+
+/** Turn the sidecar's PNG back into something the palette canvas can draw. */
+export type PaletteWaifu2x = (png: Uint8Array) => Promise<CanvasImageSource>;
+
+/**
+ * waifu2x runs a sidecar per frame, so its Palette samples at most this many
+ * evenly spaced frames instead of the usual 60.
+ */
+export const MAX_WAIFU2X_PALETTE_FRAMES = 6;
 
 interface SampleColor extends Rgb {
   readonly count: number;
@@ -271,5 +285,58 @@ export function extractPalette(doc: DocumentState, adapter: PaletteAdapter): Pal
     const image = ctx.getImageData(0, 0, width, height);
     countPixels(accumulator, image.data, image.width, image.height, pad);
   }
+  return paletteFromCounts(accumulator);
+}
+
+/**
+ * The Palette over the waifu2x output: each sampled frame is rendered at the
+ * usual reduced resolution, sent through the sidecar and drawn back before the
+ * colors are counted. This is what makes a waifu2x change visible in the
+ * swatches, not just a re-run of the same pixels. The sidecar cost bounds the
+ * animation sample to MAX_WAIFU2X_PALETTE_FRAMES frames; a still stays at one.
+ */
+export async function extractPaletteWithWaifu2x(
+  doc: DocumentState,
+  adapter: PaletteAdapter,
+  waifu2x: PaletteWaifu2x,
+  signal?: AbortSignal,
+): Promise<PaletteColor[]> {
+  if (!doc.source) return [];
+  if (!adapter.encodePng) return extractPalette(doc, adapter);
+
+  const native = nativeSize(doc);
+  const frameScale = Math.min(1, MAX_SAMPLE_SIDE / Math.max(native.width, native.height));
+  const width = Math.max(1, Math.round(native.width * frameScale));
+  const height = Math.max(1, Math.round(native.height * frameScale));
+  const pad = parseHexColor(doc.padColor) ?? { r: 255, g: 255, b: 255 };
+  const accumulator: ColorCounts = { counts: new Map(), order: 0, sampled: 0 };
+  const canvas = adapter.createCanvas(width, height);
+  const ctx = canvas.getContext('2d');
+  // A video only has the frame currently on screen; both other kinds are
+  // sampled evenly across the active Trim.
+  const indices = doc.source.video
+    ? [effectiveTrim(doc)?.start ?? 0]
+    : sampleTrimIndices(effectiveSource(doc), effectiveTrim(doc), MAX_WAIFU2X_PALETTE_FRAMES);
+
+  for (const frameIndex of indices) {
+    if (signal?.aborted) throw new Error('Palette cancelada.');
+    // Match the Export's order: denoise the raw Crop, then sharpen it.
+    renderFrame(
+      ctx,
+      { ...doc, sharpness: 0 },
+      { outputWidth: width, outputHeight: height, border: false, frameIndex },
+    );
+    const png = await adapter.encodePng(canvas);
+    const image = await waifu2x(png);
+    ctx.clearRect(0, 0, width, height);
+    ctx.drawImage(image, 0, 0, width, height);
+    const rect = doc.crop.rect;
+    const sharpnessScale =
+      rect.width > 0 && rect.height > 0 ? Math.max(width / rect.width, height / rect.height) : 1;
+    applySharpness(ctx, doc.sharpness, width, height, sharpnessScale);
+    const sampled = ctx.getImageData(0, 0, width, height);
+    countPixels(accumulator, sampled.data, sampled.width, sampled.height, pad);
+  }
+
   return paletteFromCounts(accumulator);
 }

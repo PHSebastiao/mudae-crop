@@ -3,9 +3,11 @@ import {
   MAX_EXPORT_SIDE,
   MAX_LOSSY,
   MIN_LOSSY,
+  baseOutputSize,
   effectiveSource,
   isAnimated,
   outputSize,
+  waifu2xScaleOf,
   type DocumentState,
   type OptimizeSettings,
 } from '../core/document';
@@ -39,6 +41,7 @@ interface ExportPanelProps {
   readonly appendPostId: string;
   readonly optimizeResult: OptimizeResult | null;
   readonly sizeEstimate: SizeEstimate | null;
+  readonly waifu2xReady: boolean;
   readonly onExport: () => void;
   readonly onExportScale: (scale: CartaScale) => void;
   readonly onExportFormat: (format: 'png' | 'gif') => void;
@@ -165,6 +168,7 @@ export const ExportPanel = memo(function ExportPanel({
   appendPostId,
   optimizeResult,
   sizeEstimate,
+  waifu2xReady,
   onExport,
   onExportScale,
   onExportFormat,
@@ -185,6 +189,12 @@ export const ExportPanel = memo(function ExportPanel({
   onClearHistory,
 }: ExportPanelProps) {
   const size = outputSize(doc);
+  const baseSize = baseOutputSize(doc);
+  const waifuScale = waifu2xScaleOf(doc);
+  // 2× and 4× define the final pixels, so the manual size controls would
+  // contradict the sidecar's own upscale. They stay visible but disabled.
+  const waifuLocked = waifuScale > 1;
+  const waifuUnavailable = doc.waifu2x.enabled && !waifu2xReady;
   const native = nativeSize(doc);
   const card1 = mudaeExportSize(doc.frame.ratio, 1);
   const card2 = mudaeExportSize(doc.frame.ratio, 2);
@@ -204,7 +214,8 @@ export const ExportPanel = memo(function ExportPanel({
   const badPostId = postId !== '' && !isPostId(postId);
   const hasToken = settings.token.trim() !== '';
   const cooling = cooldownSeconds > 0;
-  const uploadDisabled = !doc.source || busy || cooling || badPostId || !hasToken;
+  const uploadDisabled =
+    !doc.source || busy || cooling || badPostId || !hasToken || waifuUnavailable;
   const kind = exportKindFor(effectiveSource(doc), settings.exportFormat);
   const format = kind.label;
   const animated = isAnimated(effectiveSource(doc));
@@ -309,8 +320,8 @@ export const ExportPanel = memo(function ExportPanel({
                 onExportScale(1);
               }}
               role="radio"
-              aria-checked={mudaeScale === 1}
-              disabled={!doc.source}
+              aria-checked={!waifuLocked && mudaeScale === 1}
+              disabled={!doc.source || waifuLocked}
             >
               <span>Carta 1×</span>
               <span className="dims">
@@ -325,9 +336,9 @@ export const ExportPanel = memo(function ExportPanel({
                 onExportScale(2);
               }}
               role="radio"
-              aria-checked={mudaeScale === 2}
+              aria-checked={!waifuLocked && mudaeScale === 2}
               title="Renderiza a Source em 2×"
-              disabled={!doc.source}
+              disabled={!doc.source || waifuLocked}
             >
               <span>Carta 2×</span>
               <span className="dims">
@@ -342,9 +353,9 @@ export const ExportPanel = memo(function ExportPanel({
                 if (mudaeScale !== null) onNative();
               }}
               role="radio"
-              aria-checked={mudaeScale === null}
+              aria-checked={!waifuLocked && mudaeScale === null}
               title="Tamanho automático do recorte"
-              disabled={!doc.source}
+              disabled={!doc.source || waifuLocked}
             >
               <span>Personalizado</span>
               <span className="dims">—</span>
@@ -356,20 +367,20 @@ export const ExportPanel = memo(function ExportPanel({
           <div className="custom-size">
             <div className="custom-size-head">
               <NumberField
-                value={size.width}
+                value={waifuLocked ? baseSize.width : size.width}
                 onCommit={(width) => {
                   setCustomOpen(true);
                   onResizeWidth(width);
                 }}
                 label="Largura do Export"
                 title={sizeCapTitle}
-                disabled={!doc.source}
+                disabled={!doc.source || waifuLocked}
               />
               <button
                 type="button"
                 className={`lock${doc.resizeLocked ? ' on' : ''}`}
                 onClick={() => onResizeLocked(!doc.resizeLocked)}
-                disabled={!doc.source}
+                disabled={!doc.source || waifuLocked}
                 aria-pressed={doc.resizeLocked}
                 aria-label="Travar proporção da carta"
                 title={
@@ -381,14 +392,14 @@ export const ExportPanel = memo(function ExportPanel({
                 {doc.resizeLocked ? '🔒' : '🔓'}
               </button>
               <NumberField
-                value={size.height}
+                value={waifuLocked ? baseSize.height : size.height}
                 onCommit={(height) => {
                   setCustomOpen(true);
                   onResizeHeight(height);
                 }}
                 label="Altura do Export"
                 title={sizeCapTitle}
-                disabled={!doc.source}
+                disabled={!doc.source || waifuLocked}
               />
             </div>
             <div className="custom-size-meta">
@@ -400,7 +411,7 @@ export const ExportPanel = memo(function ExportPanel({
                 type="button"
                 onClick={onNative}
                 title="Tamanho nativo do recorte"
-                disabled={!doc.source}
+                disabled={!doc.source || waifuLocked}
               >
                 Nativo
               </button>
@@ -408,7 +419,7 @@ export const ExportPanel = memo(function ExportPanel({
                 type="button"
                 onClick={onHalve}
                 title="Metade do tamanho atual"
-                disabled={!doc.source}
+                disabled={!doc.source || waifuLocked}
               >
                 ÷2
               </button>
@@ -416,11 +427,17 @@ export const ExportPanel = memo(function ExportPanel({
                 type="button"
                 onClick={onDouble}
                 title="Dobro do tamanho atual"
-                disabled={!doc.source}
+                disabled={!doc.source || waifuLocked}
               >
                 ×2
               </button>
             </div>
+            {waifuLocked && (
+              <p className="panel-hint">
+                waifu2x {waifuScale}× define o tamanho final · base {baseSize.width}×
+                {baseSize.height}
+              </p>
+            )}
             {!doc.resizeLocked && !ratioMatches && (
               <p className="panel-hint bad">fora da proporção da carta — a imagem vai esticar</p>
             )}
@@ -458,11 +475,17 @@ export const ExportPanel = memo(function ExportPanel({
           </p>
         )}
 
+        {waifuUnavailable && (
+          <p className="panel-hint bad">
+            waifu2x indisponível neste computador. Desligue-o para exportar ou subir.
+          </p>
+        )}
+
         <button
           type="button"
           className="big primary"
           onClick={onExport}
-          disabled={!doc.source || busy}
+          disabled={!doc.source || busy || waifuUnavailable}
         >
           {exportLabel}
         </button>
@@ -627,11 +650,13 @@ export const ExportPanel = memo(function ExportPanel({
           onClick={onUpload}
           disabled={uploadDisabled}
           title={
-            !hasToken
-              ? 'Configure o token em Configurações'
-              : badPostId
-                ? 'Confira o Post id'
-                : 'Cria um Post hidden e copia o link direto'
+            waifuUnavailable
+              ? 'Desligue o waifu2x para subir'
+              : !hasToken
+                ? 'Configure o token em Configurações'
+                : badPostId
+                  ? 'Confira o Post id'
+                  : 'Cria um Post hidden e copia o link direto'
           }
         >
           {uploading ? 'Subindo…' : cooling ? `Aguarde ${cooldownSeconds}s` : 'Subir e copiar link'}

@@ -3,6 +3,16 @@ import { MAX_MEDIA_BYTES } from './limits';
 import { MUDAE_RATIO } from './ratios';
 import { fitRect, nativeSize } from './rect';
 import { MUDAE_SIZE_GUIDANCE_BYTES } from './size';
+import { DEFAULT_WAIFU2X, clampWaifu2x, type Waifu2xPatch, type Waifu2xSettings } from './waifu2x';
+
+export { DEFAULT_WAIFU2X, clampWaifu2x } from './waifu2x';
+export type {
+  Waifu2xDenoise,
+  Waifu2xPatch,
+  Waifu2xScale,
+  Waifu2xSettings,
+  Waifu2xStatus,
+} from './waifu2x';
 
 export type ImageFormat = 'png' | 'jpg' | 'gif' | 'webp' | 'apng' | 'mp4' | 'mov' | 'webm';
 
@@ -375,6 +385,8 @@ export interface DocumentState {
   /** Playback and Export speed, 0.25×–4×. */
   readonly speed: number;
   readonly optimize: OptimizeSettings;
+  /** Opt-in waifu2x; off for every fresh document and every new Source. */
+  readonly waifu2x: Waifu2xSettings;
 }
 
 export function emptyDocument(): DocumentState {
@@ -393,6 +405,7 @@ export function emptyDocument(): DocumentState {
     trimEnabled: false,
     speed: 1,
     optimize: DEFAULT_OPTIMIZE,
+    waifu2x: DEFAULT_WAIFU2X,
   };
 }
 
@@ -413,6 +426,9 @@ export function withSource(doc: DocumentState, source: Source): DocumentState {
     trim: initialTrim(source),
     animation: source.animation ?? null,
     trimEnabled: false,
+    // waifu2x is opt-in per Source: a batch of images never inherits a long
+    // render just because the previous one used it.
+    waifu2x: DEFAULT_WAIFU2X,
   };
 }
 
@@ -542,6 +558,23 @@ export function withOptimize(doc: DocumentState, patch: Partial<OptimizeSettings
   return { ...doc, optimize: clampOptimize({ ...doc.optimize, ...patch }) };
 }
 
+export function withWaifu2x(doc: DocumentState, patch: Waifu2xPatch): DocumentState {
+  const next = clampWaifu2x(patch, doc.waifu2x);
+  if (
+    next.enabled === doc.waifu2x.enabled &&
+    next.denoise === doc.waifu2x.denoise &&
+    next.scale === doc.waifu2x.scale
+  ) {
+    return doc;
+  }
+  return { ...doc, waifu2x: next };
+}
+
+/** The sidecar's upscale: 1 while waifu2x is off, its own scale otherwise. */
+export function waifu2xScaleOf(doc: DocumentState): number {
+  return doc.waifu2x.enabled ? doc.waifu2x.scale : 1;
+}
+
 export function withCrop(doc: DocumentState, crop: Crop): DocumentState {
   return { ...doc, crop };
 }
@@ -571,7 +604,38 @@ export function withSharpness(doc: DocumentState, sharpness: number): DocumentSt
   return next === doc.sharpness ? doc : { ...doc, sharpness: next };
 }
 
+/**
+ * The raster handed to waifu2x and to the normal renderer: the explicit Resize
+ * or the native Crop size. When an upscale would exceed the render ceiling the
+ * base shrinks first, so the sidecar never produces an unbounded bitmap.
+ */
+export function baseOutputSize(doc: DocumentState): { width: number; height: number } {
+  const requested = doc.resize ?? clampExportSize(nativeSize(doc.crop.rect));
+  const scale = waifu2xScaleOf(doc);
+  if (scale === 1) return requested;
+  const maxBase = Math.max(MIN_EXPORT_SIDE, Math.floor(MAX_EXPORT_SIDE / scale));
+  const largest = Math.max(requested.width, requested.height);
+  if (largest <= maxBase) return requested;
+  // Shrink both sides by the same factor: capping each side on its own would
+  // turn a portrait card into a square at 2×/4×.
+  const factor = maxBase / largest;
+  return clampExportSize({
+    width: requested.width * factor,
+    height: requested.height * factor,
+  });
+}
+
+/**
+ * The final Export size: the base, multiplied by an active waifu2x scale. At
+ * 1× it is the base itself, so turning waifu2x on without upscaling never
+ * changes the dimensions.
+ */
 export function outputSize(doc: DocumentState): { width: number; height: number } {
-  if (doc.resize) return doc.resize;
-  return clampExportSize(nativeSize(doc.crop.rect));
+  const base = baseOutputSize(doc);
+  const scale = waifu2xScaleOf(doc);
+  if (scale === 1) return base;
+  return clampExportSize({
+    width: base.width * scale,
+    height: base.height * scale,
+  });
 }

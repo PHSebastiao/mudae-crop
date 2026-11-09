@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { downloadDir, join } from '@tauri-apps/api/path';
 import {
   animationFrameCount,
+  baseOutputSize,
   clampBorderWidth,
   effectiveAnimation,
   effectiveDelayMs,
@@ -24,9 +25,11 @@ import {
   withSpeed,
   withTrim,
   withTrimEnabled,
+  withWaifu2x,
   type DocumentState,
   type OptimizeSettings,
   type Trim,
+  type Waifu2xSettings,
 } from './core/document';
 import { normalizeHexColor } from './core/color';
 import { IDLE_STAGE_MODE, enterPickPad, leavePick, type StageMode } from './core/stageMode';
@@ -50,13 +53,14 @@ import {
   renderGif,
   renderPng,
   ExportError,
+  type Waifu2xFrameRunner,
   type RenderProgress,
   type SizeEstimate,
 } from './core/export';
 import type { OptimizeResult } from './core/optimize';
 import { applyRatio } from './core/geometry';
 import { importErrorMessage, loadSource, localPathFrom, type SourceCandidate } from './core/import';
-import { extractPalette, type PaletteColor } from './core/palette';
+import { extractPalette, extractPaletteWithWaifu2x, type PaletteColor } from './core/palette';
 import {
   appendHistory,
   type ExportEntry,
@@ -82,6 +86,8 @@ import { gifsicleOptimizer } from './platform/gifOptimizer';
 import { tauriImageChestTransport } from './platform/imagechest';
 import { historyPreviewAdapter, readExportBytes } from './platform/historyPreview';
 import { copyText, openExternal, revealInExplorer } from './platform/system';
+import { probeWaifu2x, tauriWaifu2xSpawn, type Waifu2xAvailability } from './platform/waifu2x';
+import { runWaifu2x } from './core/waifu2x';
 import {
   chooseExportFolder,
   chooseExportPath,
@@ -144,6 +150,10 @@ export default function App() {
   const [renderProgress, setRenderProgress] = useState<RenderProgress | null>(null);
   const [optimizeResult, setOptimizeResult] = useState<OptimizeResult | null>(null);
   const [sizeEstimate, setSizeEstimate] = useState<SizeEstimate | null>(null);
+  const [waifu2xAvailability, setWaifu2xAvailability] = useState<Waifu2xAvailability>({
+    status: 'checking',
+    detail: null,
+  });
   const [frameIndex, setFrameIndex] = useState(0);
   const [frameVersion, setFrameVersion] = useState(0);
   const [playing, setPlaying] = useState(false);
@@ -275,22 +285,72 @@ export default function App() {
     };
   }, [fail, markRatioPersisted]);
 
+  // Vulkan and the bundled sidecar are checked once at launch. While the check
+  // runs, or when it fails, the waifu2x controls stay disabled but the rest of
+  // the editor is unaffected.
+  useEffect(() => {
+    let alive = true;
+    void probeWaifu2x().then((next) => {
+      if (alive) setWaifu2xAvailability(next);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
   // The Palette follows the Crop, Frame, Pad color and sharpness. It is
   // debounced so dragging or zooming does not sample on every pointer move,
-  // and the Border is deliberately not a dependency.
+  // and the Border is deliberately not a dependency. With waifu2x on, the
+  // sampled frames go through the sidecar too, so the swatches really follow
+  // it; that path waits longer and is cancelled on the next edit.
   useEffect(() => {
     if (!doc.source) {
       setPalette([]);
       return;
     }
-    const timer = setTimeout(() => {
-      try {
-        setPalette(extractPalette(docRef.current, browserPaletteAdapter));
-      } catch {
-        setPalette([]);
-      }
-    }, 150);
-    return () => clearTimeout(timer);
+    const controller = new AbortController();
+    const current = docRef.current;
+    const paletteUsesWaifu2x = current.waifu2x.enabled && waifu2xAvailability.status === 'ready';
+    const timer = setTimeout(
+      () => {
+        const waifu2xFrame = async (png: Uint8Array): Promise<CanvasImageSource> => {
+          const bytes = await runWaifu2x(png, current.waifu2x, tauriWaifu2xSpawn, {
+            signal: controller.signal,
+          });
+          const decodePng = browserExportAdapter.decodePng;
+          if (!decodePng) throw new Error('Decodificação de PNG indisponível.');
+          return decodePng(bytes);
+        };
+        const paletteWaifu2x = paletteUsesWaifu2x ? waifu2xFrame : null;
+        const task = paletteWaifu2x
+          ? extractPaletteWithWaifu2x(
+              current,
+              browserPaletteAdapter,
+              paletteWaifu2x,
+              controller.signal,
+            )
+          : Promise.resolve().then(() => extractPalette(current, browserPaletteAdapter));
+        void task
+          .then((next) => {
+            if (!controller.signal.aborted) setPalette(next);
+          })
+          .catch(() => {
+            if (controller.signal.aborted) return;
+            // A mid-session sidecar failure keeps the raw swatches rather
+            // than blanking the Palette.
+            try {
+              setPalette(extractPalette(current, browserPaletteAdapter));
+            } catch {
+              setPalette([]);
+            }
+          });
+      },
+      paletteUsesWaifu2x ? 450 : 150,
+    );
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
   }, [
     doc.source,
     doc.frame,
@@ -300,6 +360,8 @@ export default function App() {
     doc.trim,
     doc.animation,
     doc.trimEnabled,
+    doc.waifu2x,
+    waifu2xAvailability.status,
     paletteVersion,
   ]);
 
@@ -573,14 +635,29 @@ export default function App() {
       selectedFrame: number,
     ): Promise<Uint8Array> => {
       const kind = exportKindFor(effectiveSource(current), settingsRef.current.exportFormat);
+      // A PNG has one sidecar run, so its own percentages drive the notice. A
+      // GIF reports per frame in renderGif instead.
+      const waifu2x: Waifu2xFrameRunner | undefined = current.waifu2x.enabled
+        ? ({ input, signal }) =>
+            runWaifu2x(input, current.waifu2x, tauriWaifu2xSpawn, {
+              signal: signal ?? controller.signal,
+              onProgress:
+                kind.format === 'png'
+                  ? (fraction) => setRenderProgress({ phase: 'waifu2x', done: fraction, total: 1 })
+                  : undefined,
+            })
+        : undefined;
       if (kind.format === 'png') {
+        if (waifu2x) setRenderProgress({ phase: 'waifu2x', done: 0, total: 1 });
         return renderPng(current, browserExportAdapter, {
           frameIndex: selectedFrame,
           prepare: () => prepareExportFrame(current.source, selectedFrame),
+          signal: controller.signal,
+          waifu2x,
         });
       }
       setRenderProgress({
-        phase: 'render',
+        phase: waifu2x ? 'waifu2x' : 'render',
         done: 0,
         total: trimFrameCount(effectiveSource(current), effectiveTrim(current)),
       });
@@ -589,6 +666,7 @@ export default function App() {
         onProgress: setRenderProgress,
         optimizer: gifsicleOptimizer,
         onOptimized: setOptimizeResult,
+        waifu2x,
       });
     },
     [],
@@ -619,6 +697,10 @@ export default function App() {
     if (!current.source) return;
     if (!isDesktop()) {
       fail('Exportar só funciona no app desktop.');
+      return;
+    }
+    if (current.waifu2x.enabled && waifu2xAvailability.status !== 'ready') {
+      fail('O waifu2x não está disponível neste computador. Desligue-o para exportar.');
       return;
     }
     if (!beginRun('export').ok) return;
@@ -679,7 +761,16 @@ export default function App() {
       setRenderProgress(null);
       endRun('export');
     }
-  }, [beginRun, endRun, fail, inform, persistHistory, persistSettings, renderWithProgress]);
+  }, [
+    beginRun,
+    endRun,
+    fail,
+    inform,
+    persistHistory,
+    persistSettings,
+    renderWithProgress,
+    waifu2xAvailability.status,
+  ]);
 
   const uploadFailure = useCallback(
     (reason: unknown) => {
@@ -715,6 +806,10 @@ export default function App() {
     if (busy) return;
     if (!isDesktop()) {
       fail('O upload só funciona no app desktop.');
+      return;
+    }
+    if (current.waifu2x.enabled && waifu2xAvailability.status !== 'ready') {
+      fail('O waifu2x não está disponível neste computador. Desligue-o para subir.');
       return;
     }
 
@@ -812,6 +907,7 @@ export default function App() {
     persistHistory,
     renderWithProgress,
     uploadFailure,
+    waifu2xAvailability.status,
   ]);
 
   uploadRef.current = handleUpload;
@@ -961,6 +1057,18 @@ export default function App() {
     setDoc((current) => withSharpness(current, sharpness));
   }, []);
 
+  const changeWaifu2x = useCallback(
+    (patch: Partial<Waifu2xSettings>) => {
+      if (patch.enabled && waifu2xAvailability.status !== 'ready') {
+        fail(waifu2xAvailability.detail ?? 'O waifu2x não está disponível neste computador.');
+        return;
+      }
+      setOptimizeResult(null);
+      setDoc((current) => withWaifu2x(current, patch));
+    },
+    [fail, waifu2xAvailability.detail, waifu2xAvailability.status],
+  );
+
   const changeTrim = useCallback((trim: Trim | null) => {
     setPlaying(false);
     setOptimizeResult(null);
@@ -1007,7 +1115,8 @@ export default function App() {
   const changeResizeWidth = useCallback((width: number) => {
     setOptimizeResult(null);
     setDoc((current) => {
-      const size = outputSize(current);
+      // The fields edit the raster handed to waifu2x, before its upscale.
+      const size = baseOutputSize(current);
       return withResize(current, {
         width,
         height: current.resize?.height ?? size.height,
@@ -1018,7 +1127,7 @@ export default function App() {
   const changeResizeHeight = useCallback((height: number) => {
     setOptimizeResult(null);
     setDoc((current) => {
-      const size = outputSize(current);
+      const size = baseOutputSize(current);
       const width = current.resizeLocked
         ? Math.round(height * current.frame.ratio)
         : (current.resize?.width ?? size.width);
@@ -1055,7 +1164,7 @@ export default function App() {
   const scaleOutput = useCallback((factor: number) => {
     setOptimizeResult(null);
     setDoc((current) => {
-      const size = outputSize(current);
+      const size = baseOutputSize(current);
       return withResize(current, {
         width: Math.max(MIN_EXPORT_SIDE, Math.round(size.width * factor)),
         height: Math.max(MIN_EXPORT_SIDE, Math.round(size.height * factor)),
@@ -1295,6 +1404,15 @@ export default function App() {
   /** What the Source bar currently holds, so the button can name the action. */
   const linkTarget = sourceUrlFrom(link) ? 'link' : localPathFrom(link) ? 'path' : null;
 
+  const waifu2xChip =
+    waifu2xAvailability.status === 'checking'
+      ? 'waifu2x verificando'
+      : waifu2xAvailability.status !== 'ready'
+        ? 'waifu2x indisponível'
+        : doc.waifu2x.enabled
+          ? `waifu2x ${doc.waifu2x.scale}× · denoise ${doc.waifu2x.denoise}`
+          : 'waifu2x off';
+
   return (
     <div className="app">
       <header className="topbar">
@@ -1354,7 +1472,7 @@ export default function App() {
         />
         <div className="topbar-right">
           <span className="chip">{sourceChip}</span>
-          <span className="chip">waifu2x off</span>
+          <span className="chip">{waifu2xChip}</span>
           <button
             type="button"
             className="chip chip-button"
@@ -1383,7 +1501,12 @@ export default function App() {
       ) : renderProgress ? (
         <div className="notice download render" role="status">
           <span>
-            {renderProgress.phase === 'render' ? 'Renderizando' : 'Otimizando'} GIF…{' '}
+            {renderProgress.phase === 'optimize'
+              ? 'Otimizando GIF'
+              : renderProgress.phase === 'waifu2x'
+                ? 'Realçando com waifu2x'
+                : 'Renderizando'}
+            …{' '}
             {renderProgress.total > 0
               ? Math.min(100, Math.round((renderProgress.done / renderProgress.total) * 100))
               : 0}
@@ -1421,6 +1544,10 @@ export default function App() {
           onRotate={rotate}
           onResetCrop={reset}
           onSharpness={changeSharpness}
+          waifu2x={doc.waifu2x}
+          waifu2xStatus={waifu2xAvailability.status}
+          waifu2xDetail={waifu2xAvailability.detail}
+          onWaifu2x={changeWaifu2x}
           onPickPadColor={togglePickPad}
           onTrim={changeTrim}
           onSpeed={changeSpeed}
@@ -1486,6 +1613,7 @@ export default function App() {
           appendPostId={appendPostId}
           optimizeResult={optimizeResult}
           sizeEstimate={sizeEstimate}
+          waifu2xReady={waifu2xAvailability.status === 'ready'}
           onExport={handleExport}
           onExportScale={changeExportScale}
           onExportFormat={changeExportFormat}

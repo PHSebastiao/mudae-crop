@@ -12,6 +12,8 @@ import {
   type DocumentState,
   type ScaleMode,
   type Trim,
+  type Waifu2xSettings,
+  type Waifu2xStatus,
 } from '../core/document';
 import { formatPlaybackDuration, trimDurationMs } from '../core/animation';
 import { offsetPct, zoomOf } from '../core/geometry';
@@ -30,6 +32,10 @@ interface ToolRailProps {
   readonly onRotate: () => void;
   readonly onResetCrop: () => void;
   readonly onSharpness: (sharpness: number) => void;
+  readonly waifu2x: Waifu2xSettings;
+  readonly waifu2xStatus: Waifu2xStatus | 'checking';
+  readonly waifu2xDetail: string | null;
+  readonly onWaifu2x: (patch: Partial<Waifu2xSettings>) => void;
   readonly onPickPadColor: () => void;
   readonly onTrim: (trim: Trim | null) => void;
   readonly onSpeed: (speed: number) => void;
@@ -49,6 +55,10 @@ export const ToolRail = memo(function ToolRail({
   onRotate,
   onResetCrop,
   onSharpness,
+  waifu2x,
+  waifu2xStatus,
+  waifu2xDetail,
+  onWaifu2x,
   onPickPadColor,
   onTrim,
   onSpeed,
@@ -70,6 +80,17 @@ export const ToolRail = memo(function ToolRail({
   const offset = offsetPct(doc);
   const offsetX = Math.round(offset.x * 1000) / 10;
   const offsetY = Math.round(offset.y * 1000) / 10;
+  const waifu2xReady = waifu2xStatus === 'ready';
+  const waifu2xDisabled = !hasSource || !waifu2xReady;
+  // A group with `pointer-events: none` would also trap the off switch, so an
+  // enabled-but-unavailable waifu2x keeps the group interactive.
+  const waifu2xGroupDisabled = !hasSource || (!waifu2xReady && !waifu2x.enabled);
+  const waifu2xHint =
+    waifu2xStatus === 'checking'
+      ? 'verificando a GPU e o sidecar…'
+      : waifu2xStatus === 'ready'
+        ? 'aplica no Export; a prévia mostra o Crop sem waifu2x'
+        : (waifu2xDetail ?? 'waifu2x indisponível neste computador');
 
   const [tip, setTip] = useState<{ left: number; top: number } | null>(null);
   const showTip = (element: HTMLElement) => {
@@ -258,6 +279,59 @@ export const ToolRail = memo(function ToolRail({
           aria-label="Nitidez"
           disabled={!hasSource}
         />
+      </div>
+
+      <div className={waifu2xGroupDisabled ? 'group disabled-group' : 'group'}>
+        <div className="label">waifu2x</div>
+        <div className="row">
+          <span className="key">denoise</span>
+          <span className="pill">{waifu2x.denoise}</span>
+        </div>
+        <div className="toggle" role="group" aria-label="Denoise do waifu2x">
+          {[0, 1, 2, 3].map((level) => (
+            <button
+              key={level}
+              type="button"
+              className={waifu2x.denoise === level ? 'on' : ''}
+              onClick={() => onWaifu2x({ denoise: level as Waifu2xSettings['denoise'] })}
+              aria-pressed={waifu2x.denoise === level}
+              disabled={waifu2xDisabled}
+              title={`Denoise ${level}`}
+            >
+              {level}
+            </button>
+          ))}
+        </div>
+        <div className="toggle" role="group" aria-label="Escala do waifu2x">
+          {[1, 2, 4].map((scale) => (
+            <button
+              key={scale}
+              type="button"
+              className={waifu2x.scale === scale ? 'on' : ''}
+              onClick={() => onWaifu2x({ scale: scale as Waifu2xSettings['scale'] })}
+              aria-pressed={waifu2x.scale === scale}
+              disabled={waifu2xDisabled}
+              title={
+                scale === 1
+                  ? 'Mantém o tamanho do Export'
+                  : `Amplia ${scale}× e define o tamanho do Export`
+              }
+            >
+              {scale}×
+            </button>
+          ))}
+        </div>
+        {/* Turning it off must always work, even if the probe failed later. */}
+        <button
+          type="button"
+          className={`link rail-waifu2x${waifu2x.enabled ? ' on' : ''}`}
+          onClick={() => onWaifu2x({ enabled: !waifu2x.enabled })}
+          aria-pressed={waifu2x.enabled}
+          disabled={!hasSource || (!waifu2xReady && !waifu2x.enabled)}
+        >
+          {waifu2x.enabled ? 'desligar waifu2x' : 'ligar waifu2x'}
+        </button>
+        <p className="panel-hint">{waifu2xHint}</p>
       </div>
 
       <div className={animated ? 'group' : 'group disabled-group'}>

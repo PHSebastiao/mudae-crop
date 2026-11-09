@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_FRAME,
   DEFAULT_PAD_COLOR,
+  DEFAULT_WAIFU2X,
   FIT_CROP,
   MAX_EXPORT_SIDE,
+  baseOutputSize,
   emptyDocument,
   outputSize,
   withBorder,
@@ -17,6 +19,7 @@ import {
   withSpeed,
   withTrim,
   withTrimEnabled,
+  withWaifu2x,
 } from '../src/core/document';
 import { applyRatio } from '../src/core/geometry';
 import { MUDAE_RATIO } from '../src/core/ratios';
@@ -257,5 +260,74 @@ describe('animation editing settings', () => {
       colors: 2,
       targetBytes: 64 * 1024,
     });
+  });
+});
+
+describe('waifu2x', () => {
+  it('is off for a new document and for every new Source', () => {
+    expect(emptyDocument().waifu2x).toEqual(DEFAULT_WAIFU2X);
+    expect(DEFAULT_WAIFU2X.enabled).toBe(false);
+
+    const enabled = withWaifu2x(makeDoc(makeSource(225, 350)), {
+      enabled: true,
+      denoise: 3,
+      scale: 4,
+    });
+    const replaced = withSource(enabled, makeSource(450, 700));
+    expect(replaced.waifu2x).toEqual(DEFAULT_WAIFU2X);
+  });
+
+  it('keeps its denoise and scale while the toggle is off', () => {
+    const doc = withWaifu2x(emptyDocument(), { enabled: true, denoise: 2, scale: 2 });
+    const off = withWaifu2x(doc, { enabled: false });
+    expect(off.waifu2x).toEqual({ enabled: false, denoise: 2, scale: 2 });
+  });
+
+  it('never turns on from a resize or a Carta proportion', () => {
+    const doc = withResize(makeDoc(makeSource(225, 350)), { width: 450, height: 700 });
+    expect(doc.waifu2x.enabled).toBe(false);
+  });
+
+  it('keeps the Export size at 1× and multiplies it at 2× and 4×', () => {
+    const base = withWaifu2x(makeDoc(makeSource(225, 350)), { enabled: true, scale: 1 });
+    expect(baseOutputSize(base)).toEqual({ width: 225, height: 350 });
+    expect(outputSize(base)).toEqual({ width: 225, height: 350 });
+
+    const twice = withWaifu2x(base, { scale: 2 });
+    expect(baseOutputSize(twice)).toEqual({ width: 225, height: 350 });
+    expect(outputSize(twice)).toEqual({ width: 450, height: 700 });
+
+    const four = withWaifu2x(base, { scale: 4 });
+    expect(outputSize(four)).toEqual({ width: 900, height: 1400 });
+  });
+
+  it('scales an explicit resize too, keeping its proportion', () => {
+    const doc = withWaifu2x(
+      withResize(makeDoc(makeSource(225, 350)), { width: 300, height: 467 }),
+      { enabled: true, scale: 2 },
+    );
+    expect(baseOutputSize(doc)).toEqual({ width: 300, height: 467 });
+    expect(outputSize(doc)).toEqual({ width: 600, height: 934 });
+  });
+
+  it('shrinks the base before the upscale so the output never exceeds 4096', () => {
+    const square = makeDoc(makeSource(2000, 2000), 1);
+    const doc = withWaifu2x(square, { enabled: true, scale: 4 });
+
+    expect(baseOutputSize(doc)).toEqual({ width: 1024, height: 1024 });
+    expect(outputSize(doc)).toEqual({ width: MAX_EXPORT_SIDE, height: MAX_EXPORT_SIDE });
+  });
+
+  it('keeps a portrait card portrait when the base is capped', () => {
+    const source = makeSource(4096, 4096);
+    const doc = withWaifu2x(makeDoc(source), { enabled: true, scale: 2 });
+
+    const base = baseOutputSize(doc);
+    expect(base.width).toBeLessThan(base.height);
+    expect(base.width / base.height).toBeCloseTo(MUDAE_RATIO, 2);
+    expect(Math.max(base.width, base.height)).toBe(2048);
+    const output = outputSize(doc);
+    expect(Math.max(output.width, output.height)).toBe(MAX_EXPORT_SIDE);
+    expect(output.width / output.height).toBeCloseTo(MUDAE_RATIO, 2);
   });
 });

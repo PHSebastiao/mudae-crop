@@ -12,6 +12,7 @@
     "test:watch": "vitest",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
+    "waifu2x:install": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-waifu2x.ps1",
     "tauri": "tauri"
   },
   "dependencies": {

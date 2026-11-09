@@ -102,6 +102,16 @@ An unsharp mask from 0 (off) to 100 applied to the rendered Crop before the Bord
 
 _Avoid_: sharpen, crispness, blur
 
+**waifu2x**:
+An opt-in enhancement that runs the bundled Vulkan sidecar over the rendered Crop: **Denoise** 0–3 at 1×, or an explicit 2×/4× upscale that defines the Export size. Off for every new Source; no Export size or preset turns it on.
+
+_Avoid_: AI upscale, enhancer, super-resolution
+
+**Denoise**:
+The waifu2x noise level, 0 (mildest cleanup) to 3 (strongest cleanup). At 1× it changes the pixels without changing the dimensions.
+
+_Avoid_: noise reduction, clean, filter
+
 **Eyedropper**:
 The in-app tool that samples the rendered Crop under the pointer for the Pad color, with a pixel magnifier.
 

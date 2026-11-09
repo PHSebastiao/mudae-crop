@@ -4,6 +4,7 @@ import {
   DEFAULT_FRAME,
   DEFAULT_OPTIMIZE,
   DEFAULT_PAD_COLOR,
+  DEFAULT_WAIFU2X,
   type DocumentState,
   type Rotation,
   type ScaleMode,
@@ -142,6 +143,7 @@ export function makeDoc(
     trimEnabled: false,
     speed: 1,
     optimize: DEFAULT_OPTIMIZE,
+    waifu2x: DEFAULT_WAIFU2X,
   };
 }
 

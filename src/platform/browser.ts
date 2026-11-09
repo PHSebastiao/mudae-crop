@@ -183,8 +183,12 @@ export const browserExportAdapter: ExportAdapter = {
     if (!blob) throw new ExportError('Falha ao codificar o PNG.');
     return new Uint8Array(await blob.arrayBuffer());
   },
+  async decodePng(bytes: Uint8Array): Promise<CanvasImageSource> {
+    return createImageBitmap(blobOf(bytes, 'png'));
+  },
 };
 
 export const browserPaletteAdapter: PaletteAdapter = {
   createCanvas: (width, height) => canvasFrom({ width, height }),
+  encodePng: (canvas) => browserExportAdapter.encodePng(canvas as unknown as EncodableCanvas),
 };

@@ -130,24 +130,31 @@ export function renderFrame(ctx: RenderContext, doc: DocumentState, options: Ren
 
   drawSource(ctx, doc, scaleX, scaleY, 0, 0, options.frameIndex ?? 0);
 
-  // Enhancement runs on the rendered Crop, before the Border is drawn.
-  if (doc.sharpness > 0) {
-    const pixelsWide = Math.max(1, Math.round(width));
-    const pixelsHigh = Math.max(1, Math.round(height));
-    const image = ctx.getImageData(0, 0, pixelsWide, pixelsHigh);
-    applyUnsharpMask(
-      image.data,
-      image.width,
-      image.height,
-      doc.sharpness,
-      Math.max(1, Math.round(Math.max(scaleX, scaleY))),
-    );
-    ctx.putImageData(image, 0, 0);
-  }
+  // Sharpness runs on the rendered Crop, before the Border is drawn.
+  applySharpness(ctx, doc.sharpness, width, height, Math.max(scaleX, scaleY));
 
   if (options.border !== false && doc.border.width > 0) {
-    drawBorder(ctx, doc, width, height, options.border);
+    paintFrameBorder(ctx, doc, width, height, options.border);
   }
+}
+
+/**
+ * The unsharp mask step, shared by the sync render and by the waifu2x path,
+ * which sharpens the sidecar's larger output instead of the base raster.
+ */
+export function applySharpness(
+  ctx: RenderContext,
+  amount: number,
+  width: number,
+  height: number,
+  scale = 1,
+): void {
+  if (amount <= 0) return;
+  const pixelsWide = Math.max(1, Math.round(width));
+  const pixelsHigh = Math.max(1, Math.round(height));
+  const image = ctx.getImageData(0, 0, pixelsWide, pixelsHigh);
+  applyUnsharpMask(image.data, image.width, image.height, amount, Math.max(1, Math.round(scale)));
+  ctx.putImageData(image, 0, 0);
 }
 
 /**
@@ -170,9 +177,10 @@ export function frameBorderStroke(
  * The Border is stroked inside the Frame edge in pixels of the final file. It
  * is drawn after the Source transform is restored, so rotation can never tilt
  * it. A Preview scale keeps it visible at any zoom, but never below one canvas
- * pixel; an Export draws exactly the stored width.
+ * pixel; an Export draws exactly the stored width. waifu2x upscales the crop
+ * before this runs, so the Border must be painted on the final raster.
  */
-function drawBorder(
+export function paintFrameBorder(
   ctx: RenderContext,
   doc: DocumentState,
   width: number,
