@@ -1,7 +1,8 @@
 /**
  * The app-level state shared by several entry points: the single-flight
- * activity lock, the notice bar and the URL download phase. It is pure so the
- * invariants can be tested without React, the DOM or the desktop shell.
+ * activity lock, the notice bar and the URL download phase. It is a pure
+ * reducer so every invariant is testable without React, the DOM or the
+ * desktop shell.
  */
 
 /** The one operation that can own the app at a time. */
@@ -9,28 +10,6 @@ export type ActivityLabel = 'import' | 'export' | 'upload' | 'download';
 
 export type Activity =
   { readonly kind: 'idle' } | { readonly kind: 'running'; readonly label: ActivityLabel };
-
-export const IDLE_ACTIVITY: Activity = { kind: 'idle' };
-
-/** The shared pt-BR explanation for refusing a second operation. */
-export const BUSY_REFUSAL = 'Termine a operação em andamento antes de importar outra Source.';
-
-export type ActivityStart =
-  | { readonly kind: 'started'; readonly activity: Activity }
-  | { readonly kind: 'refused'; readonly reason: 'busy'; readonly message: string };
-
-/** Start an activity unless another one already owns the app. */
-export function beginActivity(current: Activity, label: ActivityLabel): ActivityStart {
-  if (current.kind === 'running') {
-    return { kind: 'refused', reason: 'busy', message: BUSY_REFUSAL };
-  }
-  return { kind: 'started', activity: { kind: 'running', label } };
-}
-
-/** Release the app, but only for the operation that started it. */
-export function endActivity(current: Activity, label: ActivityLabel): Activity {
-  return current.kind === 'running' && current.label === label ? IDLE_ACTIVITY : current;
-}
 
 export interface NoticeAction {
   readonly label: string;
@@ -45,29 +24,6 @@ export type Notice =
   | { readonly kind: 'none' }
   | { readonly kind: 'info'; readonly message: string }
   | { readonly kind: 'error'; readonly message: string; readonly action: NoticeAction | null };
-
-export const NO_NOTICE: Notice = { kind: 'none' };
-
-export function infoNotice(message: string): Notice {
-  return { kind: 'info', message };
-}
-
-export function errorNotice(message: string, action: NoticeAction | null = null): Notice {
-  return { kind: 'error', message, action };
-}
-
-/** Clear whatever the bar is showing. */
-export function clearNotice(): Notice {
-  return NO_NOTICE;
-}
-
-/**
- * Drop an error but keep an info notice. Opening Settings uses this: it
- * dismisses a failure while leaving an informational status untouched.
- */
-export function dismissError(current: Notice): Notice {
-  return current.kind === 'error' ? NO_NOTICE : current;
-}
 
 /** The bytes reported by the download transport. */
 export interface DownloadAmount {
@@ -85,28 +41,79 @@ export type DownloadPhase =
   | { readonly kind: 'downloading'; readonly received: number; readonly total: number | null }
   | { readonly kind: 'finishing' };
 
+export interface AppShellState {
+  readonly activity: Activity;
+  readonly notice: Notice;
+  readonly download: DownloadPhase;
+}
+
+export const IDLE_ACTIVITY: Activity = { kind: 'idle' };
+export const NO_NOTICE: Notice = { kind: 'none' };
 export const IDLE_DOWNLOAD: DownloadPhase = { kind: 'idle' };
 
-export function startDownload(): DownloadPhase {
-  return { kind: 'downloading', received: 0, total: null };
-}
+export const INITIAL_APP_SHELL: AppShellState = {
+  activity: IDLE_ACTIVITY,
+  notice: NO_NOTICE,
+  download: IDLE_DOWNLOAD,
+};
 
-/** Ignore progress that lands after the transfer has already finished. */
-export function reportDownload(current: DownloadPhase, amount: DownloadAmount): DownloadPhase {
-  if (current.kind !== 'downloading') return current;
-  return { kind: 'downloading', received: amount.received, total: amount.total };
-}
+export type AppShellAction =
+  | { readonly type: 'begin'; readonly label: ActivityLabel }
+  | { readonly type: 'end'; readonly label: ActivityLabel }
+  | { readonly type: 'inform'; readonly message: string }
+  | { readonly type: 'fail'; readonly message: string; readonly action: NoticeAction | null }
+  | { readonly type: 'clear-notice' }
+  | { readonly type: 'dismiss-error' }
+  | { readonly type: 'download-start' }
+  | { readonly type: 'download-progress'; readonly amount: DownloadAmount }
+  | { readonly type: 'download-finish' }
+  | { readonly type: 'download-end' };
 
-/** The link is down; decoding is local and no longer cancellable. */
-export function finishDownload(current: DownloadPhase): DownloadPhase {
-  return current.kind === 'downloading' ? { kind: 'finishing' } : current;
-}
-
-export function endDownload(): DownloadPhase {
-  return IDLE_DOWNLOAD;
-}
-
-/** Cancelling is only possible while the transfer itself is running. */
-export function canCancelDownload(current: DownloadPhase): boolean {
-  return current.kind === 'downloading';
+/**
+ * The single source of the shell transitions. `begin` refuses while an
+ * operation runs, `end` only releases the operation that started it, a notice
+ * holds one kind at a time, and progress only exists while downloading.
+ */
+export function reduceAppShell(state: AppShellState, action: AppShellAction): AppShellState {
+  switch (action.type) {
+    case 'begin':
+      return state.activity.kind === 'running'
+        ? state
+        : { ...state, activity: { kind: 'running', label: action.label } };
+    case 'end': {
+      if (state.activity.kind !== 'running' || state.activity.label !== action.label) return state;
+      return { ...state, activity: IDLE_ACTIVITY };
+    }
+    case 'inform':
+      return { ...state, notice: { kind: 'info', message: action.message } };
+    case 'fail':
+      return {
+        ...state,
+        notice: { kind: 'error', message: action.message, action: action.action },
+      };
+    case 'clear-notice':
+      return state.notice.kind === 'none' ? state : { ...state, notice: NO_NOTICE };
+    case 'dismiss-error':
+      return state.notice.kind === 'error' ? { ...state, notice: NO_NOTICE } : state;
+    case 'download-start':
+      return {
+        ...state,
+        download: { kind: 'downloading', received: 0, total: null },
+      };
+    case 'download-progress':
+      if (state.download.kind !== 'downloading') return state;
+      return {
+        ...state,
+        download: {
+          kind: 'downloading',
+          received: action.amount.received,
+          total: action.amount.total,
+        },
+      };
+    case 'download-finish':
+      if (state.download.kind !== 'downloading') return state;
+      return { ...state, download: { kind: 'finishing' } };
+    case 'download-end':
+      return { ...state, download: IDLE_DOWNLOAD };
+  }
 }

@@ -1,6 +1,5 @@
 import {
   useEffect,
-  useMemo,
   useRef,
   useState,
   type CSSProperties,
@@ -20,7 +19,7 @@ import { centreSnapAxes, frameRect, rotatedBounds } from '../core/geometry';
 import { stageLayout, type Handle } from '../core/rect';
 import { ratioLabel } from '../core/ratios';
 import { drawSource, paintsPadColor, renderFrame } from '../core/render';
-import { stageModeOf } from '../core/stageMode';
+import { type StageMode } from '../core/stageMode';
 
 /** Screen pixels of drag before a free resize starts snapping. */
 const SNAP_START_PX = 6;
@@ -83,14 +82,12 @@ interface StageProps {
     /** The proportion the drag started on; excluded from snapping. */
     startRatio?: number,
   ) => void;
-  /** Whether the Frame resize handles are shown. */
-  readonly adjustFrame: boolean;
+  /** The one interaction that owns the Stage. */
+  readonly mode: StageMode;
   /** Whether free resizes snap to a nearby ratio preset. */
   readonly snapRatios: boolean;
   readonly onOpen: () => void;
   readonly busy: boolean;
-  /** True while the Pad eyedropper is armed. */
-  readonly picking: boolean;
   readonly onPickColor: (hex: string) => void;
   readonly onPickMiss: (reason: 'outside' | 'transparent') => void;
 }
@@ -102,11 +99,10 @@ export function Stage({
   onPan,
   onZoomAt,
   onResize,
-  adjustFrame,
+  mode,
   snapRatios,
   onOpen,
   busy,
-  picking,
   onPickColor,
   onPickMiss,
 }: StageProps) {
@@ -133,11 +129,6 @@ export function Stage({
   const [altDown, setAltDown] = useState(false);
   const [magnifier, setMagnifier] = useState<MagnifierState | null>(null);
 
-  // `App` still passes the two flags, but the Stage collapses them into the one
-  // explicit mode so every rendering decision reads a single mutually
-  // exclusive value.
-  const stageMode = useMemo(() => stageModeOf({ adjustFrame, picking }), [adjustFrame, picking]);
-
   useEffect(() => {
     const element = hostRef.current;
     if (!element) return;
@@ -151,7 +142,7 @@ export function Stage({
 
   const rect = frameRect(doc);
   const dpr = window.devicePixelRatio || 1;
-  const layout = stageLayout(doc, stageSize, dpr, stageMode.kind === 'adjust');
+  const layout = stageLayout(doc, stageSize, dpr, mode.kind === 'adjust');
   const {
     adjusting,
     scale,
@@ -290,7 +281,7 @@ export function Stage({
   // The visible Frame includes the Border. The eyedropper should read the
   // image underneath it, matching the Palette's border:false sample.
   useEffect(() => {
-    if (stageMode.kind !== 'pick-pad') {
+    if (mode.kind !== 'pick-pad') {
       pickRef.current = null;
       return;
     }
@@ -311,13 +302,13 @@ export function Stage({
       frameIndex,
     });
     pickRef.current = canvas;
-  }, [doc, stageMode, scale, frameIndex, frameVersion]);
+  }, [doc, mode, scale, frameIndex, frameVersion]);
 
   // A notice or window resize changes the stage scale; the cached magnifier
   // cell and hex would be from the old frame.
   useEffect(() => {
     setMagnifier(null);
-  }, [doc, stageMode, scale, frameIndex, frameVersion]);
+  }, [doc, mode, scale, frameIndex, frameVersion]);
 
   // Alt releases the centre snap; track it while dragging so the guides react
   // even when the pointer stays still.
@@ -341,7 +332,7 @@ export function Stage({
     const onWheel = (event: WheelEvent) => {
       if (!doc.source) return;
       event.preventDefault();
-      if (stageMode.kind === 'pick-pad') return;
+      if (mode.kind === 'pick-pad') return;
       const frameCanvas = frameRef.current;
       if (!frameCanvas) return;
       const bounds = frameCanvas.getBoundingClientRect();
@@ -355,7 +346,7 @@ export function Stage({
     };
     element.addEventListener('wheel', onWheel, { passive: false });
     return () => element.removeEventListener('wheel', onWheel);
-  }, [doc.source, onZoomAt, stageMode, scale, rect.x, rect.y]);
+  }, [doc.source, onZoomAt, mode, scale, rect.x, rect.y]);
 
   function framePixelAt(clientX: number, clientY: number): { sx: number; sy: number } | null {
     const frameCanvas = frameRef.current;
@@ -379,7 +370,7 @@ export function Stage({
     if (!doc.source) return;
     if (event.button !== 0) return;
 
-    if (stageMode.kind === 'pick-pad') {
+    if (mode.kind === 'pick-pad') {
       const point = framePixelAt(event.clientX, event.clientY);
       const pickCanvas = pickRef.current;
       if (!point) {
@@ -458,7 +449,7 @@ export function Stage({
   }
 
   function handlePointerMove(event: ReactPointerEvent<HTMLDivElement>) {
-    if (stageMode.kind === 'pick-pad') {
+    if (mode.kind === 'pick-pad') {
       updateMagnifier(event);
       return;
     }
@@ -535,7 +526,7 @@ export function Stage({
   }
 
   useEffect(() => {
-    if (stageMode.kind !== 'pick-pad' || !magnifier) return;
+    if (mode.kind !== 'pick-pad' || !magnifier) return;
     const canvas = magnifierRef.current;
     const source = pickRef.current;
     if (!canvas || !source) return;
@@ -593,14 +584,14 @@ export function Stage({
     context.strokeStyle = '#FFFFFF';
     context.lineWidth = 2;
     context.strokeRect(half * cell + 1, half * cell + 1, cell - 2, cell - 2);
-  }, [doc, magnifier, stageMode]);
+  }, [doc, magnifier, mode]);
 
   return (
     <div
       ref={hostRef}
       className={`stage${doc.source ? ' has-source' : ''}${adjusting ? ' adjusting' : ''}${
         dragging ? ' dragging' : ''
-      }${stageMode.kind === 'pick-pad' ? ' picking' : ''}`}
+      }${mode.kind === 'pick-pad' ? ' picking' : ''}`}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={endDrag}
@@ -646,7 +637,7 @@ export function Stage({
             </span>
           </div>
         )}
-        {stageMode.kind === 'adjust' && doc.source && (
+        {mode.kind === 'adjust' && doc.source && (
           <div
             className="frame-handles"
             style={{ left: frameLeft, top: frameTop, width: frameWidth, height: frameHeight }}
@@ -711,7 +702,7 @@ export function Stage({
             </div>
           </div>
         )}
-        {stageMode.kind === 'adjust' && doc.source && (
+        {mode.kind === 'adjust' && doc.source && (
           <div
             className="snap-badge"
             style={{ left: frameLeft + frameWidth / 2, top: frameTop - 10 }}
@@ -739,9 +730,9 @@ export function Stage({
             </span>
           </div>
           <div className="stage-hint">
-            {stageMode.kind === 'pick-pad'
+            {mode.kind === 'pick-pad'
               ? 'clique na imagem para pegar a cor · Esc cancela'
-              : stageMode.kind === 'adjust'
+              : mode.kind === 'adjust'
                 ? `arraste as bordas para ajustar o Frame · Shift proporção livre · ${
                     snapRatios ? 'Alt sem encaixe' : 'encaixe desligado'
                   } · roda para zoom`
@@ -749,7 +740,7 @@ export function Stage({
           </div>
         </>
       )}
-      {stageMode.kind === 'pick-pad' && magnifier && (
+      {mode.kind === 'pick-pad' && magnifier && (
         <div
           className="magnifier"
           style={{ left: magnifier.left, top: magnifier.top }}

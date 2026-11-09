@@ -1,11 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type Dispatch,
-  type SetStateAction,
-} from 'react';
+import { useCallback, useEffect, useRef, type Dispatch, type SetStateAction } from 'react';
 import { withCrop, type DocumentState, type ScaleMode } from '../core/document';
 import {
   applyRatio,
@@ -24,7 +17,7 @@ import type { Settings } from '../core/settings';
 import {
   closeAdjust,
   enterAdjust,
-  IDLE_STAGE_MODE,
+  leavePick,
   shouldResumePlayback,
   type StageMode,
 } from '../core/stageMode';
@@ -36,12 +29,12 @@ interface FrameCropOptions {
   readonly persistSettings: (patch: Partial<Settings>) => void;
   readonly playing: boolean;
   readonly setPlaying: Dispatch<SetStateAction<boolean>>;
-  /** Any crop interaction leaves the Pad eyedropper. */
-  readonly leavePick: () => void;
+  /** `App` owns the one stage interaction mode. */
+  readonly stageMode: StageMode;
+  readonly setStageMode: Dispatch<SetStateAction<StageMode>>;
 }
 
 export interface FrameCrop {
-  readonly adjustFrame: boolean;
   readonly snapRatios: boolean;
   readonly changeMode: (mode: ScaleMode) => void;
   readonly changeRatio: (ratio: number) => void;
@@ -60,16 +53,16 @@ export interface FrameCrop {
   readonly rotate: () => void;
   readonly reset: () => void;
   readonly toggleAdjustFrame: () => void;
-  readonly closeAdjustFrame: () => void;
   readonly changeSnapRatios: (enabled: boolean) => void;
   /** Tell the hook a proportion was loaded from disk, so it is not written back. */
   readonly markRatioPersisted: (ratio: number) => void;
 }
 
 /**
- * Owns the Frame/Crop controller: adjust mode, snapping, the document-level
- * crop commands and the proportion persistence. `App` keeps the wiring and
- * the platform adapters; this hook never touches DOM APIs beyond `window`.
+ * Owns the Frame/Crop controller: the crop commands, the proportion
+ * persistence and the playback side effect of the crop phase. `App` owns the
+ * stage interaction mode itself and passes it in; this hook never touches DOM
+ * APIs beyond `window`.
  */
 export function useFrameCrop({
   doc,
@@ -78,9 +71,9 @@ export function useFrameCrop({
   persistSettings,
   playing,
   setPlaying,
-  leavePick,
+  stageMode,
+  setStageMode,
 }: FrameCropOptions): FrameCrop {
-  const [stageMode, setStageMode] = useState<StageMode>(IDLE_STAGE_MODE);
   const persistedFrameRatioRef = useRef(doc.frame.ratio);
 
   // A preset ratio is remembered for the next launch; a free Personalizado
@@ -113,8 +106,6 @@ export function useFrameCrop({
     }
   }, [stageMode, setPlaying]);
 
-  const adjustFrame = stageMode.kind === 'adjust';
-
   const changeMode = useCallback(
     (mode: ScaleMode) => setDoc((current) => applyScaleMode(current, mode)),
     [setDoc],
@@ -122,10 +113,10 @@ export function useFrameCrop({
 
   const changeRatio = useCallback(
     (ratio: number) => {
-      leavePick();
+      setStageMode(leavePick);
       setDoc((current) => applyRatio(current, ratio));
     },
-    [leavePick, setDoc],
+    [setDoc, setStageMode],
   );
 
   const changeZoom = useCallback(
@@ -194,15 +185,10 @@ export function useFrameCrop({
   );
 
   const toggleAdjustFrame = useCallback(() => {
-    // Turning the crop phase on cancels the Pad eyedropper: the two stage
-    // interactions never overlap.
-    leavePick();
     setStageMode((current) =>
       current.kind === 'adjust' ? closeAdjust(current) : enterAdjust(current, playing),
     );
-  }, [leavePick, playing]);
-
-  const closeAdjustFrame = useCallback(() => setStageMode((current) => closeAdjust(current)), []);
+  }, [playing, setStageMode]);
 
   const changeSnapRatios = useCallback(
     (enabled: boolean) => persistSettings({ snapRatios: enabled }),
@@ -214,7 +200,6 @@ export function useFrameCrop({
   }, []);
 
   return {
-    adjustFrame,
     snapRatios,
     changeMode,
     changeRatio,
@@ -226,7 +211,6 @@ export function useFrameCrop({
     rotate,
     reset,
     toggleAdjustFrame,
-    closeAdjustFrame,
     changeSnapRatios,
     markRatioPersisted,
   };

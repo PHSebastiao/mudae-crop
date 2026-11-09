@@ -35,9 +35,8 @@ const MAX_EARLY_CANCELS: usize = 32;
 /// consumes only the id it is starting, and `finish()` drops only a running
 /// entry, so a later cancel for a finished id becomes an early cancel again.
 enum DownloadState {
-    /// A cancel arrived first. `enqueued_at` keeps the queue's insertion order;
-    /// `cancelled` is the flag `start()` publishes already set.
-    AwaitingStart { cancelled: bool, enqueued_at: u64 },
+    /// A cancel arrived first. `enqueued_at` keeps the queue's insertion order.
+    AwaitingStart { enqueued_at: u64 },
     /// The download is streaming. The flag is the shared cancel signal the
     /// stream polls.
     Running(Arc<AtomicBool>),
@@ -46,6 +45,9 @@ enum DownloadState {
 #[derive(Default)]
 struct DownloadRegistry {
     states: HashMap<String, DownloadState>,
+    /// How many `AwaitingStart` entries `states` holds, so the cap check does
+    /// not scan the live downloads.
+    pending: usize,
     next_sequence: u64,
 }
 
@@ -54,7 +56,10 @@ impl DownloadRegistry {
     /// early cancel is consumed and starts the download already cancelled.
     fn start(&mut self, id: &str) -> Arc<AtomicBool> {
         let cancelled = match self.states.remove(id) {
-            Some(DownloadState::AwaitingStart { cancelled, .. }) => cancelled,
+            Some(DownloadState::AwaitingStart { .. }) => {
+                self.pending -= 1;
+                true
+            }
             // Starting an id that is already running keeps the previous
             // behaviour: a fresh flag replaces it and the old stream keeps its
             // own handle.
@@ -75,18 +80,14 @@ impl DownloadRegistry {
             }
             Some(DownloadState::AwaitingStart { .. }) => {}
             None => {
-                if self.pending_count() >= MAX_EARLY_CANCELS {
+                if self.pending >= MAX_EARLY_CANCELS {
                     self.evict_oldest_pending();
                 }
                 let enqueued_at = self.next_sequence;
-                self.next_sequence = self.next_sequence.wrapping_add(1);
-                self.states.insert(
-                    id,
-                    DownloadState::AwaitingStart {
-                        cancelled: true,
-                        enqueued_at,
-                    },
-                );
+                self.next_sequence = self.next_sequence.saturating_add(1);
+                self.states
+                    .insert(id, DownloadState::AwaitingStart { enqueued_at });
+                self.pending += 1;
             }
         }
     }
@@ -99,13 +100,6 @@ impl DownloadRegistry {
         }
     }
 
-    fn pending_count(&self) -> usize {
-        self.states
-            .values()
-            .filter(|state| matches!(state, DownloadState::AwaitingStart { .. }))
-            .count()
-    }
-
     /// Drop the oldest id still waiting, keeping the queue at
     /// `MAX_EARLY_CANCELS`. Live flags are never evicted.
     fn evict_oldest_pending(&mut self) {
@@ -113,15 +107,14 @@ impl DownloadRegistry {
             .states
             .iter()
             .filter_map(|(id, state)| match state {
-                DownloadState::AwaitingStart { enqueued_at, .. } => {
-                    Some((*enqueued_at, id.clone()))
-                }
+                DownloadState::AwaitingStart { enqueued_at } => Some((*enqueued_at, id.clone())),
                 DownloadState::Running(_) => None,
             })
             .min_by_key(|(enqueued_at, _)| *enqueued_at)
             .map(|(_, id)| id);
         if let Some(id) = oldest {
             self.states.remove(&id);
+            self.pending -= 1;
         }
     }
 }
@@ -580,7 +573,7 @@ mod tests {
             registry.states.get("early"),
             Some(DownloadState::Running(_))
         ));
-        assert_eq!(registry.pending_count(), 0);
+        assert_eq!(registry.pending, 0);
     }
 
     #[test]
@@ -592,7 +585,7 @@ mod tests {
         registry.cancel("live".into());
 
         assert!(flag.load(Ordering::Relaxed));
-        assert_eq!(registry.pending_count(), 0);
+        assert_eq!(registry.pending, 0);
     }
 
     #[test]
@@ -618,11 +611,11 @@ mod tests {
 
         // Cancelling an id already queued neither reorders nor evicts.
         registry.cancel("0".into());
-        assert_eq!(registry.pending_count(), MAX_EARLY_CANCELS);
+        assert_eq!(registry.pending, MAX_EARLY_CANCELS);
 
         registry.cancel("overflow".into());
 
-        assert_eq!(registry.pending_count(), MAX_EARLY_CANCELS);
+        assert_eq!(registry.pending, MAX_EARLY_CANCELS);
         assert!(!registry.start("0").load(Ordering::Relaxed));
         assert!(registry.start("1").load(Ordering::Relaxed));
         assert!(registry.start("overflow").load(Ordering::Relaxed));

@@ -276,88 +276,6 @@ export interface RenderProgress {
   readonly total: number;
 }
 
-/**
- * The stages a GIF Export job passes through. It is a one-way pipeline:
- * `preparing` validates the document, `rendering` streams frames into the
- * encoder, `finishing` closes it, `optimizing` runs the optional compressor,
- * and `done` is the only successful terminal stage. `cancelled` and `failed`
- * are the other terminals.
- */
-export type ExportStage =
-  'preparing' | 'rendering' | 'finishing' | 'optimizing' | 'done' | 'cancelled' | 'failed';
-
-/**
- * Every legal stage transition, and nothing else: you cannot optimize before
- * finishing the encoder, finish after cancelling, or leave a terminal stage.
- */
-const EXPORT_TRANSITIONS: Readonly<Record<ExportStage, readonly ExportStage[]>> = {
-  preparing: ['rendering', 'cancelled', 'failed'],
-  rendering: ['finishing', 'cancelled', 'failed'],
-  finishing: ['optimizing', 'done', 'cancelled', 'failed'],
-  optimizing: ['done', 'cancelled', 'failed'],
-  done: [],
-  cancelled: [],
-  failed: [],
-};
-
-function cancelledError(): ExportError {
-  return new ExportError('Export cancelado.', true);
-}
-
-/**
- * The explicit state of one GIF Export job. `enter` is the only way a stage
- * changes, so the table above is the single source of validity rules, and
- * `recordProgress` derives the public `RenderProgress` from the stage rather
- * than letting the caller label it.
- */
-export class ExportJob {
-  private current: ExportStage = 'preparing';
-
-  get stage(): ExportStage {
-    return this.current;
-  }
-
-  get terminal(): boolean {
-    return EXPORT_TRANSITIONS[this.current].length === 0;
-  }
-
-  enter(next: ExportStage): void {
-    if (!EXPORT_TRANSITIONS[this.current].includes(next)) {
-      throw new Error(`Invalid Export transition: ${this.current} -> ${next}.`);
-    }
-    this.current = next;
-  }
-
-  /** The phase comes from the stage; calling it outside a progress stage is a bug. */
-  recordProgress(done: number, total: number): RenderProgress {
-    return { phase: this.progressPhase(), done, total };
-  }
-
-  /** Enter the cancelled terminal and return the error to throw. */
-  cancel(): ExportError {
-    this.enter('cancelled');
-    return cancelledError();
-  }
-
-  /** Enter the failed terminal and hand back the original reason to throw. */
-  fail(reason: unknown): unknown {
-    this.enter('failed');
-    return reason;
-  }
-
-  private progressPhase(): 'render' | 'optimize' {
-    switch (this.current) {
-      case 'rendering':
-      case 'finishing':
-        return 'render';
-      case 'optimizing':
-        return 'optimize';
-      default:
-        throw new Error(`No Export progress exists in the '${this.current}' stage.`);
-    }
-  }
-}
-
 export interface GifExportOptions {
   readonly signal?: AbortSignal;
   readonly onProgress?: (progress: RenderProgress) => void;
@@ -369,28 +287,28 @@ function yieldToUi(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+function cancelledError(): ExportError {
+  return new ExportError('Export cancelado.', true);
+}
+
 /**
  * Render the active Trim of an animated Source through renderFrame, encode it
  * as a GIF at the document's output size, and optionally run the lossy
- * optimizer. Video frames are seeked before each render. The job walks
- * preparing -> rendering -> finishing -> (optimizing) -> done, and a
- * cancellation can only land in `cancelled`; progress is derived from that
- * stage. AbortSignal stops any of them.
+ * optimizer. Video frames are seeked before each render. Progress covers
+ * rendering, encoding and optimization; AbortSignal stops any of them.
  */
 export async function renderGif(
   doc: DocumentState,
   adapter: ExportAdapter,
   options: GifExportOptions = {},
 ): Promise<Uint8Array> {
-  const job = new ExportJob();
-
   const view = effectiveSource(doc);
   if (!view) {
-    throw job.fail(new ExportError('Não há Source para exportar.'));
+    throw new ExportError('Não há Source para exportar.');
   }
   const trim = effectiveTrim(doc);
   if (!trim) {
-    throw job.fail(new ExportError('A Source não é animada.'));
+    throw new ExportError('A Source não é animada.');
   }
 
   const size = outputSize(doc);
@@ -405,9 +323,8 @@ export async function renderGif(
   let pending: GifEncodeFrame | null = null;
   let dropped = 0;
 
-  job.enter('rendering');
   for (let offset = 0; offset < total; offset += 1) {
-    if (options.signal?.aborted) throw job.cancel();
+    if (options.signal?.aborted) throw cancelledError();
     const frameIndex = trim.start + offset;
     await prepareFrame(view, frameIndex);
     const frame = renderedGifFrame(ctx, doc, size, frameIndex);
@@ -426,34 +343,27 @@ export async function renderGif(
       writer.addFrame(frame);
     }
 
-    options.onProgress?.(job.recordProgress(offset + 1, total));
+    options.onProgress?.({ phase: 'render', done: offset + 1, total });
     // Give the progress notice and the cancel button a chance to paint.
     if (offset + 1 < total) await yieldToUi();
   }
 
-  // The last streamed frame is still buffered: flush it before finishing.
   if (pending) writer.addFrame(pending);
-  if (options.signal?.aborted) throw job.cancel();
-  job.enter('finishing');
+  if (options.signal?.aborted) throw cancelledError();
   const base = writer.finish();
 
-  if (!doc.optimize.enabled || !options.optimizer) {
-    job.enter('done');
-    return base;
-  }
+  if (!doc.optimize.enabled || !options.optimizer) return base;
 
-  job.enter('optimizing');
   try {
     const result = await optimizeGif(base, doc.optimize, options.optimizer, dropped, {
       signal: options.signal,
       onProgress: (done, optimizeTotal) =>
-        options.onProgress?.(job.recordProgress(done, optimizeTotal)),
+        options.onProgress?.({ phase: 'optimize', done, total: optimizeTotal }),
     });
     options.onOptimized?.(result);
-    job.enter('done');
     return result.bytes;
   } catch (reason) {
-    if (reason instanceof OptimizeCancelledError) throw job.cancel();
-    throw job.fail(reason);
+    if (reason instanceof OptimizeCancelledError) throw cancelledError();
+    throw reason;
   }
 }

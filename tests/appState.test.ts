@@ -1,125 +1,117 @@
 import { describe, expect, it } from 'vitest';
 import {
-  beginActivity,
-  BUSY_REFUSAL,
-  canCancelDownload,
-  clearNotice,
-  dismissError,
-  endActivity,
-  endDownload,
-  errorNotice,
-  finishDownload,
-  IDLE_ACTIVITY,
   IDLE_DOWNLOAD,
-  infoNotice,
+  INITIAL_APP_SHELL,
   NO_NOTICE,
-  reportDownload,
-  startDownload,
-  type Activity,
+  reduceAppShell,
+  type AppShellAction,
+  type AppShellState,
   type NoticeAction,
 } from '../src/core/appState';
 
+function run(...actions: readonly AppShellAction[]): AppShellState {
+  return actions.reduce(reduceAppShell, INITIAL_APP_SHELL);
+}
+
+const action: NoticeAction = { label: 'Abrir Configurações', run: () => undefined };
+
 describe('activity', () => {
   it('starts only when idle and names the operation that owns the app', () => {
-    const started = beginActivity(IDLE_ACTIVITY, 'import');
+    const running = run({ type: 'begin', label: 'import' });
 
-    expect(started).toEqual({
-      kind: 'started',
-      activity: { kind: 'running', label: 'import' },
+    expect(running.activity).toEqual({ kind: 'running', label: 'import' });
+    expect(reduceAppShell(running, { type: 'end', label: 'import' }).activity).toEqual({
+      kind: 'idle',
     });
-    if (started.kind !== 'started') throw new Error('expected the activity to start');
-    expect(endActivity(started.activity, 'import')).toEqual(IDLE_ACTIVITY);
-    expect(beginActivity(endActivity(started.activity, 'import'), 'export').kind).toBe('started');
   });
 
-  it('refuses a second activity with the busy reason and the import message', () => {
-    const running: Activity = { kind: 'running', label: 'export' };
+  it('ignores a second begin while an operation owns the app', () => {
+    const running = run({ type: 'begin', label: 'export' }, { type: 'begin', label: 'import' });
 
-    expect(beginActivity(running, 'import')).toEqual({
-      kind: 'refused',
-      reason: 'busy',
-      message: BUSY_REFUSAL,
-    });
-    expect(BUSY_REFUSAL).toBe('Termine a operação em andamento antes de importar outra Source.');
+    expect(running.activity).toEqual({ kind: 'running', label: 'export' });
   });
 
   it('does not let one operation release another one’s run', () => {
-    const running: Activity = { kind: 'running', label: 'upload' };
+    const running = run({ type: 'begin', label: 'upload' });
 
-    expect(endActivity(running, 'export')).toBe(running);
-    expect(endActivity(running, 'upload')).toEqual(IDLE_ACTIVITY);
+    expect(reduceAppShell(running, { type: 'end', label: 'export' })).toBe(running);
+    expect(reduceAppShell(running, { type: 'end', label: 'upload' }).activity).toEqual({
+      kind: 'idle',
+    });
   });
 });
 
 describe('notice', () => {
-  const action: NoticeAction = { label: 'Abrir Configurações', run: () => undefined };
+  it('holds one kind at a time: info replaces an error and drops its action', () => {
+    const failed = run({ type: 'fail', message: 'falhou', action });
+    expect(failed.notice).toEqual({ kind: 'error', message: 'falhou', action });
 
-  it('holds one kind at a time: info replaces error and drops its action', () => {
-    const failure = errorNotice('falhou', action);
-    const success = infoNotice('deu certo');
-
-    expect(failure).toEqual({ kind: 'error', message: 'falhou', action });
-    expect(success).toEqual({ kind: 'info', message: 'deu certo' });
-    expect('action' in success).toBe(false);
+    const informed = reduceAppShell(failed, { type: 'inform', message: 'deu certo' });
+    expect(informed.notice).toEqual({ kind: 'info', message: 'deu certo' });
   });
 
   it('keeps the action only on an error that was given one', () => {
-    expect(errorNotice('falhou')).toEqual({ kind: 'error', message: 'falhou', action: null });
-    expect(errorNotice('falhou', action)).toEqual({
+    expect(run({ type: 'fail', message: 'falhou', action: null }).notice).toEqual({
       kind: 'error',
       message: 'falhou',
-      action,
+      action: null,
     });
   });
 
-  it('clears back to none from every kind', () => {
-    expect(clearNotice()).toBe(NO_NOTICE);
-    expect(clearNotice()).toEqual({ kind: 'none' });
+  it('clears back to none and leaves a cleared bar untouched', () => {
+    const cleared = run(
+      { type: 'fail', message: 'falhou', action: null },
+      { type: 'clear-notice' },
+    );
+
+    expect(cleared.notice).toBe(NO_NOTICE);
+    expect(reduceAppShell(cleared, { type: 'clear-notice' })).toBe(cleared);
   });
 
   it('dismisses an error but leaves an info untouched, as Settings does', () => {
-    expect(dismissError(errorNotice('falhou', action))).toEqual(NO_NOTICE);
-    expect(dismissError(infoNotice('deu certo'))).toEqual(infoNotice('deu certo'));
-    expect(dismissError(NO_NOTICE)).toBe(NO_NOTICE);
+    const failed = run({ type: 'fail', message: 'falhou', action });
+    expect(reduceAppShell(failed, { type: 'dismiss-error' }).notice).toBe(NO_NOTICE);
+
+    const informed = run({ type: 'inform', message: 'deu certo' });
+    expect(reduceAppShell(informed, { type: 'dismiss-error' })).toBe(informed);
   });
 });
 
 describe('download phase', () => {
   it('starts at zero bytes with an unknown total', () => {
-    expect(startDownload()).toEqual({ kind: 'downloading', received: 0, total: null });
+    expect(run({ type: 'download-start' }).download).toEqual({
+      kind: 'downloading',
+      received: 0,
+      total: null,
+    });
   });
 
   it('reports progress only while downloading', () => {
-    const downloading = startDownload();
+    const downloading = run(
+      { type: 'download-start' },
+      { type: 'download-progress', amount: { received: 512, total: 1024 } },
+    );
+    expect(downloading.download).toEqual({ kind: 'downloading', received: 512, total: 1024 });
 
-    expect(reportDownload(downloading, { received: 512, total: 1024 })).toEqual({
-      kind: 'downloading',
-      received: 512,
-      total: 1024,
-    });
-    expect(reportDownload(IDLE_DOWNLOAD, { received: 512, total: 1024 })).toBe(IDLE_DOWNLOAD);
-    const finishing = finishDownload(downloading);
-    expect(reportDownload(finishing, { received: 1024, total: 1024 })).toBe(finishing);
+    const finishing = run({ type: 'download-start' }, { type: 'download-finish' });
+    expect(
+      reduceAppShell(finishing, {
+        type: 'download-progress',
+        amount: { received: 1024, total: 1024 },
+      }),
+    ).toBe(finishing);
   });
 
-  it('can be cancelled only while the transfer is downloading', () => {
-    const downloading = startDownload();
+  it('enters a finishing phase that ends back at idle', () => {
+    const finishing = run({ type: 'download-start' }, { type: 'download-finish' });
 
-    expect(canCancelDownload(downloading)).toBe(true);
-    expect(canCancelDownload(finishDownload(downloading))).toBe(false);
-    expect(canCancelDownload(IDLE_DOWNLOAD)).toBe(false);
-  });
-
-  it('enters a non-cancellable finishing phase and then returns to idle', () => {
-    const finishing = finishDownload(startDownload());
-
-    expect(finishing).toEqual({ kind: 'finishing' });
-    expect(canCancelDownload(finishing)).toBe(false);
-    expect(finishDownload(finishing)).toBe(finishing);
-    expect(endDownload()).toBe(IDLE_DOWNLOAD);
+    expect(finishing.download).toEqual({ kind: 'finishing' });
+    expect(reduceAppShell(finishing, { type: 'download-finish' })).toBe(finishing);
+    expect(reduceAppShell(finishing, { type: 'download-end' }).download).toBe(IDLE_DOWNLOAD);
   });
 
   it('does not finish a phase that never started', () => {
-    expect(finishDownload(IDLE_DOWNLOAD)).toBe(IDLE_DOWNLOAD);
+    const idle = run();
+    expect(reduceAppShell(idle, { type: 'download-finish' })).toBe(idle);
   });
 });

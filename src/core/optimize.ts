@@ -107,14 +107,6 @@ function isValidGif(bytes: Uint8Array, width: number, height: number): boolean {
   }
 }
 
-/**
- * The three ways an Optimize run can end. `OptimizeResult.met` stays
- * `boolean | null` for the panel; this union is what the loop reasons about,
- * and the tri-state is derived from it in one place.
- */
-type OptimizeOutcome =
-  { readonly kind: 'no-target' } | { readonly kind: 'met' } | { readonly kind: 'missed' };
-
 /** The passes the planner chose for this run. */
 interface OptimizePlan {
   readonly lossy: readonly number[];
@@ -153,40 +145,6 @@ function planFor(
         )
     : [];
   return { lossy, colors, firstPassOnly };
-}
-
-function outcomeOf(target: number | null, size: number): OptimizeOutcome {
-  if (target === null) return { kind: 'no-target' };
-  return size <= target ? { kind: 'met' } : { kind: 'missed' };
-}
-
-/** Project the internal outcome onto the public tri-state. */
-function metOf(outcome: OptimizeOutcome): boolean | null {
-  switch (outcome.kind) {
-    case 'no-target':
-      return null;
-    case 'met':
-      return true;
-    case 'missed':
-      return false;
-  }
-}
-
-/**
- * The early-exit rule: stop as soon as the best bytes fit the target. With the
- * target off it never fires, so every planned pass runs.
- */
-function reachedTarget(outcome: OptimizeOutcome): boolean {
-  return outcome.kind === 'met';
-}
-
-/**
- * The colour pass follows the lossy passes. It always runs in first-pass mode
- * (target off or already met) and otherwise only while the target is missed.
- */
-function shouldRunColorPass(plan: OptimizePlan, outcome: OptimizeOutcome): boolean {
-  if (plan.colors.length === 0) return false;
-  return plan.firstPassOnly || !reachedTarget(outcome);
 }
 
 /**
@@ -244,7 +202,7 @@ export async function optimizeGif(
       size: best.bytes.length,
       baseSize: baseBytes.length,
       targetBytes: target,
-      met: metOf(outcomeOf(target, best.bytes.length)),
+      met: target === null ? null : best.bytes.length <= target,
       lossy: settings.lossy,
       colors: null,
       attempts: 0,
@@ -255,7 +213,9 @@ export async function optimizeGif(
 
   const plan = planFor(settings, target, baseBytes.length);
   const planned = plan.lossy.length + plan.colors.length;
-  const outcome = () => outcomeOf(target, best.bytes.length);
+  // The early-exit rule: stop as soon as the best bytes fit the target. With
+  // the target off it never fires, so every planned pass runs.
+  const met = () => target !== null && best.bytes.length <= target;
 
   const tryCompress = async (lossy: number, colors: number | null): Promise<void> => {
     if (hooks.signal?.aborted) throw new OptimizeCancelledError();
@@ -280,24 +240,25 @@ export async function optimizeGif(
   for (const lossy of plan.lossy) {
     if (hooks.signal?.aborted) throw new OptimizeCancelledError();
     await tryCompress(lossy, null);
-    if (reachedTarget(outcome())) break;
+    if (met()) break;
   }
 
-  if (shouldRunColorPass(plan, outcome())) {
+  // The colour pass follows the lossy ones: always in first-pass mode, and
+  // otherwise only while the target is still missed.
+  if (plan.colors.length > 0 && (plan.firstPassOnly || !met())) {
     for (const colors of plan.colors) {
       if (hooks.signal?.aborted) throw new OptimizeCancelledError();
       await tryCompress(best.lossy, colors);
-      if (reachedTarget(outcome())) break;
+      if (met()) break;
     }
   }
 
-  const final = outcome();
   return {
     bytes: best.bytes,
     size: best.bytes.length,
     baseSize: baseBytes.length,
     targetBytes: target,
-    met: metOf(final),
+    met: target === null ? null : best.bytes.length <= target,
     lossy: best.lossy,
     colors: best.colors,
     attempts,

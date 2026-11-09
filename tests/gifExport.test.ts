@@ -2,7 +2,6 @@ import { createCanvas, type Canvas } from '@napi-rs/canvas';
 import { describe, expect, it, vi } from 'vitest';
 import {
   ExportError,
-  ExportJob,
   exportKindFor,
   renderGif,
   type EncodableCanvas,
@@ -297,86 +296,5 @@ describe('GIF Export', () => {
     await expect(renderGif(makeDoc(null), adapter)).rejects.toMatchObject({
       message: 'Não há Source para exportar.',
     });
-  });
-});
-
-describe('Export job stages', () => {
-  it('walks preparing -> rendering -> finishing -> optimizing -> done', () => {
-    const job = new ExportJob();
-
-    expect(job.stage).toBe('preparing');
-    job.enter('rendering');
-    job.enter('finishing');
-    job.enter('optimizing');
-    job.enter('done');
-
-    expect(job.stage).toBe('done');
-    expect(job.terminal).toBe(true);
-  });
-
-  it('skips optimizing when there is nothing to optimize', () => {
-    const job = new ExportJob();
-
-    job.enter('rendering');
-    job.enter('finishing');
-    job.enter('done');
-
-    expect(job.stage).toBe('done');
-  });
-
-  it('refuses to optimize before the encoder is finished', () => {
-    const job = new ExportJob();
-    job.enter('rendering');
-
-    expect(() => job.enter('optimizing')).toThrow(
-      'Invalid Export transition: rendering -> optimizing.',
-    );
-    expect(job.stage).toBe('rendering');
-  });
-
-  it('refuses to finish or optimize after cancelling', () => {
-    const job = new ExportJob();
-    job.enter('rendering');
-    job.cancel();
-
-    expect(job.stage).toBe('cancelled');
-    expect(job.terminal).toBe(true);
-    expect(() => job.enter('finishing')).toThrow();
-    expect(() => job.enter('optimizing')).toThrow();
-  });
-
-  it('cannot leave a terminal stage', () => {
-    const job = new ExportJob();
-    job.enter('rendering');
-    job.enter('finishing');
-    job.enter('done');
-
-    expect(() => job.enter('rendering')).toThrow();
-  });
-
-  it('treats a validation failure as a failed terminal', () => {
-    const job = new ExportJob();
-    const reason = new Error('boom');
-
-    expect(job.fail(reason)).toBe(reason);
-    expect(job.stage).toBe('failed');
-    expect(job.terminal).toBe(true);
-    expect(() => job.enter('rendering')).toThrow();
-  });
-
-  it('derives the progress phase from the stage', () => {
-    const job = new ExportJob();
-    job.enter('rendering');
-
-    expect(job.recordProgress(1, 4)).toEqual({ phase: 'render', done: 1, total: 4 });
-
-    job.enter('finishing');
-    expect(job.recordProgress(4, 4)).toEqual({ phase: 'render', done: 4, total: 4 });
-
-    job.enter('optimizing');
-    expect(job.recordProgress(1, 3)).toEqual({ phase: 'optimize', done: 1, total: 3 });
-
-    job.enter('done');
-    expect(() => job.recordProgress(2, 3)).toThrow();
   });
 });

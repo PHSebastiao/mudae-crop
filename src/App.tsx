@@ -29,24 +29,7 @@ import {
   type Trim,
 } from './core/document';
 import { normalizeHexColor } from './core/color';
-import {
-  beginActivity,
-  canCancelDownload,
-  clearNotice as clearedNotice,
-  dismissError,
-  endActivity,
-  endDownload,
-  errorNotice,
-  finishDownload,
-  infoNotice,
-  reportDownload,
-  startDownload,
-  type Activity,
-  type ActivityLabel,
-  type DownloadPhase,
-  type Notice,
-  type NoticeAction,
-} from './core/appState';
+import { IDLE_STAGE_MODE, enterPickPad, leavePick, type StageMode } from './core/stageMode';
 import {
   formatFps,
   formatPlaybackDuration,
@@ -119,6 +102,7 @@ import { BorderBar } from './components/BorderBar';
 import { Timeline } from './components/Timeline';
 import { FrameGrid } from './components/FrameGrid';
 import { SettingsDialog, type TokenTestResult } from './components/SettingsDialog';
+import { useAppShell } from './hooks/useAppShell';
 import { useFrameCrop } from './hooks/useFrameCrop';
 
 function messageOf(error: unknown): string {
@@ -129,8 +113,22 @@ function messageOf(error: unknown): string {
 
 export default function App() {
   const [doc, setDoc] = useState<DocumentState>(emptyDocument);
-  const [activity, setActivity] = useState<Activity>({ kind: 'idle' });
-  const [notice, setNotice] = useState<Notice>({ kind: 'none' });
+  const {
+    busy,
+    notice,
+    download,
+    begin: beginRun,
+    end: endRun,
+    inform,
+    fail,
+    clearNotice,
+    dismissError,
+    startDownload,
+    reportDownload,
+    finishDownload,
+    endDownload,
+  } = useAppShell();
+  const [stageMode, setStageMode] = useState<StageMode>(IDLE_STAGE_MODE);
   const [uploading, setUploading] = useState(false);
   const [link, setLink] = useState('');
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
@@ -142,9 +140,7 @@ export default function App() {
   const [appendPostId, setAppendPostId] = useState('');
   const [palette, setPalette] = useState<readonly PaletteColor[]>([]);
   const [paletteVersion, setPaletteVersion] = useState(0);
-  const [pickTarget, setPickTarget] = useState<'pad' | null>(null);
   const [cooldownSeconds, setCooldownSeconds] = useState(0);
-  const [downloadPhase, setDownloadPhase] = useState<DownloadPhase>({ kind: 'idle' });
   const [renderProgress, setRenderProgress] = useState<RenderProgress | null>(null);
   const [optimizeResult, setOptimizeResult] = useState<OptimizeResult | null>(null);
   const [sizeEstimate, setSizeEstimate] = useState<SizeEstimate | null>(null);
@@ -158,12 +154,8 @@ export default function App() {
   frameIndexRef.current = frameIndex;
   const frameAnimation = effectiveAnimation(doc);
   const hasFrames = frameAnimation !== null;
-  const busy = activity.kind === 'running';
+  const adjustFrame = stageMode.kind === 'adjust';
   const estimateVersionRef = useRef(0);
-  const activityRef = useRef<Activity>(activity);
-  activityRef.current = activity;
-  const downloadPhaseRef = useRef<DownloadPhase>(downloadPhase);
-  downloadPhaseRef.current = downloadPhase;
   const cancelDownloadRef = useRef<(() => void) | null>(null);
   const cancelRenderRef = useRef<AbortController | null>(null);
   const settingsRef = useRef(settings);
@@ -182,37 +174,10 @@ export default function App() {
   );
 
   const openSettings = useCallback(() => {
-    setPickTarget(null);
-    setNotice((current) => dismissError(current));
+    setStageMode(leavePick);
+    dismissError();
     setSettingsOpen(true);
-  }, []);
-
-  const fail = useCallback((message: string, action: NoticeAction | null = null) => {
-    setNotice(errorNotice(message, action));
-  }, []);
-
-  const inform = useCallback((message: string) => {
-    setNotice(infoNotice(message));
-  }, []);
-
-  const clearNotice = useCallback(() => {
-    setNotice(clearedNotice());
-  }, []);
-
-  const beginRun = useCallback((label: ActivityLabel) => {
-    const result = beginActivity(activityRef.current, label);
-    if (result.kind === 'started') {
-      activityRef.current = result.activity;
-      setActivity(result.activity);
-    }
-    return result;
-  }, []);
-
-  const endRun = useCallback((label: ActivityLabel) => {
-    const next = endActivity(activityRef.current, label);
-    activityRef.current = next;
-    setActivity(next);
-  }, []);
+  }, [dismissError]);
 
   const persistSettings = useCallback(
     (patch: Partial<Settings>) => {
@@ -254,9 +219,7 @@ export default function App() {
     [fail],
   );
 
-  const leavePick = useCallback(() => setPickTarget(null), []);
   const {
-    adjustFrame,
     snapRatios,
     changeMode,
     changeRatio,
@@ -268,7 +231,6 @@ export default function App() {
     rotate,
     reset,
     toggleAdjustFrame,
-    closeAdjustFrame,
     changeSnapRatios,
     markRatioPersisted,
   } = useFrameCrop({
@@ -278,7 +240,8 @@ export default function App() {
     persistSettings,
     playing,
     setPlaying,
-    leavePick,
+    stageMode,
+    setStageMode,
   });
 
   useEffect(() => {
@@ -458,7 +421,7 @@ export default function App() {
     async (candidate: SourceCandidate) => {
       const source = await loadSource(candidate, decodeWithBrowser);
       docRef.current.source?.video?.dispose();
-      setPickTarget(null);
+      setStageMode(leavePick);
       setPlaying(false);
       setFrameIndex(0);
       setOptimizeResult(null);
@@ -468,33 +431,10 @@ export default function App() {
     [inform],
   );
 
-  const startDownloadPhase = useCallback(() => {
-    downloadPhaseRef.current = startDownload();
-    setDownloadPhase(downloadPhaseRef.current);
-  }, []);
-
-  const reportDownloadPhase = useCallback((amount: { received: number; total: number | null }) => {
-    downloadPhaseRef.current = reportDownload(downloadPhaseRef.current, amount);
-    setDownloadPhase(downloadPhaseRef.current);
-  }, []);
-
-  const finishDownloadPhase = useCallback(() => {
-    // The link is down; decoding is local and no longer cancellable.
-    cancelDownloadRef.current = null;
-    downloadPhaseRef.current = finishDownload(downloadPhaseRef.current);
-    setDownloadPhase(downloadPhaseRef.current);
-  }, []);
-
-  const endDownloadPhase = useCallback(() => {
-    cancelDownloadRef.current = null;
-    downloadPhaseRef.current = endDownload();
-    setDownloadPhase(downloadPhaseRef.current);
-  }, []);
-
   const importCandidate = useCallback(
     async (candidate: SourceCandidate) => {
       const started = beginRun('import');
-      if (started.kind === 'refused') {
+      if (!started.ok) {
         fail(started.message);
         return;
       }
@@ -512,7 +452,7 @@ export default function App() {
   const importPath = useCallback(
     async (path: string) => {
       const started = beginRun('import');
-      if (started.kind === 'refused') {
+      if (!started.ok) {
         fail(started.message);
         return;
       }
@@ -544,7 +484,7 @@ export default function App() {
         return;
       }
       const started = beginRun('download');
-      if (started.kind === 'refused') {
+      if (!started.ok) {
         fail(started.message);
         return;
       }
@@ -552,14 +492,16 @@ export default function App() {
       const controller = new AbortController();
       cancelDownloadRef.current = () => controller.abort();
       clearNotice();
-      startDownloadPhase();
+      startDownload();
       try {
         const candidate = await downloadSource(raw, {
           transport: tauriDownloadTransport,
           signal: controller.signal,
-          onProgress: reportDownloadPhase,
+          onProgress: reportDownload,
         });
-        finishDownloadPhase();
+        // The link is down; decoding is local and no longer cancellable.
+        cancelDownloadRef.current = null;
+        finishDownload();
         await applyCandidate(candidate);
         setLink('');
       } catch (reason) {
@@ -569,7 +511,8 @@ export default function App() {
           fail(downloadErrorMessage(reason));
         }
       } finally {
-        endDownloadPhase();
+        cancelDownloadRef.current = null;
+        endDownload();
         endRun('download');
       }
     },
@@ -577,23 +520,22 @@ export default function App() {
       applyCandidate,
       beginRun,
       clearNotice,
-      endDownloadPhase,
+      endDownload,
       endRun,
       fail,
-      finishDownloadPhase,
+      finishDownload,
       inform,
-      reportDownloadPhase,
-      startDownloadPhase,
+      reportDownload,
+      startDownload,
     ],
   );
 
   const cancelDownload = useCallback(() => {
-    if (!canCancelDownload(downloadPhaseRef.current)) return;
     cancelDownloadRef.current?.();
   }, []);
 
   const handleOpen = useCallback(async () => {
-    if (activityRef.current.kind === 'running') return;
+    if (busy) return;
     try {
       if (!isDesktop()) {
         fail('Abrir arquivos só funciona no app desktop.');
@@ -604,7 +546,7 @@ export default function App() {
     } catch (reason) {
       fail(`Não foi possível abrir o diálogo de arquivos. ${messageOf(reason)}`);
     }
-  }, [fail, importPath]);
+  }, [busy, fail, importPath]);
 
   /** The Source bar takes a link or a local path; Enter and the button share this. */
   const submitLink = useCallback(() => {
@@ -682,7 +624,7 @@ export default function App() {
       fail('Exportar só funciona no app desktop.');
       return;
     }
-    if (beginRun('export').kind === 'refused') return;
+    if (!beginRun('export').ok) return;
     const kind = exportKindFor(effectiveSource(current), settingsRef.current.exportFormat);
     const extension = kind.format;
     const label = kind.label;
@@ -732,7 +674,7 @@ export default function App() {
       inform(`${label} ${size.width}×${size.height} exportado: ${fileNameOf(path)}`);
     } catch (reason) {
       if (reason instanceof ExportError && reason.cancelled) {
-        inform('Render cancelado. A Source continua carregada.');
+        inform('Render cancelado.');
       } else {
         fail(`Não foi possível exportar o ${label}. ${messageOf(reason)}`);
       }
@@ -773,7 +715,7 @@ export default function App() {
     const current = docRef.current;
     if (!current.source) return;
     // A double click or a repeated Ctrl+Enter never starts a second upload.
-    if (activityRef.current.kind === 'running') return;
+    if (busy) return;
     if (!isDesktop()) {
       fail('O upload só funciona no app desktop.');
       return;
@@ -797,7 +739,7 @@ export default function App() {
       fail(`Aguarde ${cooldownSeconds}s antes de subir de novo.`);
       return;
     }
-    if (beginRun('upload').kind === 'refused') return;
+    if (!beginRun('upload').ok) return;
 
     const kind = exportKindFor(effectiveSource(current), settingsRef.current.exportFormat);
     const extension = kind.format;
@@ -852,7 +794,7 @@ export default function App() {
       );
     } catch (reason) {
       if (reason instanceof ExportError && reason.cancelled) {
-        inform('Render cancelado. A Source continua carregada.');
+        inform('Render cancelado.');
       } else {
         uploadFailure(reason);
       }
@@ -863,6 +805,7 @@ export default function App() {
     }
   }, [
     beginRun,
+    busy,
     clearNotice,
     cooldownSeconds,
     endRun,
@@ -986,20 +929,21 @@ export default function App() {
   exportRef.current = handleExport;
 
   const changePadColor = useCallback((padColor: string) => {
-    setPickTarget(null);
+    setStageMode(leavePick);
     setDoc((current) => withPadColor(current, padColor));
   }, []);
 
   const togglePickPad = useCallback(() => {
     // Arming the eyedropper leaves the crop phase, mirroring the inverse.
-    closeAdjustFrame();
-    setPickTarget((current) => (current === 'pad' ? null : 'pad'));
-  }, [closeAdjustFrame]);
+    setStageMode((current) =>
+      current.kind === 'pick-pad' ? leavePick(current) : enterPickPad(current),
+    );
+  }, []);
 
   const pickPadColor = useCallback(
     (hex: string) => {
       setDoc((current) => withPadColor(current, hex));
-      setPickTarget(null);
+      setStageMode(leavePick);
       inform(`Cor do Pad: ${hex}`);
     },
     [inform],
@@ -1155,10 +1099,9 @@ export default function App() {
         ) {
           return;
         }
-        if (pickTarget !== null || adjustFrame) {
+        if (stageMode.kind !== 'idle') {
           event.preventDefault();
-          setPickTarget(null);
-          closeAdjustFrame();
+          setStageMode(IDLE_STAGE_MODE);
           return;
         }
       }
@@ -1238,15 +1181,13 @@ export default function App() {
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [
-    adjustFrame,
-    closeAdjustFrame,
     doc.source,
     handleOpen,
     hasFrames,
     openSettings,
-    pickTarget,
     ratioOpen,
     settingsOpen,
+    stageMode,
     toggleAdjustFrame,
     toggleFrames,
     togglePlay,
@@ -1428,15 +1369,15 @@ export default function App() {
         </div>
       </header>
 
-      {downloadPhase.kind === 'downloading' ? (
+      {download.kind === 'downloading' ? (
         <div className="notice download" role="status">
           <span>
-            Baixando link… {formatBytes(downloadPhase.received)}
-            {downloadPhase.total ? ` de ${formatBytes(downloadPhase.total)}` : ''}
+            Baixando link… {formatBytes(download.received)}
+            {download.total ? ` de ${formatBytes(download.total)}` : ''}
           </span>
           <progress
-            value={downloadPhase.total ? downloadPhase.received : undefined}
-            max={downloadPhase.total ?? undefined}
+            value={download.total ? download.received : undefined}
+            max={download.total ?? undefined}
           />
           <button type="button" onClick={cancelDownload}>
             cancelar
@@ -1486,7 +1427,7 @@ export default function App() {
           onPickPadColor={togglePickPad}
           onTrim={changeTrim}
           onSpeed={changeSpeed}
-          pickingPad={pickTarget === 'pad'}
+          pickingPad={stageMode.kind === 'pick-pad'}
           framesOpen={framesOpen}
           onToggleFrames={toggleFrames}
           adjustFrame={adjustFrame}
@@ -1500,11 +1441,10 @@ export default function App() {
             onPan={pan}
             onZoomAt={zoomAtPoint}
             onResize={resizeFrame}
-            adjustFrame={adjustFrame}
+            mode={stageMode}
             snapRatios={snapRatios}
             onOpen={handleOpen}
             busy={busy}
-            picking={pickTarget === 'pad'}
             onPickColor={pickPadColor}
             onPickMiss={pickPadMiss}
           />
@@ -1540,7 +1480,7 @@ export default function App() {
         <ExportPanel
           doc={doc}
           busy={busy}
-          downloading={downloadPhase.kind === 'downloading'}
+          downloading={download.kind === 'downloading'}
           uploading={uploading}
           settings={settings}
           history={history}
