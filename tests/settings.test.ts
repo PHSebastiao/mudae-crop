@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { MUDAE_RATIO } from '../src/core/ratios';
 import {
   DEFAULT_SETTINGS,
   parseSettings,
@@ -26,7 +27,8 @@ describe('settings', () => {
       borderColor: '#AABBCC',
       borderWidth: 3,
       exportFormat: 'png',
-      exportScale: 2,
+      frameRatio: 16 / 9,
+      snapRatios: false,
     };
 
     const loaded = parseSettings(serializeSettings(settings));
@@ -44,7 +46,8 @@ describe('settings', () => {
         borderColor: 'red',
         borderWidth: 99,
         exportFormat: 'bmp',
-        exportScale: 3,
+        frameRatio: 0,
+        snapRatios: 'yes',
       }),
     );
 
@@ -55,7 +58,24 @@ describe('settings', () => {
     expect(loaded.borderColor).toBe(DEFAULT_SETTINGS.borderColor);
     expect(loaded.borderWidth).toBe(20);
     expect(loaded.exportFormat).toBe('png');
-    expect(loaded.exportScale).toBe(1);
+    expect(loaded.frameRatio).toBe(MUDAE_RATIO);
+    expect(loaded.snapRatios).toBe(true);
+  });
+
+  it('ignores a stale exportScale key from an older settings file', () => {
+    const loaded = parseSettings(
+      JSON.stringify({ ...DEFAULT_SETTINGS, exportScale: 2, frameRatio: 16 / 9 }),
+    );
+
+    expect(loaded).toEqual({ ...DEFAULT_SETTINGS, frameRatio: 16 / 9 });
+    expect('exportScale' in loaded).toBe(false);
+  });
+
+  it('accepts any positive Frame ratio and keeps snapping off', () => {
+    const loaded = parseSettings(JSON.stringify({ frameRatio: 1.2345, snapRatios: false }));
+
+    expect(loaded.frameRatio).toBe(1.2345);
+    expect(loaded.snapRatios).toBe(false);
   });
 
   it('falls back a legacy JPG format to PNG', () => {

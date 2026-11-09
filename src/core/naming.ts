@@ -1,9 +1,9 @@
 import type { ExportFileFormat } from './export';
 
-/** File name from the Source stem, preset, local timestamp and format. Pure so it can be tested. */
+/** File name from the Source stem, Frame proportion slug, local timestamp and format. */
 export function exportFileName(
   sourceName: string,
-  frameId: string,
+  slug: string,
   date: Date,
   extension: ExportFileFormat = 'png',
 ): string {
@@ -22,7 +22,7 @@ export function exportFileName(
     String(date.getMinutes()).padStart(2, '0'),
     String(date.getSeconds()).padStart(2, '0'),
   ].join('');
-  return `${stem}-${frameId}-${stamp}.${extension}`;
+  return `${stem}-${slug}-${stamp}.${extension}`;
 }
 
 /**

@@ -1,6 +1,7 @@
 import { parseHexColor, toHexColor, type Rgb } from './color';
 import { sampleTrimIndices } from './animation';
 import { effectiveSource, effectiveTrim, type DocumentState } from './document';
+import { nativeSize } from './geometry';
 import { renderFrame, type RenderContext } from './render';
 
 export const MIN_PALETTE = 4;
@@ -251,9 +252,10 @@ export function paletteFromPixels(
  */
 export function extractPalette(doc: DocumentState, adapter: PaletteAdapter): PaletteColor[] {
   if (!doc.source) return [];
-  const frameScale = Math.min(1, MAX_SAMPLE_SIDE / Math.max(doc.frame.width, doc.frame.height));
-  const width = Math.max(1, Math.round(doc.frame.width * frameScale));
-  const height = Math.max(1, Math.round(doc.frame.height * frameScale));
+  const native = nativeSize(doc);
+  const frameScale = Math.min(1, MAX_SAMPLE_SIDE / Math.max(native.width, native.height));
+  const width = Math.max(1, Math.round(native.width * frameScale));
+  const height = Math.max(1, Math.round(native.height * frameScale));
   const pad = parseHexColor(doc.padColor) ?? { r: 255, g: 255, b: 255 };
   const accumulator: ColorCounts = { counts: new Map(), order: 0, sampled: 0 };
   const canvas = adapter.createCanvas(width, height);
@@ -265,7 +267,7 @@ export function extractPalette(doc: DocumentState, adapter: PaletteAdapter): Pal
     ? [effectiveTrim(doc)?.start ?? 0]
     : sampleTrimIndices(effectiveSource(doc), effectiveTrim(doc), MAX_SAMPLE_FRAMES);
   for (const frameIndex of indices) {
-    renderFrame(ctx, doc, { scale: frameScale, border: false, frameIndex });
+    renderFrame(ctx, doc, { outputWidth: width, outputHeight: height, border: false, frameIndex });
     const image = ctx.getImageData(0, 0, width, height);
     countPixels(accumulator, image.data, image.width, image.height, pad);
   }

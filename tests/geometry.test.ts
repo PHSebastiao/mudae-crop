@@ -1,228 +1,559 @@
 import { describe, expect, it } from 'vitest';
 import {
-  FIT_CROP,
-  MUDAE_FRAME,
-  SQUARE_FRAME,
+  DEFAULT_FRAME,
   defaultCrop,
   withBorder,
   withCrop,
   withPadColor,
+  withResize,
+  withResizeLocked,
 } from '../src/core/document';
 import {
+  applyRatio,
   applyScaleMode,
+  baseRectFor,
   clampCrop,
-  clampZoom,
-  effectiveScale,
-  fitScale,
-  padScale,
+  frameRect,
+  nativeSize,
+  offsetPct,
   panBy,
-  panLimits,
   resetCrop,
+  resizeCrop,
+  resizeFrame,
   rotate90,
   rotatedBounds,
-  scaleForMode,
-  setScaleMode,
-  sourceRect,
   zoomAt,
-  zoomLimits,
+  zoomOf,
+  zoomTo,
 } from '../src/core/geometry';
-import { makeDoc, makeSource, sourcePointAt } from './helpers';
+import { MUDAE_RATIO } from '../src/core/ratios';
+import { padRect } from '../src/core/rect';
+import { makeDoc, makeSource } from './helpers';
 
-describe('scale per mode', () => {
-  it('crops a portrait Source to the Fit Frame', () => {
+function expectRect(
+  actual: { x: number; y: number; width: number; height: number },
+  expected: { x: number; y: number; width: number; height: number },
+) {
+  expect(actual.x).toBeCloseTo(expected.x);
+  expect(actual.y).toBeCloseTo(expected.y);
+  expect(actual.width).toBeCloseTo(expected.width);
+  expect(actual.height).toBeCloseTo(expected.height);
+}
+
+describe('rect per mode', () => {
+  it('fits a portrait Source inside the Frame ratio', () => {
     const doc = makeDoc(makeSource(400, 800));
-    expect(fitScale(doc)).toBeCloseTo(225 / 400);
-    const rect = sourceRect(doc);
-    expect(rect.width).toBeCloseTo(225);
-    expect(rect.height).toBeCloseTo(450);
+    expectRect(frameRect(doc), {
+      x: 0,
+      y: (800 - 400 / MUDAE_RATIO) / 2,
+      width: 400,
+      height: 400 / MUDAE_RATIO,
+    });
+    expect(zoomOf(doc)).toBeCloseTo(1);
   });
 
-  it('keeps the whole Source in Pad, leaving bars on both sides', () => {
-    const doc = withCrop(makeDoc(makeSource(400, 800)), defaultCrop('pad'));
-    expect(padScale(doc)).toBeCloseTo(350 / 800);
-    const rect = sourceRect(doc);
-    expect(rect.width).toBeCloseTo(175);
-    expect(rect.height).toBeCloseTo(350);
-    expect(rect.x).toBeCloseTo((225 - 175) / 2);
-    expect(rect.y).toBeCloseTo(0);
+  it('pads a portrait Source, letting the rect exceed the Source width', () => {
+    const doc = makeDoc(makeSource(400, 800), MUDAE_RATIO, 'pad');
+    expectRect(frameRect(doc), {
+      x: (400 - 800 * MUDAE_RATIO) / 2,
+      y: 0,
+      width: 800 * MUDAE_RATIO,
+      height: 800,
+    });
   });
 
-  it('snaps to the width in Full width and crops the overflow', () => {
-    const doc = withCrop(makeDoc(makeSource(400, 800)), defaultCrop('full-width'));
-    expect(scaleForMode(doc)).toBeCloseTo(225 / 400);
-    const rect = sourceRect(doc);
-    expect(rect.width).toBeCloseTo(225);
-    expect(rect.height).toBeCloseTo(450);
+  it('snaps to the Source width in Full width', () => {
+    const doc = makeDoc(makeSource(400, 800), MUDAE_RATIO, 'full-width');
+    expectRect(frameRect(doc), {
+      x: 0,
+      y: (800 - 400 / MUDAE_RATIO) / 2,
+      width: 400,
+      height: 400 / MUDAE_RATIO,
+    });
   });
 
-  it('snaps to the height in Full height and leaves bars', () => {
-    const doc = withCrop(makeDoc(makeSource(800, 400)), defaultCrop('full-height'));
-    expect(scaleForMode(doc)).toBeCloseTo(350 / 400);
-    const rect = sourceRect(doc);
-    expect(rect.height).toBeCloseTo(350);
-    expect(rect.width).toBeCloseTo(700);
-    expect(rect.x).toBeCloseTo((225 - 700) / 2);
+  it('snaps to the Source height in Full height and lets the rect exceed the width', () => {
+    const doc = makeDoc(makeSource(800, 400), MUDAE_RATIO, 'full-height');
+    expectRect(frameRect(doc), {
+      x: (800 - 400 * MUDAE_RATIO) / 2,
+      y: 0,
+      width: 400 * MUDAE_RATIO,
+      height: 400,
+    });
   });
 
-  it('fills the Square Frame from any Source aspect', () => {
-    const doc = { ...makeDoc(makeSource(800, 400)), frame: SQUARE_FRAME };
-    expect(fitScale(doc)).toBeCloseTo(350 / 400);
-    expect(sourceRect(doc).width).toBeCloseTo(700);
-    expect(sourceRect(doc).height).toBeCloseTo(350);
+  it('fills a square Frame from any Source aspect', () => {
+    const doc = makeDoc(makeSource(800, 400), 1);
+    expectRect(frameRect(doc), { x: 200, y: 0, width: 400, height: 400 });
+    expectRect(frameRect(makeDoc(makeSource(800, 400), 1, 'pad')), {
+      x: 0,
+      y: -200,
+      width: 800,
+      height: 800,
+    });
   });
 
-  it('never scales the two axes differently', () => {
+  it('never gives the rect a different ratio from the Frame', () => {
     const doc = makeDoc(makeSource(1234, 567));
-    const rect = sourceRect(doc);
-    expect(rect.width / 1234).toBeCloseTo(rect.height / 567);
-    expect(effectiveScale(doc)).toBeCloseTo(rect.width / 1234);
+    const rect = frameRect(doc);
+    expect(rect.width / rect.height).toBeCloseTo(MUDAE_RATIO);
   });
 });
 
 describe('rotation', () => {
   it('swaps the bounds of a portrait Source at 90°', () => {
-    const doc = withCrop(makeDoc(makeSource(400, 800)), defaultCrop('fit', 90));
+    const doc = makeDoc(makeSource(400, 800), MUDAE_RATIO, 'fit', 90);
     expect(rotatedBounds(doc)).toEqual({ width: 800, height: 400 });
-    expect(fitScale(doc)).toBeCloseTo(350 / 400);
-    const rect = sourceRect(doc);
-    expect(rect.width).toBeCloseTo(700);
-    expect(rect.height).toBeCloseTo(350);
+    expectRect(frameRect(doc), {
+      x: (800 - 400 * MUDAE_RATIO) / 2,
+      y: 0,
+      width: 400 * MUDAE_RATIO,
+      height: 400,
+    });
   });
 
-  it('cycles through the four steps back to the original Crop', () => {
+  it('cycles through the four steps and keeps the rect ratio', () => {
     const doc = makeDoc(makeSource(400, 800));
     let crop = doc.crop;
     const steps = [90, 180, 270, 0];
     for (const expected of steps) {
       crop = rotate90(doc, crop);
       expect(crop.rotation).toBe(expected);
+      expect(crop.rect.width / crop.rect.height).toBeCloseTo(MUDAE_RATIO);
     }
-    expect(crop).toEqual(FIT_CROP);
+    expect(crop.rotation).toBe(0);
   });
 
-  it('keeps a rotated Source centred and unsquashed', () => {
-    const doc = withCrop(makeDoc(makeSource(400, 800)), defaultCrop('fit', 90));
-    const rect = sourceRect(doc);
-    expect(rect.width / 800).toBeCloseTo(rect.height / 400);
-    expect(rect.x + rect.width / 2).toBeCloseTo(doc.frame.width / 2);
-    expect(rect.y + rect.height / 2).toBeCloseTo(doc.frame.height / 2);
+  it('keeps a centred rect centred and unsquashed in the new bounds', () => {
+    const doc = makeDoc(makeSource(400, 800), MUDAE_RATIO, 'fit', 90);
+    const rect = frameRect(doc);
+    expect(rect.width / rect.height).toBeCloseTo(MUDAE_RATIO);
+    expect(rect.x + rect.width / 2).toBeCloseTo(800 / 2);
+    expect(rect.y + rect.height / 2).toBeCloseTo(400 / 2);
+  });
+
+  it('clamps a maxed-out window when the rotation swaps the bounds', () => {
+    // The Fit rect of 400×800 is 400×622; after the swap it cannot fit the 400
+    // height, so the clamp shrinks it. Documented in ADR-0005.
+    const doc = makeDoc(makeSource(400, 800));
+    const rotated = rotate90(doc, doc.crop);
+    expect(rotated.rect.height).toBeCloseTo(400);
+    expect(rotated.rect.width).toBeCloseTo(400 * MUDAE_RATIO);
+    expect(rotated.rect.width / rotated.rect.height).toBeCloseTo(MUDAE_RATIO);
   });
 });
 
 describe('zoom', () => {
-  it('keeps Fit free of bars, up to eight times Fit', () => {
+  it('keeps Fit from growing past the Fit rect or shrinking below 1/8', () => {
     const doc = makeDoc(makeSource(400, 800));
-    const limits = zoomLimits(doc);
-    expect(limits.min).toBeCloseTo(1);
-    expect(limits.max).toBeCloseTo(8);
-    expect(clampZoom(doc, 0.2)).toBeCloseTo(1);
-    expect(clampZoom(doc, 3)).toBeCloseTo(3);
-    expect(clampZoom(doc, 99)).toBeCloseTo(8);
-    expect(clampZoom(doc, Number.NaN)).toBeCloseTo(1);
+
+    const grown = clampCrop(doc, {
+      ...doc.crop,
+      rect: { ...doc.crop.rect, width: doc.crop.rect.width * 2 },
+    });
+    expect(zoomOf({ ...doc, crop: grown })).toBeCloseTo(1);
+
+    const shrunk = clampCrop(doc, {
+      ...doc.crop,
+      rect: { ...doc.crop.rect, width: doc.crop.rect.width / 100 },
+    });
+    expect(zoomOf({ ...doc, crop: shrunk })).toBeCloseTo(8);
+    expect(shrunk.rect.width).toBeCloseTo(frameRect(doc).width / 8);
   });
 
-  it('clamps between the Pad scale and eight times the Fit scale', () => {
-    const source = makeSource(400, 800);
-    const doc = withCrop(makeDoc(source), defaultCrop('pad'));
-    const limits = zoomLimits(doc);
-    expect(limits.min).toBeCloseTo(1);
-    expect(limits.max).toBeCloseTo((8 * fitScale(doc)) / padScale(doc));
+  it('lets a Pad crop grow as far as the Pad rect', () => {
+    const doc = makeDoc(makeSource(400, 800), MUDAE_RATIO, 'pad');
+    const pad = padRect({ width: 400, height: 800 }, MUDAE_RATIO);
 
-    const crowded = clampCrop(doc, { ...doc.crop, zoom: 100 });
-    expect(effectiveScale({ ...doc, crop: crowded })).toBeCloseTo(8 * fitScale(doc));
-    const shrunk = clampCrop(doc, { ...doc.crop, zoom: 0.1 });
-    expect(shrunk.zoom).toBeCloseTo(1);
-    expect(effectiveScale({ ...doc, crop: shrunk })).toBeCloseTo(padScale(doc));
+    const zoomedOut = clampCrop(doc, {
+      ...doc.crop,
+      rect: { ...doc.crop.rect, width: doc.crop.rect.width * 100 },
+    });
+    expect(zoomOf({ ...doc, crop: zoomedOut })).toBeCloseTo(1);
+    expect(zoomedOut.rect.width).toBeCloseTo(pad.width);
   });
 
-  it('lets a snap mode shrink only as far as the Pad scale', () => {
-    const doc = withCrop(makeDoc(makeSource(800, 400)), defaultCrop('full-height'));
-    const limits = zoomLimits(doc);
-    expect(limits.min).toBeCloseTo(padScale(doc) / scaleForMode(doc));
-    const zoomedOut = clampCrop(doc, { ...doc.crop, zoom: 0.1 });
-    expect(zoomedOut.zoom).toBeCloseTo(padScale(doc) / scaleForMode(doc));
-    expect(effectiveScale({ ...doc, crop: zoomedOut })).toBeCloseTo(padScale(doc));
+  it('lets a snap mode shrink only as far as the Pad rect', () => {
+    const doc = makeDoc(makeSource(800, 400), MUDAE_RATIO, 'full-height');
+    const pad = padRect({ width: 800, height: 400 }, MUDAE_RATIO);
+    const minZoom = baseRectFor(doc).width / pad.width;
+
+    const zoomedOut = clampCrop(doc, {
+      ...doc.crop,
+      rect: { ...doc.crop.rect, width: doc.crop.rect.width * 100 },
+    });
+    expect(zoomOf({ ...doc, crop: zoomedOut })).toBeCloseTo(minZoom);
+    expect(zoomedOut.rect.width).toBeCloseTo(pad.width);
   });
 
-  it('keeps the Source point under the pointer while zooming', () => {
+  it('scales the rect about the Source point under the pointer', () => {
     const doc = makeDoc(makeSource(400, 800));
-    const point = { x: 90, y: 120 };
-    const before = sourcePointAt(doc, point);
-    const zoomed = { ...doc, crop: zoomAt(doc, doc.crop, 2.5, point) };
-    const after = sourcePointAt(zoomed, point);
-    expect(after.x).toBeCloseTo(before.x, 6);
-    expect(after.y).toBeCloseTo(before.y, 6);
+    const point = { x: 200, y: 400 };
+    const before = frameRect(doc);
+    const zoomed = zoomAt(doc, doc.crop, 2.5, point);
+    const after = zoomed.rect;
+
+    expect(after.width).toBeCloseTo(before.width / 2.5);
+    expect((point.x - after.x) / after.width).toBeCloseTo((point.x - before.x) / before.width);
+    expect((point.y - after.y) / after.height).toBeCloseTo((point.y - before.y) / before.height);
   });
 
-  it('clamps the offset after a zoom near the edge', () => {
+  it('clamps the rect after a zoom near the edge', () => {
     const doc = makeDoc(makeSource(800, 400));
-    const crop = zoomAt(doc, FIT_CROP, 2, { x: 0, y: 0 });
-    const limits = panLimits({ ...doc, crop });
-    expect(crop.offsetX).toBeGreaterThanOrEqual(-limits.x);
-    expect(crop.offsetX).toBeLessThanOrEqual(limits.x);
+    const crop = zoomAt(doc, doc.crop, 2, { x: 0, y: 0 });
+    expect(crop.rect.x).toBeGreaterThanOrEqual(0);
+    expect(crop.rect.y).toBeGreaterThanOrEqual(0);
+    expect(crop.rect.x + crop.rect.width).toBeLessThanOrEqual(800);
+    expect(crop.rect.y + crop.rect.height).toBeLessThanOrEqual(400);
   });
 });
 
-describe('pan limits', () => {
-  it('allows no vertical pan when Fit already matches the height', () => {
+describe('pan', () => {
+  it('moves the rect by Source pixels and clamps it inside the Source', () => {
     const doc = makeDoc(makeSource(800, 400));
-    expect(panLimits(doc)).toEqual({ x: 237.5, y: 0 });
+    const panned = panBy(doc, doc.crop, 10_000, 10_000);
+    expect(panned.rect.x).toBeCloseTo(800 - panned.rect.width);
+    expect(panned.rect.y).toBeCloseTo(0);
+
+    const left = clampCrop(doc, {
+      ...doc.crop,
+      rect: { ...doc.crop.rect, x: -10_000 },
+    });
+    expect(left.rect.x).toBeCloseTo(0);
   });
 
-  it('clamps drags so the Frame stays covered', () => {
-    const doc = makeDoc(makeSource(800, 400));
-    const panned = panBy(doc, FIT_CROP, 10_000, 10_000);
-    expect(panned.offsetX).toBeCloseTo(237.5);
-    expect(panned.offsetY).toBe(0);
-    expect(clampCrop(doc, { ...FIT_CROP, offsetX: -10_000, offsetY: 0 }).offsetX).toBeCloseTo(
-      -237.5,
-    );
-  });
-
-  it('allows no pan at all when Source and Frame aspect match', () => {
+  it('allows no pan when Source and Frame aspect match', () => {
     const doc = makeDoc(makeSource(450, 700));
-    expect(panLimits(doc)).toEqual({ x: 0, y: 0 });
-    expect(panBy(doc, FIT_CROP, 30, -30)).toEqual(FIT_CROP);
+    const panned = panBy(doc, doc.crop, 30, -30);
+    expect(panned.rect.x).toBeCloseTo(0);
+    expect(panned.rect.y).toBeCloseTo(0);
   });
 
   it('uses the rotated bounds for the pan limits', () => {
-    const doc = withCrop(makeDoc(makeSource(800, 400)), defaultCrop('fit', 90));
-    expect(panLimits(doc)).toEqual({ x: 0, y: 50 });
+    const doc = makeDoc(makeSource(800, 400), MUDAE_RATIO, 'fit', 90);
+    const panned = panBy(doc, doc.crop, 0, 10_000);
+    expect(panned.rect.x).toBeCloseTo(0);
+    expect(panned.rect.y + panned.rect.height).toBeCloseTo(800);
   });
 
-  it('does not let a Pad Source drift inside its bars', () => {
-    const doc = withCrop(makeDoc(makeSource(400, 800)), defaultCrop('pad'));
-    expect(panLimits(doc)).toEqual({ x: 0, y: 0 });
-    expect(panBy(doc, doc.crop, 30, -30)).toEqual(doc.crop);
+  it('does not let a Pad rect drift inside its bars', () => {
+    const doc = makeDoc(makeSource(400, 800), MUDAE_RATIO, 'pad');
+    const panned = panBy(doc, doc.crop, 30, -30);
+    expectRect(panned.rect, frameRect(doc));
+  });
+
+  it('snaps the window centre to the Source centre within the threshold', () => {
+    const doc = makeDoc(makeSource(800, 400));
+    const off = panBy(doc, doc.crop, -40, 0);
+    const centre = (crop: typeof off) => crop.rect.x + crop.rect.width / 2;
+    expect(centre(off)).toBeCloseTo(360);
+
+    const snapped = panBy({ ...doc, crop: off }, off, 36, 0, {
+      snapCenter: true,
+      threshold: 6,
+    });
+    expect(centre(snapped)).toBeCloseTo(400);
+
+    const released = panBy({ ...doc, crop: off }, off, 36, 0, {
+      snapCenter: false,
+      threshold: 6,
+    });
+    expect(centre(released)).toBeCloseTo(396);
+
+    const far = panBy({ ...doc, crop: off }, off, 10, 0, {
+      snapCenter: true,
+      threshold: 6,
+    });
+    expect(centre(far)).toBeCloseTo(370);
   });
 });
 
 describe('mode defaults', () => {
-  it('resets zoom and offset when the scale mode changes but keeps rotation', () => {
-    const crop = { ...defaultCrop('fit', 90), zoom: 2.5, offsetX: 10, offsetY: -8 };
-    expect(setScaleMode(crop, 'pad')).toEqual({
-      mode: 'pad',
-      zoom: 1,
-      offsetX: 0,
-      offsetY: 0,
+  it('snaps to the mode rect and keeps rotation', () => {
+    const doc = withCrop(makeDoc(makeSource(400, 800), MUDAE_RATIO, 'fit', 90), {
+      mode: 'fit',
+      rect: { x: 10, y: 20, width: 100, height: 155.56 },
       rotation: 90,
     });
+    const padded = applyScaleMode(doc, 'pad');
+    expect(padded.crop.mode).toBe('pad');
+    expect(padded.crop.rotation).toBe(90);
+    expectRect(padded.crop.rect, baseRectFor(doc, { ...doc.crop, mode: 'pad' }));
   });
 
-  it('resets zoom, offset and rotation to the mode default', () => {
-    const crop = { ...defaultCrop('pad', 180), zoom: 2.5, offsetX: 10, offsetY: -8 };
-    expect(resetCrop(crop)).toEqual({
+  it('resets zoom, position and rotation to the mode default', () => {
+    const doc = makeDoc(makeSource(400, 800), MUDAE_RATIO, 'pad', 180);
+    const reset = resetCrop(doc);
+    expect(reset).toEqual({
       mode: 'pad',
-      zoom: 1,
-      offsetX: 0,
-      offsetY: 0,
+      rect: baseRectFor(doc, { ...doc.crop, rotation: 0 }),
       rotation: 0,
     });
   });
 
-  it('starts from the Mudae Frame', () => {
-    expect(makeDoc(null).frame).toEqual(MUDAE_FRAME);
-    expect(defaultCrop()).toEqual(FIT_CROP);
+  it('starts from the default Frame', () => {
+    expect(makeDoc(null).frame).toEqual(DEFAULT_FRAME);
+    expect(defaultCrop().rect).toEqual({ x: 0, y: 0, width: 0, height: 0 });
+  });
+});
+
+describe('ratio changes', () => {
+  it('keeps the long side and grows the short side, centred', () => {
+    const doc = makeDoc(makeSource(2000, 1000));
+    expectRect(frameRect(doc), {
+      x: (2000 - 1000 * MUDAE_RATIO) / 2,
+      y: 0,
+      width: 1000 * MUDAE_RATIO,
+      height: 1000,
+    });
+
+    const wide = applyRatio(doc, 16 / 9);
+    expect(wide.frame.ratio).toBe(16 / 9);
+    expectRect(wide.crop.rect, {
+      x: (2000 - 1000 * (16 / 9)) / 2,
+      y: 0,
+      width: 1000 * (16 / 9),
+      height: 1000,
+    });
+  });
+
+  it('keeps the height when a 9:14 rect becomes 16:9', () => {
+    const doc = makeDoc(makeSource(2000, 2000));
+    const portrait = withCrop(doc, {
+      mode: 'fit',
+      rect: { x: 887.5, y: 825, width: 225, height: 350 },
+      rotation: 0,
+    });
+    const wide = applyRatio(portrait, 16 / 9);
+    expect(wide.crop.rect.height).toBeCloseTo(350);
+    expect(wide.crop.rect.width).toBeCloseTo(350 * (16 / 9));
+  });
+
+  it('always leaves the rect on the exact stored ratio', () => {
+    const doc = makeDoc(makeSource(2000, 2000));
+    const wide = applyRatio(doc, 21 / 9);
+    expect(wide.frame.ratio).toBe(21 / 9);
+    expect(wide.crop.rect.width / wide.crop.rect.height).toBeCloseTo(21 / 9);
+  });
+});
+
+describe('Frame resize', () => {
+  const ratio = 500 / 280;
+  const makeResizableDoc = () =>
+    withCrop(makeDoc(makeSource(2000, 2000), ratio), {
+      mode: 'fit',
+      rect: { x: 750, y: 860, width: 500, height: 280 },
+      rotation: 0,
+    });
+
+  it('snaps a free edge drag to a preset and keeps the dragged width', () => {
+    const doc = makeResizableDoc();
+    const width = 280 * (21 / 9);
+    const result = resizeCrop(doc, doc.crop, 'e', width - 500, 0, { locked: false, snap: true });
+
+    expect(result.ratio).toBeCloseTo(21 / 9);
+    expect(result.crop.rect.width).toBeCloseTo(width);
+    expect(result.crop.rect.height).toBeCloseTo(280);
+    expect(result.crop.rect.x).toBeCloseTo(750);
+    expect(result.crop.rect.x + result.crop.rect.width / 2).toBeCloseTo(750 + width / 2);
+  });
+
+  it('snaps a free corner drag keeping the dragged width and the corner anchor', () => {
+    const doc = makeResizableDoc();
+    const width = 280 * (21 / 9);
+    const result = resizeCrop(doc, doc.crop, 'se', width - 500, 0, { locked: false, snap: true });
+
+    expect(result.ratio).toBeCloseTo(21 / 9);
+    expect(result.crop.rect.width).toBeCloseTo(width);
+    expect(result.crop.rect.x).toBeCloseTo(750);
+    expect(result.crop.rect.y).toBeCloseTo(860);
+    expect(result.crop.rect.width / result.crop.rect.height).toBeCloseTo(21 / 9);
+  });
+
+  it('does not snap a free drag back to the proportion it started from', () => {
+    const startRatio = 16 / 9;
+    const height = 500 / startRatio;
+    const doc = withCrop(makeDoc(makeSource(1000, 1000), startRatio), {
+      mode: 'fit',
+      rect: { x: 200, y: 300, width: 500, height },
+      rotation: 0,
+    });
+    const result = resizeCrop(doc, doc.crop, 'e', 2, 0, {
+      locked: false,
+      snap: true,
+      startRatio,
+    });
+
+    expect(result.ratio).toBeCloseTo(502 / height, 4);
+    expect(result.ratio).not.toBeCloseTo(startRatio, 4);
+  });
+
+  it('holds a snapped preset for the rest of the drag', () => {
+    const doc = makeDoc(makeSource(600, 800));
+    const startRatio = doc.frame.ratio;
+    const first = resizeCrop(doc, doc.crop, 'e', 20, 0, {
+      locked: false,
+      snap: true,
+      startRatio,
+    });
+    expect(first.ratio).toBeCloseTo(2 / 3);
+
+    // The next event starts from the snapped rect; the start proportion is
+    // still Mudae, so 2:3 remains a target and the snap holds.
+    const next = { ...doc, frame: { ratio: first.ratio }, crop: first.crop };
+    const second = resizeCrop(next, first.crop, 'e', 2, 0, {
+      locked: false,
+      snap: true,
+      startRatio,
+    });
+    expect(second.ratio).toBeCloseTo(2 / 3);
+  });
+
+  it('does not snap a locked drag and keeps the current Frame ratio', () => {
+    const doc = makeResizableDoc();
+    const result = resizeCrop(doc, doc.crop, 'e', 20, 0, { locked: true, snap: true });
+
+    expect(result.ratio).toBeCloseTo(ratio);
+    expect(result.crop.rect.width / result.crop.rect.height).toBeCloseTo(ratio);
+  });
+
+  it('leaves a free ratio alone when snapping is off', () => {
+    const doc = makeResizableDoc();
+    const result = resizeCrop(doc, doc.crop, 'e', 20, 0, { locked: false, snap: false });
+
+    expect(result.ratio).toBeCloseTo(520 / 280);
+    expect(result.crop.rect.width / result.crop.rect.height).toBeCloseTo(520 / 280);
+  });
+
+  it('keeps the ratio when a free drag runs into the size limit', () => {
+    const doc = makeResizableDoc();
+    const result = resizeCrop(doc, doc.crop, 'e', 10_000, 0, { locked: false, snap: false });
+
+    expect(result.crop.rect.width / result.crop.rect.height).toBeCloseTo(result.ratio);
+    expect(result.ratio).toBeGreaterThan(16 / 9);
+    expect(result.crop.rect.width).toBeLessThanOrEqual(2000);
+  });
+});
+
+describe('document crop commands', () => {
+  it('applies a locked drag to the Frame and the Crop together', () => {
+    const doc = makeDoc(makeSource(2000, 2000));
+    const before = frameRect(doc);
+    const result = resizeFrame(doc, 'e', -100, 0, { locked: true, snap: false });
+
+    expect(result.frame.ratio).toBeCloseTo(doc.frame.ratio);
+    expect(result.crop.rect.width / result.crop.rect.height).toBeCloseTo(result.frame.ratio);
+    expect(result.crop.rect.width).toBeCloseTo(before.width - 100);
+    expect(result.crop.rect.x).toBeCloseTo(before.x);
+  });
+
+  it('stores a free drag ratio and re-derives a locked Export size', () => {
+    const doc = withResize(makeDoc(makeSource(2000, 2000)), { width: 400, height: 622 });
+    const before = frameRect(doc);
+    const result = resizeFrame(doc, 'e', -100, 0, { locked: false, snap: false });
+    const expected = (before.width - 100) / before.height;
+
+    expect(result.frame.ratio).toBeCloseTo(expected);
+    expect(result.crop.rect.width / result.crop.rect.height).toBeCloseTo(expected);
+    expect(result.resize).toEqual({ width: 400, height: Math.round(400 / expected) });
+  });
+
+  it('leaves the document alone when there is no Source', () => {
+    const doc = makeDoc(null);
+    expect(resizeFrame(doc, 'e', 20, 0, { locked: true, snap: false })).toBe(doc);
+  });
+
+  it('zoomTo sets the readout and keeps the Frame proportion', () => {
+    const doc = makeDoc(makeSource(400, 800));
+    const before = frameRect(doc);
+    const zoomed = zoomTo(doc, 2);
+
+    expect(zoomOf(zoomed)).toBeCloseTo(2);
+    expect(zoomed.crop.rect.width).toBeCloseTo(before.width / 2);
+    expect(zoomed.crop.rect.width / zoomed.crop.rect.height).toBeCloseTo(zoomed.frame.ratio);
+    expect(zoomed.crop.rect.x + zoomed.crop.rect.width / 2).toBeCloseTo(
+      before.x + before.width / 2,
+    );
+  });
+
+  it('zoomTo ignores a non-positive or non-finite zoom', () => {
+    const doc = makeDoc(makeSource(400, 800));
+    expect(zoomTo(doc, 0)).toBe(doc);
+    expect(zoomTo(doc, Number.NaN)).toBe(doc);
+  });
+});
+
+describe('proportion change', () => {
+  it('keeps a chosen Carta when the Mudae orientation flips', () => {
+    const doc = withResize(makeDoc(makeSource(900, 1400)), { width: 225, height: 350 });
+    const flipped = applyRatio(doc, 14 / 9);
+
+    expect(flipped.frame.ratio).toBeCloseTo(14 / 9);
+    expect(flipped.resize).toEqual({ width: 350, height: 225 });
+  });
+
+  it('keeps the Carta through the flip even with the lock switched off', () => {
+    const doc = withResizeLocked(
+      withResize(makeDoc(makeSource(900, 1400)), { width: 225, height: 350 }),
+      false,
+    );
+    const flipped = applyRatio(doc, 14 / 9);
+
+    expect(flipped.resize).toEqual({ width: 350, height: 225 });
+    expect(flipped.resizeLocked).toBe(false);
+  });
+
+  it('keeps the current resize width for a non-Carta proportion', () => {
+    const doc = withResize(makeDoc(makeSource(900, 1400)), { width: 400, height: 622 });
+    const flipped = applyRatio(doc, 16 / 9);
+
+    expect(flipped.resize?.width).toBe(400);
+    expect(flipped.resize?.height).toBe(Math.round(400 / (16 / 9)));
+  });
+
+  it('stores the exact preset when the requested ratio is merely close', () => {
+    const doc = makeDoc(makeSource(900, 1400));
+    const applied = applyRatio(doc, MUDAE_RATIO * 1.0006);
+
+    expect(applied.frame.ratio).toBe(MUDAE_RATIO);
+    expect(applied.crop.rect.width / applied.crop.rect.height).toBeCloseTo(MUDAE_RATIO);
+  });
+});
+
+describe('off-centre rotation', () => {
+  it('moves the rect clockwise inside the swapped bounds', () => {
+    const doc = makeDoc(makeSource(1000, 1000), MUDAE_RATIO);
+    const crop = {
+      ...doc.crop,
+      rect: { x: 100, y: 100, width: 200, height: 200 / MUDAE_RATIO },
+    };
+    const rotated = rotate90(doc, crop);
+
+    expect(rotated.rotation).toBe(90);
+    expect(rotated.rect.width).toBeCloseTo(200);
+    expect(rotated.rect.x + rotated.rect.width / 2).toBeCloseTo(
+      1000 - (100 + 200 / MUDAE_RATIO / 2),
+    );
+    expect(rotated.rect.y + rotated.rect.height / 2).toBeCloseTo(200);
+  });
+});
+
+describe('readouts', () => {
+  it('nativeSize rounds the rect and never goes below 1', () => {
+    const doc = makeDoc(makeSource(400, 800));
+    expect(nativeSize(doc)).toEqual({ width: 400, height: 622 });
+    expect(nativeSize(makeDoc(null))).toEqual({ width: 1, height: 1 });
+  });
+
+  it('offsetPct reports the centre offset as a fraction of the rect', () => {
+    const doc = makeDoc(makeSource(800, 400));
+    expect(offsetPct(doc).x).toBeCloseTo(0);
+    expect(offsetPct(doc).y).toBeCloseTo(0);
+
+    const right = panBy(doc, doc.crop, 10_000, 0).rect;
+    expect(offsetPct({ ...doc, crop: { ...doc.crop, rect: right } }).x).toBeCloseTo(
+      (right.x + right.width / 2 - 400) / right.width,
+    );
   });
 });
 

@@ -1,5 +1,5 @@
 import { effectiveSource, frameImage, type DocumentState } from './document';
-import { sourceRect } from './geometry';
+import { frameRect, rotatedBounds } from './geometry';
 import { applyUnsharpMask } from './sharpen';
 
 /**
@@ -30,14 +30,23 @@ export interface RenderContext {
   rotate(angle: number): void;
 }
 
+/** A Border scaled for Preview: `scale` is preview pixels per export pixel. */
+export interface BorderScale {
+  readonly scale: number;
+  /** Floor so a shrunken Preview Border never disappears. */
+  readonly minPx: number;
+}
+
 export interface RenderOptions {
-  /** Output scale relative to the Frame: 1 for a 1× Export, display scale for Preview. */
-  readonly scale?: number;
-  /** Explicit output raster; overrides the uniform scale, and allows a stretched resize. */
-  readonly outputWidth?: number;
-  readonly outputHeight?: number;
-  /** Palette sampling skips the Border; Preview and Export draw it. */
-  readonly border?: boolean;
+  /** The output raster. A resize may stretch it independently on each axis. */
+  readonly outputWidth: number;
+  readonly outputHeight: number;
+  /**
+   * `false` skips the Border (Palette sampling and the eyedropper source).
+   * Absent draws exactly `doc.border.width` output pixels; a scale keeps a
+   * Preview Border visible at any zoom.
+   */
+  readonly border?: BorderScale | false;
   /** Frame index in the document's animation view; ignored for a still. */
   readonly frameIndex?: number;
 }
@@ -48,10 +57,11 @@ export function prepareContext(ctx: RenderContext): void {
 }
 
 /**
- * Draw the Source at output scale, with the top-left of its rotated bounds at
- * (originX, originY). Only uniform scaling is ever applied, so the Source can
- * never be distorted. Rotation happens on the canvas transform from the
- * original bitmap, so repeating it never compounds resampling blur.
+ * Draw the rotated Source so that the crop window's top-left lands at
+ * (originX, originY). The axes may scale by different factors only when an
+ * unlocked Export deliberately stretches the raster; the Crop itself never
+ * distorts the Source. Rotation happens on the canvas transform from
+ * the original bitmap, so repeating it never compounds resampling blur.
  */
 export function drawSource(
   ctx: RenderContext,
@@ -65,13 +75,15 @@ export function drawSource(
   if (!doc.source) return;
   const image = frameImage(effectiveSource(doc), frameIndex);
   if (!image) return;
-  const rect = sourceRect(doc);
+  const rect = frameRect(doc);
+  const bounds = rotatedBounds(doc);
+  const width = bounds.width * scaleX;
+  const height = bounds.height * scaleY;
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return;
   prepareContext(ctx);
 
-  const x = originX + rect.x * scaleX;
-  const y = originY + rect.y * scaleY;
-  const width = rect.width * scaleX;
-  const height = rect.height * scaleY;
+  const x = originX - rect.x * scaleX;
+  const y = originY - rect.y * scaleY;
 
   if (doc.crop.rotation === 0) {
     ctx.drawImage(image, x, y, width, height);
@@ -82,38 +94,36 @@ export function drawSource(
   ctx.translate(x + width / 2, y + height / 2);
   ctx.rotate((doc.crop.rotation * Math.PI) / 180);
   // Rotating swaps which output axis scales which bitmap axis: the Source's
-  // width becomes vertical at 90°/270°. Use the rotated rect, never the raw
-  // output scale, so the bitmap lands exactly on sourceRect.
+  // width becomes vertical at 90°/270°. The rotated bitmap still covers the
+  // whole rotated bounds, so the crop window lands exactly on its rect.
   const swapped = doc.crop.rotation === 90 || doc.crop.rotation === 270;
-  const imageWidth = swapped ? rect.height * scaleY : rect.width * scaleX;
-  const imageHeight = swapped ? rect.width * scaleX : rect.height * scaleY;
+  const imageWidth = swapped ? height : width;
+  const imageHeight = swapped ? width : height;
   ctx.drawImage(image, -imageWidth / 2, -imageHeight / 2, imageWidth, imageHeight);
   ctx.restore();
 }
 
 /**
- * The single render entry point. Preview calls it at display scale; Export
- * calls it at 1× or 2×. Nothing else draws Frame content.
+ * Fit always covers the Frame; every other Scale mode may leave an uncovered
+ * area, which is painted with the Pad color. Preview and Export share this.
+ */
+export function paintsPadColor(doc: DocumentState): boolean {
+  return doc.crop.mode !== 'fit';
+}
+
+/**
+ * The single render entry point. Preview calls it at the display size; Export
+ * calls it at the chosen output size. Nothing else draws Frame content.
  */
 export function renderFrame(ctx: RenderContext, doc: DocumentState, options: RenderOptions): void {
-  const scale = options.scale ?? 1;
-  const width =
-    options.outputWidth ??
-    (options.outputHeight
-      ? (options.outputHeight * doc.frame.width) / doc.frame.height
-      : doc.frame.width * scale);
-  const height =
-    options.outputHeight ??
-    (options.outputWidth
-      ? (options.outputWidth * doc.frame.height) / doc.frame.width
-      : doc.frame.height * scale);
-  const scaleX = width / doc.frame.width;
-  const scaleY = height / doc.frame.height;
+  const width = options.outputWidth;
+  const height = options.outputHeight;
+  const rect = frameRect(doc);
+  const scaleX = rect.width > 0 ? width / rect.width : 1;
+  const scaleY = rect.height > 0 ? height / rect.height : 1;
   ctx.clearRect(0, 0, width, height);
 
-  // Fit always covers, so it keeps its alpha. Every other mode may leave an
-  // uncovered area, and that area is painted with the Pad color.
-  if (doc.crop.mode !== 'fit') {
+  if (paintsPadColor(doc)) {
     ctx.fillStyle = doc.padColor;
     ctx.fillRect(0, 0, width, height);
   }
@@ -136,23 +146,43 @@ export function renderFrame(ctx: RenderContext, doc: DocumentState, options: Ren
   }
 
   if (options.border !== false && doc.border.width > 0) {
-    drawBorder(ctx, doc, width, height, (scaleX + scaleY) / 2);
+    drawBorder(ctx, doc, width, height, options.border);
   }
 }
 
 /**
- * The Border is stroked inside the Frame edge, in Frame pixels at the output
- * scale. It is drawn after the Source transform is restored, so rotation can
- * never tilt it.
+ * The Border stroke for a Preview of a given width, scaled from the final
+ * file's pixels and floored to `minPx` canvas pixels. This is the one formula
+ * Stage and the renderer share, so the adjust preview cannot drift.
+ */
+export function frameBorderStroke(
+  doc: DocumentState,
+  previewWidth: number,
+  exportWidth: number,
+  minPx = 1,
+): number {
+  if (doc.border.width <= 0) return 0;
+  if (!(previewWidth > 0) || !(exportWidth > 0)) return doc.border.width;
+  return Math.max(minPx, doc.border.width * (previewWidth / exportWidth));
+}
+
+/**
+ * The Border is stroked inside the Frame edge in pixels of the final file. It
+ * is drawn after the Source transform is restored, so rotation can never tilt
+ * it. A Preview scale keeps it visible at any zoom, but never below one canvas
+ * pixel; an Export draws exactly the stored width.
  */
 function drawBorder(
   ctx: RenderContext,
   doc: DocumentState,
   width: number,
   height: number,
-  scale: number,
+  preview?: BorderScale,
 ): void {
-  const stroke = doc.border.width * scale;
+  const stroke =
+    preview === undefined
+      ? doc.border.width
+      : frameBorderStroke(doc, width, width / preview.scale, preview.minPx);
   const inset = stroke / 2;
   ctx.save();
   ctx.strokeStyle = doc.border.color;

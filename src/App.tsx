@@ -8,17 +8,11 @@ import {
   effectiveSource,
   effectiveTrim,
   emptyDocument,
-  frameFor,
   isAnimated,
-  orientationOf,
+  MIN_EXPORT_SIDE,
   outputSize,
-  presetOf,
-  swappedFrame,
   trimFrameCount,
   withBorder,
-  withCrop,
-  withExportScale,
-  withFrame,
   withFrameEffectiveDelay,
   withFrameRemoved,
   withOptimize,
@@ -31,10 +25,7 @@ import {
   withTrim,
   withTrimEnabled,
   type DocumentState,
-  type ExportScale,
-  type Frame,
   type OptimizeSettings,
-  type ScaleMode,
   type Trim,
 } from './core/document';
 import { normalizeHexColor } from './core/color';
@@ -62,7 +53,7 @@ import {
   type SizeEstimate,
 } from './core/export';
 import type { OptimizeResult } from './core/optimize';
-import { applyScaleMode, clampCrop, panBy, resetCrop, rotate90, zoomAt } from './core/geometry';
+import { applyRatio } from './core/geometry';
 import { importErrorMessage, loadSource, localPathFrom, type SourceCandidate } from './core/import';
 import { extractPalette, type PaletteColor } from './core/palette';
 import {
@@ -81,6 +72,7 @@ import {
   uploadStill,
 } from './core/imagechest';
 import { exportFileName, postTitle } from './core/naming';
+import { mudaeExportSize, ratioSlug, type CartaScale } from './core/ratios';
 import { loadHistory, loadSettings, saveHistory, saveSettings } from './core/config';
 import { DEFAULT_SETTINGS, type ExportFormat, type Settings } from './core/settings';
 import { browserExportAdapter, browserPaletteAdapter, decodeWithBrowser } from './platform/browser';
@@ -101,6 +93,7 @@ import {
   watchFileDrops,
   writeFileBytes,
 } from './platform/tauri';
+import { RatioMenu } from './components/RatioMenu';
 import { Stage } from './components/Stage';
 import { ToolRail } from './components/ToolRail';
 import { ExportPanel } from './components/ExportPanel';
@@ -108,6 +101,7 @@ import { BorderBar } from './components/BorderBar';
 import { Timeline } from './components/Timeline';
 import { FrameGrid } from './components/FrameGrid';
 import { SettingsDialog, type TokenTestResult } from './components/SettingsDialog';
+import { useFrameCrop } from './hooks/useFrameCrop';
 
 interface NoticeAction {
   readonly label: string;
@@ -131,6 +125,7 @@ export default function App() {
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [history, setHistory] = useState<readonly HistoryEntry[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [ratioOpen, setRatioOpen] = useState(false);
   const [testingToken, setTestingToken] = useState(false);
   const [tokenResult, setTokenResult] = useState<TokenTestResult | null>(null);
   const [appendPostId, setAppendPostId] = useState('');
@@ -151,6 +146,8 @@ export default function App() {
   const [framesOpen, setFramesOpen] = useState(false);
   const docRef = useRef(doc);
   docRef.current = doc;
+  const frameIndexRef = useRef(frameIndex);
+  frameIndexRef.current = frameIndex;
   const frameAnimation = effectiveAnimation(doc);
   const hasFrames = frameAnimation !== null;
   const estimateVersionRef = useRef(0);
@@ -216,9 +213,6 @@ export default function App() {
       const next: Settings = { ...settingsRef.current, ...patch, borderColor, borderWidth };
       settingsRef.current = next;
       setSettings(next);
-      if (patch.exportScale !== undefined) {
-        setDoc((current) => withExportScale(current, patch.exportScale as ExportScale));
-      }
       if (patch.borderColor !== undefined || patch.borderWidth !== undefined) {
         setDoc((current) =>
           withBorder(current, {
@@ -246,6 +240,33 @@ export default function App() {
     [fail],
   );
 
+  const leavePick = useCallback(() => setPickTarget(null), []);
+  const {
+    adjustFrame,
+    snapRatios,
+    changeMode,
+    changeRatio,
+    changeZoom,
+    changeOffset,
+    resizeFrame,
+    zoomAtPoint,
+    pan,
+    rotate,
+    reset,
+    toggleAdjustFrame,
+    closeAdjustFrame,
+    changeSnapRatios,
+    markRatioPersisted,
+  } = useFrameCrop({
+    doc,
+    setDoc,
+    snapRatios: settings.snapRatios,
+    persistSettings,
+    playing,
+    setPlaying,
+    leavePick,
+  });
+
   useEffect(() => {
     let alive = true;
     void (async () => {
@@ -261,11 +282,16 @@ export default function App() {
       appendPostIdRef.current = savedSettings.appendPostId;
       setAppendPostId(savedSettings.appendPostId);
       setDoc((current) =>
-        withBorder(withExportScale(current, savedSettings.exportScale), {
-          color: savedSettings.borderColor,
-          width: savedSettings.borderWidth,
-        }),
+        applyRatio(
+          withBorder(current, {
+            color: savedSettings.borderColor,
+            width: savedSettings.borderWidth,
+          }),
+          savedSettings.frameRatio,
+        ),
       );
+      // The loaded proportion is already on disk: do not write it back on launch.
+      markRatioPersisted(savedSettings.frameRatio);
     })().catch((reason) => {
       if (!alive) return;
       fail(`Não foi possível ler as Configurações; usando os padrões. ${messageOf(reason)}`);
@@ -273,7 +299,7 @@ export default function App() {
     return () => {
       alive = false;
     };
-  }, [fail]);
+  }, [fail, markRatioPersisted]);
 
   // The Palette follows the Crop, Frame, Pad color and sharpness. It is
   // debounced so dragging or zooming does not sample on every pointer move,
@@ -618,7 +644,12 @@ export default function App() {
     const extension = kind.format;
     const label = kind.label;
     try {
-      const name = exportFileName(current.source.name, current.frame.id, new Date(), extension);
+      const name = exportFileName(
+        current.source.name,
+        ratioSlug(current.frame.ratio),
+        new Date(),
+        extension,
+      );
       let defaultPath = name;
       try {
         const folder = settingsRef.current.saveFolder ?? (await downloadDir());
@@ -634,7 +665,7 @@ export default function App() {
         throw new Error('o Export não pode sobrescrever a Source. Escolha outro nome.');
       }
 
-      const bytes = await renderWithProgress(current, frameIndex);
+      const bytes = await renderWithProgress(current, frameIndexRef.current);
       await writeFileBytes(path, bytes);
 
       // Remember the folder the user actually saved into, so the next dialog
@@ -666,16 +697,7 @@ export default function App() {
       setRenderProgress(null);
       endRun();
     }
-  }, [
-    beginRun,
-    endRun,
-    fail,
-    frameIndex,
-    inform,
-    persistHistory,
-    persistSettings,
-    renderWithProgress,
-  ]);
+  }, [beginRun, endRun, fail, inform, persistHistory, persistSettings, renderWithProgress]);
 
   const uploadFailure = useCallback(
     (reason: unknown) => {
@@ -743,7 +765,7 @@ export default function App() {
     setStatus(null);
     setNoticeAction(null);
     try {
-      const bytes = await renderWithProgress(current, frameIndex);
+      const bytes = await renderWithProgress(current, frameIndexRef.current);
       const size = outputSize(current);
       const title = postTitle(current.source.name, size.width, size.height);
       const outcome = await uploadStill({
@@ -753,7 +775,12 @@ export default function App() {
         privacy: saved.defaultPrivacy,
         postId: requestedPost || null,
         file: {
-          name: exportFileName(current.source.name, current.frame.id, new Date(), extension),
+          name: exportFileName(
+            current.source.name,
+            ratioSlug(current.frame.ratio),
+            new Date(),
+            extension,
+          ),
           contentType,
           bytes,
         },
@@ -798,7 +825,6 @@ export default function App() {
     cooldownSeconds,
     endRun,
     fail,
-    frameIndex,
     inform,
     openSettings,
     persistHistory,
@@ -917,38 +943,16 @@ export default function App() {
   const exportRef = useRef(handleExport);
   exportRef.current = handleExport;
 
-  const applyFrame = useCallback((frame: Frame) => {
-    setPickTarget(null);
-    setDoc((current) => {
-      const next = withFrame(current, frame);
-      // Rotated bounds and the mode scale move with the Frame, so keep the
-      // pan inside whatever limits the new Frame allows.
-      return withCrop(next, clampCrop(next, next.crop));
-    });
-  }, []);
-
-  const changeMode = useCallback((mode: ScaleMode) => {
-    setDoc((current) => applyScaleMode(current, mode));
-  }, []);
-
-  const changeZoom = useCallback((zoom: number) => {
-    setDoc((current) => withCrop(current, clampCrop(current, { ...current.crop, zoom })));
-  }, []);
-
-  const changeOffset = useCallback((offsetX: number, offsetY: number) => {
-    setDoc((current) =>
-      withCrop(current, clampCrop(current, { ...current.crop, offsetX, offsetY })),
-    );
-  }, []);
-
   const changePadColor = useCallback((padColor: string) => {
     setPickTarget(null);
     setDoc((current) => withPadColor(current, padColor));
   }, []);
 
   const togglePickPad = useCallback(() => {
+    // Arming the eyedropper leaves the crop phase, mirroring the inverse.
+    closeAdjustFrame();
     setPickTarget((current) => (current === 'pad' ? null : 'pad'));
-  }, []);
+  }, [closeAdjustFrame]);
 
   const pickPadColor = useCallback(
     (hex: string) => {
@@ -1033,7 +1037,7 @@ export default function App() {
     setDoc((current) => {
       const size = outputSize(current);
       const width = current.resizeLocked
-        ? Math.round((height * current.frame.width) / current.frame.height)
+        ? Math.round(height * current.frame.ratio)
         : (current.resize?.width ?? size.width);
       return withResize(current, { width, height });
     });
@@ -1052,12 +1056,39 @@ export default function App() {
     setPaletteVersion((value) => value + 1);
   }, []);
 
-  const changeExportScale = useCallback(
-    (exportScale: ExportScale) => {
-      setOptimizeResult(null);
-      persistSettings({ exportScale });
-    },
-    [persistSettings],
+  const changeExportScale = useCallback((scale: CartaScale) => {
+    setOptimizeResult(null);
+    setDoc((current) => {
+      const size = mudaeExportSize(current.frame.ratio, scale);
+      return size ? withResize(current, size) : current;
+    });
+  }, []);
+
+  const useNativeSize = useCallback(() => {
+    setOptimizeResult(null);
+    setDoc((current) => withResize(current, null));
+  }, []);
+
+  const scaleOutput = useCallback((factor: number) => {
+    setOptimizeResult(null);
+    setDoc((current) => {
+      const size = outputSize(current);
+      return withResize(current, {
+        width: Math.max(MIN_EXPORT_SIDE, Math.round(size.width * factor)),
+        height: Math.max(MIN_EXPORT_SIDE, Math.round(size.height * factor)),
+      });
+    });
+  }, []);
+
+  const halveOutput = useCallback(() => scaleOutput(0.5), [scaleOutput]);
+  const doubleOutput = useCallback(() => scaleOutput(2), [scaleOutput]);
+
+  // Stable handlers keep ExportPanel's memo meaningful.
+  const copyExportText = useCallback((value: string) => void copyValue(value), [copyValue]);
+  const openExportLink = useCallback((value: string) => void openLink(value), [openLink]);
+  const revealExportPath = useCallback(
+    (path: string) => void revealHistoryFile(path),
+    [revealHistoryFile],
   );
 
   const changeExportFormat = useCallback(
@@ -1068,17 +1099,13 @@ export default function App() {
     [persistSettings],
   );
 
-  const rotate = useCallback(() => {
-    setDoc((current) => withCrop(current, rotate90(current, current.crop)));
-  }, []);
-
-  const reset = useCallback(() => {
-    setDoc((current) => withCrop(current, resetCrop(current.crop)));
-  }, []);
-
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && pickTarget !== null) {
+      // A dialog (the proportion popover) already handled this key.
+      if (event.defaultPrevented) return;
+      // An open dialog owns the keyboard; global shortcuts must not fire.
+      if (settingsOpen || ratioOpen) return;
+      if (event.key === 'Escape') {
         const target = event.target as HTMLElement | null;
         if (
           target &&
@@ -1086,11 +1113,13 @@ export default function App() {
         ) {
           return;
         }
-        event.preventDefault();
-        setPickTarget(null);
-        return;
+        if (pickTarget !== null || adjustFrame) {
+          event.preventDefault();
+          setPickTarget(null);
+          closeAdjustFrame();
+          return;
+        }
       }
-      if (settingsOpen) return;
       if (
         (event.key === 'f' || event.key === 'F') &&
         !event.ctrlKey &&
@@ -1110,6 +1139,27 @@ export default function App() {
         if (!hasFrames) return;
         event.preventDefault();
         toggleFrames();
+        return;
+      }
+      if (
+        (event.key === 'c' || event.key === 'C') &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !event.altKey
+      ) {
+        const target = event.target as HTMLElement | null;
+        if (
+          target &&
+          (target.tagName === 'INPUT' ||
+            target.tagName === 'TEXTAREA' ||
+            target.tagName === 'SELECT' ||
+            target.isContentEditable)
+        ) {
+          return;
+        }
+        if (!doc.source) return;
+        event.preventDefault();
+        toggleAdjustFrame();
         return;
       }
       if (event.key === ' ' && isAnimated(effectiveSource(doc))) {
@@ -1146,12 +1196,16 @@ export default function App() {
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [
+    adjustFrame,
+    closeAdjustFrame,
     doc.source,
     handleOpen,
     hasFrames,
     openSettings,
     pickTarget,
+    ratioOpen,
     settingsOpen,
+    toggleAdjustFrame,
     toggleFrames,
     togglePlay,
   ]);
@@ -1310,30 +1364,20 @@ export default function App() {
             </svg>
           </button>
         </form>
-        <div className="preset-toggle" role="group" aria-label="Preset do Frame">
-          <button
-            type="button"
-            className={presetOf(doc.frame) === 'mudae' ? 'on' : ''}
-            onClick={() => applyFrame(frameFor('mudae', orientationOf(doc.frame)))}
-          >
-            {presetOf(doc.frame) === 'mudae' ? doc.frame.label : 'Mudae 225×350'}
-          </button>
-          <button
-            type="button"
-            className={presetOf(doc.frame) === 'square' ? 'on' : ''}
-            onClick={() => applyFrame(frameFor('square', 'portrait'))}
-          >
-            Square 350×350
-          </button>
-          <button
-            type="button"
-            onClick={() => applyFrame(swappedFrame(doc.frame))}
-            disabled={presetOf(doc.frame) === 'square'}
-            title="Trocar retrato e paisagem"
-          >
-            {orientationOf(doc.frame) === 'portrait' ? '↔ paisagem' : '↕ retrato'}
-          </button>
-        </div>
+        <RatioMenu
+          ratio={doc.frame.ratio}
+          sourceRatio={
+            doc.source
+              ? doc.crop.rotation === 90 || doc.crop.rotation === 270
+                ? doc.source.height / doc.source.width
+                : doc.source.width / doc.source.height
+              : null
+          }
+          snapEnabled={snapRatios}
+          onRatio={changeRatio}
+          onSnapEnabled={changeSnapRatios}
+          onOpenChange={setRatioOpen}
+        />
         <div className="topbar-right">
           <span className="chip">{sourceChip}</span>
           <span className="chip">waifu2x off</span>
@@ -1408,27 +1452,19 @@ export default function App() {
           pickingPad={pickTarget === 'pad'}
           framesOpen={framesOpen}
           onToggleFrames={toggleFrames}
+          adjustFrame={adjustFrame}
+          onToggleAdjustFrame={toggleAdjustFrame}
         />
         <div className="stage-column">
           <Stage
             doc={doc}
             frameIndex={frameIndex}
             frameVersion={frameVersion}
-            onPan={(dx, dy) =>
-              setDoc((current) =>
-                current.source ? withCrop(current, panBy(current, current.crop, dx, dy)) : current,
-              )
-            }
-            onZoomAt={(point, factor) =>
-              setDoc((current) =>
-                current.source
-                  ? withCrop(
-                      current,
-                      zoomAt(current, current.crop, current.crop.zoom * factor, point),
-                    )
-                  : current,
-              )
-            }
+            onPan={pan}
+            onZoomAt={zoomAtPoint}
+            onResize={resizeFrame}
+            adjustFrame={adjustFrame}
+            snapRatios={snapRatios}
             onOpen={handleOpen}
             busy={busy}
             picking={pickTarget === 'pad'}
@@ -1482,14 +1518,17 @@ export default function App() {
           onResizeWidth={changeResizeWidth}
           onResizeHeight={changeResizeHeight}
           onResizeLocked={changeResizeLocked}
+          onNative={useNativeSize}
+          onHalve={halveOutput}
+          onDouble={doubleOutput}
           onOptimize={changeOptimize}
           onAppendPostId={changeAppendPostId}
           onCommitAppendPostId={commitAppendPostId}
           onUpload={handleUpload}
           onOpenSettings={openSettings}
-          onCopyText={(value) => void copyValue(value)}
-          onOpenLink={(value) => void openLink(value)}
-          onRevealPath={(value) => void revealHistoryFile(value)}
+          onCopyText={copyExportText}
+          onOpenLink={openExportLink}
+          onRevealPath={revealExportPath}
           onClearHistory={clearHistory}
         />
       </main>
@@ -1500,7 +1539,7 @@ export default function App() {
         hasSource={doc.source !== null}
         onColor={(color) => persistSettings({ borderColor: color })}
         onWidth={(width) => persistSettings({ borderWidth: width })}
-        onCopy={(hex) => void copyValue(hex)}
+        onCopy={copyExportText}
         onRecalc={recalcPalette}
       />
 

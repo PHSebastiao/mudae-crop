@@ -1,16 +1,14 @@
-export interface Size {
-  readonly width: number;
-  readonly height: number;
-}
+import type { Size } from './rect';
 
 /** The allowed relative drift before an output is called stretched. */
 export const ASPECT_TOLERANCE = 0.005;
 
-export function aspectMatches(output: Size, frame: Size, tolerance = ASPECT_TOLERANCE): boolean {
-  if (frame.width <= 0 || frame.height <= 0 || output.height <= 0) return false;
-  const outputRatio = output.width / output.height;
-  const frameRatio = frame.width / frame.height;
-  return Math.abs(outputRatio / frameRatio - 1) <= tolerance;
+export function aspectMatches(output: Size, ratio: number, tolerance = ASPECT_TOLERANCE): boolean {
+  if (!Number.isFinite(ratio) || ratio <= 0 || output.height <= 0) return false;
+  const idealWidth = output.height * ratio;
+  // Rounding a native crop to whole pixels can drift a tiny export well past a
+  // relative tolerance, so one pixel of slack is always allowed.
+  return Math.abs(output.width - idealWidth) <= Math.max(1, idealWidth * tolerance);
 }
 
 /** The output ratio as `1,56:1` or `1:1,56`, matching the app's decimal comma. */

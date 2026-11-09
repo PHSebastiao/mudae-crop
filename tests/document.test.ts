@@ -1,20 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
+  DEFAULT_FRAME,
   DEFAULT_PAD_COLOR,
   FIT_CROP,
-  MUDAE_FRAME,
-  MUDAE_LANDSCAPE_FRAME,
-  SQUARE_FRAME,
+  MAX_EXPORT_SIDE,
   emptyDocument,
-  frameFor,
-  orientationOf,
   outputSize,
-  presetOf,
-  swappedFrame,
   withBorder,
   withCrop,
-  withExportScale,
-  withFrame,
   withOptimize,
   withPadColor,
   withResize,
@@ -25,47 +18,53 @@ import {
   withTrim,
   withTrimEnabled,
 } from '../src/core/document';
+import { applyRatio } from '../src/core/geometry';
+import { MUDAE_RATIO } from '../src/core/ratios';
+import { fitRect } from '../src/core/rect';
 import { makeAnimatedSource, makeDoc, makeSource } from './helpers';
 
 describe('document', () => {
-  it('starts empty with the Mudae frame, a Fit crop and a 1× Export', () => {
+  it('starts empty with the Mudae ratio, a Fit crop and a 1× Export', () => {
     const doc = emptyDocument();
     expect(doc.source).toBeNull();
-    expect(doc.frame).toEqual(MUDAE_FRAME);
+    expect(doc.frame).toEqual(DEFAULT_FRAME);
+    expect(doc.frame.ratio).toBe(MUDAE_RATIO);
     expect(doc.crop).toEqual(FIT_CROP);
+    expect(doc.crop.rect).toEqual({ x: 0, y: 0, width: 0, height: 0 });
     expect(doc.padColor).toBe(DEFAULT_PAD_COLOR);
     expect(doc.padColorExplicit).toBe(false);
     expect(doc.border).toEqual({ color: '#FFFFFF', width: 1 });
     expect(doc.sharpness).toBe(0);
-    expect(doc.exportScale).toBe(1);
   });
 
   it('keeps every setting outside the Crop when a Source is replaced', () => {
     const first = makeSource(400, 800);
-    const settings = withExportScale(
+    const settings = withResize(
       withPadColor(
-        withFrame(
+        applyRatio(
           withCrop(makeDoc(first), {
             mode: 'pad',
-            zoom: 3,
-            offsetX: 40,
-            offsetY: -20,
+            rect: { x: 10, y: 20, width: 400, height: 622 },
             rotation: 90,
           }),
-          MUDAE_LANDSCAPE_FRAME,
+          14 / 9,
         ),
         '#123456',
       ),
-      2,
+      { width: 700, height: 450 },
     );
 
     const replaced = withSource(settings, makeSource(800, 400));
 
     expect(replaced.source).not.toBe(first);
-    expect(replaced.frame).toEqual(MUDAE_LANDSCAPE_FRAME);
+    expect(replaced.frame.ratio).toBeCloseTo(14 / 9);
     expect(replaced.padColor).toBe('#123456');
-    expect(replaced.exportScale).toBe(2);
-    expect(replaced.crop).toEqual(FIT_CROP);
+    expect(replaced.resize).toEqual({ width: 700, height: 450 });
+    expect(replaced.crop).toEqual({
+      mode: 'fit',
+      rect: fitRect({ width: 800, height: 400 }, 14 / 9),
+      rotation: 0,
+    });
   });
 
   it('keeps Border, sharpness and Pad choices when a Source is replaced', () => {
@@ -73,15 +72,13 @@ describe('document', () => {
     const settings = withSharpness(
       withPadColor(
         withBorder(
-          withFrame(
+          applyRatio(
             withCrop(makeDoc(first), {
               mode: 'pad',
-              zoom: 3,
-              offsetX: 40,
-              offsetY: -20,
+              rect: { x: 10, y: 20, width: 400, height: 622 },
               rotation: 90,
             }),
-            MUDAE_LANDSCAPE_FRAME,
+            14 / 9,
           ),
           { color: '#FFCC00', width: 2 },
         ),
@@ -93,12 +90,26 @@ describe('document', () => {
     const replaced = withSource(settings, makeSource(800, 400));
 
     expect(replaced.source).not.toBe(first);
-    expect(replaced.frame).toEqual(MUDAE_LANDSCAPE_FRAME);
+    expect(replaced.frame.ratio).toBeCloseTo(14 / 9);
     expect(replaced.padColor).toBe('#123456');
     expect(replaced.padColorExplicit).toBe(true);
     expect(replaced.border).toEqual({ color: '#FFCC00', width: 2 });
     expect(replaced.sharpness).toBe(40);
-    expect(replaced.crop).toEqual(FIT_CROP);
+    expect(replaced.crop).toEqual({
+      mode: 'fit',
+      rect: fitRect({ width: 800, height: 400 }, 14 / 9),
+      rotation: 0,
+    });
+  });
+
+  it('imports a Source with a Fit rect built from the Frame ratio', () => {
+    const doc = withSource(emptyDocument(), makeSource(400, 800));
+    const rect = fitRect({ width: 400, height: 800 }, MUDAE_RATIO);
+
+    expect(doc.frame.ratio).toBe(MUDAE_RATIO);
+    expect(doc.crop).toEqual({ mode: 'fit', rect, rotation: 0 });
+    expect(doc.crop.rect.width).toBeCloseTo(400);
+    expect(doc.crop.rect.height).toBeCloseTo(622.22);
   });
 });
 
@@ -132,55 +143,54 @@ describe('Border and sharpness', () => {
   });
 });
 
-describe('Frame presets', () => {
-  it('gives each Preset and orientation its exact Frame', () => {
-    expect(frameFor('mudae', 'portrait')).toEqual({
-      id: 'mudae',
-      label: 'Mudae 225×350',
-      width: 225,
-      height: 350,
-    });
-    expect(frameFor('mudae', 'landscape')).toEqual({
-      id: 'mudae-landscape',
-      label: 'Mudae landscape 350×225',
-      width: 350,
-      height: 225,
-    });
-    expect(frameFor('square', 'portrait')).toEqual({
-      id: 'square',
-      label: 'Square 350×350',
-      width: 350,
-      height: 350,
-    });
+describe('Frame ratio', () => {
+  it('stores only the ratio and keeps it when the Source is replaced', () => {
+    const doc = applyRatio(makeDoc(makeSource(400, 800)), 16 / 9);
+    expect(doc.frame).toEqual({ ratio: 16 / 9 });
+
+    const replaced = withSource(doc, makeSource(800, 400));
+    expect(replaced.frame.ratio).toBe(16 / 9);
   });
 
-  it('keeps Square square when the orientation is swapped', () => {
-    expect(frameFor('square', 'landscape')).toBe(SQUARE_FRAME);
-    expect(swappedFrame(SQUARE_FRAME)).toBe(SQUARE_FRAME);
-  });
-
-  it('reads the Preset and orientation back from the Frame', () => {
-    expect(presetOf(MUDAE_FRAME)).toBe('mudae');
-    expect(presetOf(SQUARE_FRAME)).toBe('square');
-    expect(orientationOf(MUDAE_FRAME)).toBe('portrait');
-    expect(orientationOf(MUDAE_LANDSCAPE_FRAME)).toBe('landscape');
-    expect(swappedFrame(MUDAE_FRAME)).toBe(MUDAE_LANDSCAPE_FRAME);
-    expect(swappedFrame(MUDAE_LANDSCAPE_FRAME)).toBe(MUDAE_FRAME);
+  it('rejects an invalid ratio instead of storing it', () => {
+    const doc = makeDoc(makeSource(400, 800));
+    expect(applyRatio(doc, 0)).toBe(doc);
+    expect(applyRatio(doc, Number.NaN)).toBe(doc);
+    expect(applyRatio(doc, -1)).toBe(doc);
   });
 });
 
 describe('export size', () => {
-  it('doubles both axes for a 2× Export', () => {
-    const doc = withExportScale(makeDoc(makeSource(450, 700)), 2);
+  it('uses the native crop size when no explicit resize is set', () => {
+    const doc = makeDoc(makeSource(450, 700));
     expect(outputSize(doc)).toEqual({ width: 450, height: 700 });
-
-    const square = withExportScale({ ...makeDoc(makeSource(450, 700)), frame: SQUARE_FRAME }, 2);
-    expect(outputSize(square)).toEqual({ width: 700, height: 700 });
   });
 
-  it('uses the document Export scale when there is no custom size', () => {
-    const doc = makeDoc(makeSource(450, 700));
-    expect(outputSize(doc)).toEqual({ width: 225, height: 350 });
+  it('caps the native crop size proportionally instead of distorting it', () => {
+    const doc = makeDoc(makeSource(3000, 5000));
+    const size = outputSize(doc);
+    expect(Math.max(size.width, size.height)).toBe(MAX_EXPORT_SIDE);
+    expect(size.width / size.height).toBeCloseTo(MUDAE_RATIO, 3);
+  });
+
+  it('keeps an explicit resize while the lock derives the other side', () => {
+    const doc = withResize(makeDoc(makeSource(450, 700)), { width: 300, height: 1 });
+    expect(doc.resize).toEqual({ width: 300, height: 467 });
+    expect(outputSize(doc)).toEqual({ width: 300, height: 467 });
+  });
+
+  it('caps a locked resize proportionally, preserving the Frame ratio', () => {
+    const doc = withResize(makeDoc(makeSource(100, 156)), { width: 6000, height: 1 });
+    expect(doc.resize?.height).toBe(MAX_EXPORT_SIDE);
+    expect((doc.resize?.width ?? 0) / (doc.resize?.height ?? 1)).toBeCloseTo(MUDAE_RATIO, 2);
+  });
+
+  it('clamps each side independently when the lock is deliberately off', () => {
+    const free = withResize(withResizeLocked(makeDoc(makeSource(100, 156)), false), {
+      width: 6000,
+      height: 7000,
+    });
+    expect(free.resize).toEqual({ width: MAX_EXPORT_SIDE, height: MAX_EXPORT_SIDE });
   });
 });
 
@@ -215,7 +225,7 @@ describe('animation editing settings', () => {
     expect(withSpeed(doc, Number.NaN).speed).toBe(1);
   });
 
-  it('keeps a custom size proportional while the lock is on', () => {
+  it('keeps a custom size proportional to the Frame ratio while the lock is on', () => {
     const doc = makeDoc(makeSource(225, 350));
     const locked = withResize(doc, { width: 400, height: 200 });
     expect(locked.resize).toEqual({ width: 400, height: 622 });
@@ -225,12 +235,12 @@ describe('animation editing settings', () => {
     expect(free.resize).toEqual({ width: 400, height: 200 });
     expect(outputSize(free)).toEqual({ width: 400, height: 200 });
 
-    expect(withExportScale(locked, 2).resize).toBeNull();
+    expect(withResize(locked, null).resize).toBeNull();
   });
 
-  it('follows the Frame aspect when the Frame changes while locked', () => {
+  it('follows the Frame ratio when it changes while the resize is locked', () => {
     const doc = withResize(makeDoc(makeSource(225, 350)), { width: 400, height: 622 });
-    const square = withFrame(doc, SQUARE_FRAME);
+    const square = applyRatio(doc, 1);
     expect(square.resize).toEqual({ width: 400, height: 400 });
   });
 

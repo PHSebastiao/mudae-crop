@@ -1,3 +1,4 @@
+import { memo, useState } from 'react';
 import {
   MAX_SHARPNESS,
   MAX_SPEED,
@@ -13,8 +14,12 @@ import {
   type Trim,
 } from '../core/document';
 import { formatPlaybackDuration, trimDurationMs } from '../core/animation';
+import { offsetPct, zoomOf } from '../core/geometry';
 import { HexInput } from './HexInput';
 import { NumberField } from './NumberField';
+
+/** The tooltip's fixed width, shared by its placement and its inline style. */
+const TIP_WIDTH = 248;
 
 interface ToolRailProps {
   readonly doc: DocumentState;
@@ -31,9 +36,11 @@ interface ToolRailProps {
   readonly pickingPad: boolean;
   readonly framesOpen: boolean;
   readonly onToggleFrames: () => void;
+  readonly adjustFrame: boolean;
+  readonly onToggleAdjustFrame: () => void;
 }
 
-export function ToolRail({
+export const ToolRail = memo(function ToolRail({
   doc,
   onMode,
   onZoom,
@@ -48,6 +55,8 @@ export function ToolRail({
   pickingPad,
   framesOpen,
   onToggleFrames,
+  adjustFrame,
+  onToggleAdjustFrame,
 }: ToolRailProps) {
   const hasSource = doc.source !== null;
   const mode = doc.crop.mode;
@@ -57,11 +66,65 @@ export function ToolRail({
   const trim = effectiveTrim(doc) ?? { start: 0, end: 0 };
   const trimmed = trimFrameCount(effectiveSource(doc), effectiveTrim(doc));
   const speedLabel = `${doc.speed.toFixed(2).replace('.', ',')}×`;
+  const zoom = zoomOf(doc);
+  const offset = offsetPct(doc);
+  const offsetX = Math.round(offset.x * 1000) / 10;
+  const offsetY = Math.round(offset.y * 1000) / 10;
+
+  const [tip, setTip] = useState<{ left: number; top: number } | null>(null);
+  const showTip = (element: HTMLElement) => {
+    const rect = element.getBoundingClientRect();
+    setTip({
+      left: Math.max(12, Math.min(window.innerWidth - TIP_WIDTH - 12, rect.right + 10)),
+      top: rect.top + rect.height / 2,
+    });
+  };
 
   return (
     <aside className="rail">
       <div className="group">
         <div className="label">Crop</div>
+        <div
+          className="rail-adjust-row"
+          onMouseEnter={(event) => showTip(event.currentTarget)}
+          onMouseLeave={() => setTip(null)}
+        >
+          <button
+            type="button"
+            className={`rail-adjust${adjustFrame ? ' on' : ''}`}
+            onClick={onToggleAdjustFrame}
+            onFocus={(event) => showTip(event.currentTarget)}
+            onBlur={() => setTip(null)}
+            aria-pressed={adjustFrame}
+            aria-keyshortcuts="C"
+            aria-describedby={tip ? 'frame-adjust-tip' : undefined}
+            disabled={!hasSource}
+          >
+            <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+              <path
+                d="M3.5 1v11.5H15M1 3.5h11.5V15"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.2"
+                strokeLinecap="round"
+              />
+            </svg>
+            <span>{adjustFrame ? 'Ajustando Frame' : 'Ajustar Frame'}</span>
+            <span className="rail-adjust-key">C</span>
+          </button>
+          {tip && (
+            <span
+              className="rail-tip"
+              id="frame-adjust-tip"
+              role="tooltip"
+              style={{ left: tip.left, top: tip.top, width: TIP_WIDTH }}
+            >
+              <strong>Ajustar Frame</strong>
+              Arraste as bordas ou os cantos do Frame para enquadrar. Shift solta a proporção; +Alt
+              solta os encaixes (proporção e centro); a roda do mouse dá zoom.
+            </span>
+          )}
+        </div>
         <div className="toggle" role="group" aria-label="Modo de escala">
           <button
             type="button"
@@ -102,7 +165,7 @@ export function ToolRail({
           <span className="key">zoom</span>
           <span className="field">
             <NumberField
-              value={doc.crop.zoom}
+              value={zoom}
               onCommit={onZoom}
               label="Zoom"
               precision={2}
@@ -113,21 +176,29 @@ export function ToolRail({
         </div>
         <div className="row">
           <span className="key">offset x</span>
-          <NumberField
-            value={doc.crop.offsetX}
-            onCommit={(offsetX) => onOffset(offsetX, doc.crop.offsetY)}
-            label="Offset horizontal"
-            disabled={!hasSource}
-          />
+          <span className="field">
+            <NumberField
+              value={offsetX}
+              onCommit={(next) => onOffset(next, offset.y * 100)}
+              label="Offset horizontal"
+              precision={1}
+              disabled={!hasSource}
+            />
+            <span className="unit">%</span>
+          </span>
         </div>
         <div className="row">
           <span className="key">offset y</span>
-          <NumberField
-            value={doc.crop.offsetY}
-            onCommit={(offsetY) => onOffset(doc.crop.offsetX, offsetY)}
-            label="Offset vertical"
-            disabled={!hasSource}
-          />
+          <span className="field">
+            <NumberField
+              value={offsetY}
+              onCommit={(next) => onOffset(offset.x * 100, next)}
+              label="Offset vertical"
+              precision={1}
+              disabled={!hasSource}
+            />
+            <span className="unit">%</span>
+          </span>
         </div>
         <div className="row">
           <span className="key">rotate</span>
@@ -187,7 +258,6 @@ export function ToolRail({
           aria-label="Nitidez"
           disabled={!hasSource}
         />
-        <p className="rail-hint">unsharp mask · 0 desliga</p>
       </div>
 
       <div className={animated ? 'group' : 'group disabled-group'}>
@@ -260,4 +330,4 @@ export function ToolRail({
       </div>
     </aside>
   );
-}
+});

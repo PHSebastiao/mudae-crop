@@ -1,19 +1,21 @@
-import { useEffect, useRef, useState, type RefObject } from 'react';
+import { memo, useEffect, useRef, useState, type RefObject } from 'react';
 import {
+  MAX_EXPORT_SIDE,
   MAX_LOSSY,
   MIN_LOSSY,
   effectiveSource,
   isAnimated,
   outputSize,
   type DocumentState,
-  type ExportScale,
   type OptimizeSettings,
 } from '../core/document';
 import { exportKindFor, type SizeEstimate } from '../core/export';
+import { nativeSize } from '../core/geometry';
 import { formatHistoryDate, type ExportEntry, type HistoryEntry } from '../core/history';
 import type { HistoryPreviewLoader } from '../core/historyPreview';
 import { isPostId } from '../core/imagechest';
 import type { OptimizeResult } from '../core/optimize';
+import { mudaeExportSize, mudaeScaleOf, type CartaScale } from '../core/ratios';
 import type { Settings } from '../core/settings';
 import { formatBytes } from '../core/download';
 import {
@@ -38,11 +40,14 @@ interface ExportPanelProps {
   readonly optimizeResult: OptimizeResult | null;
   readonly sizeEstimate: SizeEstimate | null;
   readonly onExport: () => void;
-  readonly onExportScale: (scale: ExportScale) => void;
+  readonly onExportScale: (scale: CartaScale) => void;
   readonly onExportFormat: (format: 'png' | 'gif') => void;
   readonly onResizeWidth: (width: number) => void;
   readonly onResizeHeight: (height: number) => void;
   readonly onResizeLocked: (locked: boolean) => void;
+  readonly onNative: () => void;
+  readonly onHalve: () => void;
+  readonly onDouble: () => void;
   readonly onOptimize: (patch: Partial<OptimizeSettings>) => void;
   readonly onAppendPostId: (value: string) => void;
   readonly onCommitAppendPostId: () => void;
@@ -148,7 +153,7 @@ function ExportRow({ entry, preview, root, onCopyText, onRevealPath }: ExportRow
   );
 }
 
-export function ExportPanel({
+export const ExportPanel = memo(function ExportPanel({
   doc,
   busy,
   downloading,
@@ -166,6 +171,9 @@ export function ExportPanel({
   onResizeWidth,
   onResizeHeight,
   onResizeLocked,
+  onNative,
+  onHalve,
+  onDouble,
   onOptimize,
   onAppendPostId,
   onCommitAppendPostId,
@@ -177,6 +185,21 @@ export function ExportPanel({
   onClearHistory,
 }: ExportPanelProps) {
   const size = outputSize(doc);
+  const native = nativeSize(doc);
+  const card1 = mudaeExportSize(doc.frame.ratio, 1);
+  const card2 = mudaeExportSize(doc.frame.ratio, 2);
+  const isMudae = card1 !== null;
+  // The automatic/native state is deliberately Personalizado, even if the
+  // covered pixels happen to equal a Carta size.
+  const mudaeScale = doc.resize !== null ? mudaeScaleOf(size, doc.frame.ratio) : null;
+  const explicit = doc.resize !== null;
+  // The custom block stays open once the user is editing it, so a Mudae size
+  // that happens to land on a Carta does not unmount the fields mid-typing.
+  const [customOpen, setCustomOpen] = useState(false);
+  const showCustom = doc.source !== null && (!isMudae || customOpen || mudaeScale === null);
+  const aboveNative = exceedsSource(size, native);
+  const nativeCapped = native.width > MAX_EXPORT_SIDE || native.height > MAX_EXPORT_SIDE;
+  const sizeCapTitle = `Limite de renderização: ${MAX_EXPORT_SIDE} px por lado (memória do canvas/GIF, não é uma regra do Mudae).`;
   const postId = appendPostId.trim();
   const badPostId = postId !== '' && !isPostId(postId);
   const hasToken = settings.token.trim() !== '';
@@ -185,10 +208,8 @@ export function ExportPanel({
   const kind = exportKindFor(effectiveSource(doc), settings.exportFormat);
   const format = kind.label;
   const animated = isAnimated(effectiveSource(doc));
-  const custom = doc.resize !== null;
-  const ratioMatches = aspectMatches(size, doc.frame);
+  const ratioMatches = aspectMatches(size, doc.frame.ratio);
   const ratioLabel = formatAspect(size);
-  const sourceTooSmall = exceedsSource(size, doc.source);
   const exportLabel = downloading
     ? 'Aguarde o link…'
     : busy && !uploading
@@ -237,11 +258,13 @@ export function ExportPanel({
 
         <div className="export-summary" aria-live="polite">
           <strong>
-            {format} · {size.width}×{size.height}
+            {format} · {doc.source ? `${size.width}×${size.height}` : '—'}
           </strong>
-          <span className={ratioMatches ? '' : 'warn'}>
-            {ratioMatches ? 'proporção da carta' : 'esticada'}
-          </span>
+          {doc.source && (
+            <span className={ratioMatches ? '' : 'warn'}>
+              {ratioMatches ? 'proporção da carta' : 'esticada'}
+            </span>
+          )}
           {estimateLabel && <span title={estimateTitle}>{estimateLabel}</span>}
           {optimizeResult && <span>resultado {formatBytes(optimizeResult.size)}</span>}
         </div>
@@ -276,53 +299,70 @@ export function ExportPanel({
         </div>
         {!animated && <p className="panel-hint">GIF indisponível: a Source é estática.</p>}
 
-        <div className="export-sizes" role="radiogroup" aria-label="Tamanho do Export">
-          <button
-            type="button"
-            className={`size-option${!custom && doc.exportScale === 1 ? ' on' : ''}`}
-            onClick={() => onExportScale(1)}
-            role="radio"
-            aria-checked={!custom && doc.exportScale === 1}
-          >
-            <span>Carta 1×</span>
-            <span className="dims">
-              {doc.frame.width}×{doc.frame.height}
-            </span>
-          </button>
-          <button
-            type="button"
-            className={`size-option${!custom && doc.exportScale === 2 ? ' on' : ''}`}
-            onClick={() => onExportScale(2)}
-            role="radio"
-            aria-checked={!custom && doc.exportScale === 2}
-            title="Renderiza a Source em 2×"
-          >
-            <span>Carta 2×</span>
-            <span className="dims">
-              {doc.frame.width * 2}×{doc.frame.height * 2}
-            </span>
-          </button>
-          <button
-            type="button"
-            className={`size-option${custom ? ' on' : ''}`}
-            onClick={() => {
-              if (!custom) onResizeWidth(size.width);
-            }}
-            role="radio"
-            aria-checked={custom}
-          >
-            <span>Personalizado</span>
-            <span className="dims">—</span>
-          </button>
-        </div>
+        {isMudae && card1 && card2 && (
+          <div className="export-sizes" role="radiogroup" aria-label="Tamanho do Export">
+            <button
+              type="button"
+              className={`size-option${mudaeScale === 1 ? ' on' : ''}`}
+              onClick={() => {
+                setCustomOpen(false);
+                onExportScale(1);
+              }}
+              role="radio"
+              aria-checked={mudaeScale === 1}
+              disabled={!doc.source}
+            >
+              <span>Carta 1×</span>
+              <span className="dims">
+                {card1.width}×{card1.height}
+              </span>
+            </button>
+            <button
+              type="button"
+              className={`size-option${mudaeScale === 2 ? ' on' : ''}`}
+              onClick={() => {
+                setCustomOpen(false);
+                onExportScale(2);
+              }}
+              role="radio"
+              aria-checked={mudaeScale === 2}
+              title="Renderiza a Source em 2×"
+              disabled={!doc.source}
+            >
+              <span>Carta 2×</span>
+              <span className="dims">
+                {card2.width}×{card2.height}
+              </span>
+            </button>
+            <button
+              type="button"
+              className={`size-option${mudaeScale === null ? ' on' : ''}`}
+              onClick={() => {
+                setCustomOpen(true);
+                if (mudaeScale !== null) onNative();
+              }}
+              role="radio"
+              aria-checked={mudaeScale === null}
+              title="Tamanho automático do recorte"
+              disabled={!doc.source}
+            >
+              <span>Personalizado</span>
+              <span className="dims">—</span>
+            </button>
+          </div>
+        )}
 
-        {custom && (
+        {showCustom && (
           <div className="custom-size">
             <div className="custom-size-head">
               <NumberField
                 value={size.width}
-                onCommit={onResizeWidth}
+                onCommit={(width) => {
+                  setCustomOpen(true);
+                  onResizeWidth(width);
+                }}
                 label="Largura do Export"
+                title={sizeCapTitle}
                 disabled={!doc.source}
               />
               <button
@@ -342,15 +382,43 @@ export function ExportPanel({
               </button>
               <NumberField
                 value={size.height}
-                onCommit={onResizeHeight}
+                onCommit={(height) => {
+                  setCustomOpen(true);
+                  onResizeHeight(height);
+                }}
                 label="Altura do Export"
+                title={sizeCapTitle}
                 disabled={!doc.source}
               />
             </div>
             <div className="custom-size-meta">
-              <span className="ratio-chip">{ratioLabel}</span>
-              <button type="button" className="link" onClick={() => onExportScale(doc.exportScale)}>
-                voltar a {doc.exportScale}×
+              {doc.source && <span className="ratio-chip">{ratioLabel}</span>}
+              <span>{!doc.source ? 'sem Source' : explicit ? 'personalizado' : 'automático'}</span>
+            </div>
+            <div className="custom-size-actions">
+              <button
+                type="button"
+                onClick={onNative}
+                title="Tamanho nativo do recorte"
+                disabled={!doc.source}
+              >
+                Nativo
+              </button>
+              <button
+                type="button"
+                onClick={onHalve}
+                title="Metade do tamanho atual"
+                disabled={!doc.source}
+              >
+                ÷2
+              </button>
+              <button
+                type="button"
+                onClick={onDouble}
+                title="Dobro do tamanho atual"
+                disabled={!doc.source}
+              >
+                ×2
               </button>
             </div>
             {!doc.resizeLocked && !ratioMatches && (
@@ -359,15 +427,33 @@ export function ExportPanel({
           </div>
         )}
 
-        {sourceTooSmall && doc.source && (
-          <p className="panel-hint warn">
-            acima da Source ({doc.source.width}×{doc.source.height}) — só amplia
+        {doc.source && (
+          <p
+            className="panel-hint"
+            title="Pixels da Source que o Frame cobre; é o tamanho real do recorte."
+          >
+            nativo: {native.width}×{native.height}
           </p>
         )}
 
-        {animated && kind.format === 'gif' && !custom && doc.exportScale === 2 && (
+        {nativeCapped && (
+          <p className="panel-hint warn">
+            nativo {native.width}×{native.height} · limite de renderização: {MAX_EXPORT_SIDE} px por
+            lado
+          </p>
+        )}
+
+        {showCustom && explicit && aboveNative && (
+          <p className="panel-hint warn">acima do nativo — ampliando</p>
+        )}
+
+        {aboveNative && !(showCustom && explicit) && doc.source && (
+          <p className="panel-hint warn">acima do nativo — só amplia</p>
+        )}
+
+        {animated && kind.format === 'gif' && isMudae && mudaeScale === 2 && (
           <p className="panel-hint">
-            2× renderiza a Source maior; o GIF pode passar de{' '}
+            Carta 2× renderiza a Source maior; o GIF pode passar de{' '}
             {formatBytes(MUDAE_SIZE_GUIDANCE_BYTES)}.
           </p>
         )}
@@ -613,4 +699,4 @@ export function ExportPanel({
       </section>
     </aside>
   );
-}
+});

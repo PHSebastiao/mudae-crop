@@ -1,14 +1,16 @@
 import { createCanvas, type Canvas, type SKRSContext2D } from '@napi-rs/canvas';
 import {
   DEFAULT_BORDER,
+  DEFAULT_FRAME,
   DEFAULT_OPTIMIZE,
   DEFAULT_PAD_COLOR,
-  FIT_CROP,
-  MUDAE_FRAME,
   type DocumentState,
+  type Rotation,
+  type ScaleMode,
   type Source,
 } from '../src/core/document';
-import { sourceRect } from '../src/core/geometry';
+import { MUDAE_RATIO } from '../src/core/ratios';
+import { baseRect } from '../src/core/rect';
 import type { ExportEntry, UploadEntry } from '../src/core/history';
 import type { EncodableCanvas, ExportAdapter } from '../src/core/export';
 import type { RenderContext } from '../src/core/render';
@@ -109,16 +111,26 @@ export const testExportAdapter: ExportAdapter = {
   },
 };
 
-export function makeDoc(source: Source | null): DocumentState {
+export function makeDoc(
+  source: Source | null,
+  ratio = MUDAE_RATIO,
+  mode: ScaleMode = 'fit',
+  rotation: Rotation = 0,
+): DocumentState {
+  const bounds =
+    source && (rotation === 90 || rotation === 270)
+      ? { width: source.height, height: source.width }
+      : source
+        ? { width: source.width, height: source.height }
+        : { width: 0, height: 0 };
   return {
     source,
-    frame: MUDAE_FRAME,
-    crop: FIT_CROP,
+    frame: { ...DEFAULT_FRAME, ratio },
+    crop: { mode, rect: baseRect(bounds, ratio, mode), rotation },
     padColor: DEFAULT_PAD_COLOR,
     padColorExplicit: false,
     border: DEFAULT_BORDER,
     sharpness: 0,
-    exportScale: 1,
     resize: null,
     resizeLocked: true,
     trim: source?.animation
@@ -135,16 +147,6 @@ export function makeDoc(source: Source | null): DocumentState {
 
 export function contextOf(canvas: Canvas): RenderContext {
   return canvas.getContext('2d') as unknown as RenderContext;
-}
-
-/** Source-relative point (0..1) currently drawn under a Frame point. */
-export function sourcePointAt(
-  doc: DocumentState,
-  point: { x: number; y: number },
-): { x: number; y: number } {
-  if (!doc.source) return { x: 0, y: 0 };
-  const rect = sourceRect(doc);
-  return { x: (point.x - rect.x) / rect.width, y: (point.y - rect.y) / rect.height };
 }
 
 /** Reads the four big-endian dimension bytes from a PNG IHDR chunk. */

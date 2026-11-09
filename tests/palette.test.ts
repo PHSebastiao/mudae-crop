@@ -1,13 +1,7 @@
 import { createCanvas } from '@napi-rs/canvas';
 import { describe, expect, it } from 'vitest';
 import { normalizeHexColor, parseHexColor, toHexColor } from '../src/core/color';
-import {
-  SQUARE_FRAME,
-  withBorder,
-  withPadColor,
-  withSharpness,
-  type DocumentState,
-} from '../src/core/document';
+import { withBorder, withPadColor, withSharpness, type DocumentState } from '../src/core/document';
 import {
   MAX_PALETTE,
   WHITE_SWATCH,
@@ -127,10 +121,7 @@ describe('palette', () => {
       ctx.fillStyle = '#23202C';
       ctx.fillRect(175, 175, 175, 175);
     });
-    const doc: DocumentState = {
-      ...makeDoc(source),
-      frame: SQUARE_FRAME,
-    };
+    const doc: DocumentState = makeDoc(source, 1);
 
     const plain = extractPalette(doc, adapter);
     const bordered = extractPalette(withBorder(doc, { color: '#FF00FF', width: 20 }), adapter);
@@ -159,7 +150,7 @@ describe('palette', () => {
       ctx.fillStyle = '#D94F6D';
       ctx.fillRect(0, 0, 350, 350);
     });
-    const doc: DocumentState = { ...makeDoc(source), frame: SQUARE_FRAME };
+    const doc: DocumentState = makeDoc(source, 1);
 
     expect(hexes(extractPalette(withSharpness(doc, 80), adapter))).toEqual(
       hexes(extractPalette(doc, adapter)),
@@ -168,7 +159,7 @@ describe('palette', () => {
 
   it('samples every trimmed frame of an animation', () => {
     const source = makeAnimatedSource(350, 350, ['#D94F6D', '#2B9C8F', '#23202C'], [100, 100, 100]);
-    const doc: DocumentState = { ...makeDoc(source), frame: SQUARE_FRAME };
+    const doc: DocumentState = makeDoc(source, 1);
 
     const palette = hexes(extractPalette(doc, adapter));
     expect(palette).toContain('#D94F6D');
@@ -190,7 +181,7 @@ describe('palette', () => {
       index === 99 ? '#FF0000' : '#00FF00',
     );
     const source = makeAnimatedSource(20, 20, colors, Array(100).fill(100));
-    const doc: DocumentState = { ...makeDoc(source), frame: SQUARE_FRAME };
+    const doc: DocumentState = makeDoc(source, 1);
 
     expect(hexes(extractPalette(doc, adapter))).toContain('#FF0000');
   });
