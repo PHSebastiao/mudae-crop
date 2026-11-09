@@ -21,6 +21,13 @@ import {
 import { presetForRatio } from '../core/ratios';
 import type { Handle } from '../core/rect';
 import type { Settings } from '../core/settings';
+import {
+  closeAdjust,
+  enterAdjust,
+  IDLE_STAGE_MODE,
+  shouldResumePlayback,
+  type StageMode,
+} from '../core/stageMode';
 
 interface FrameCropOptions {
   readonly doc: DocumentState;
@@ -73,7 +80,7 @@ export function useFrameCrop({
   setPlaying,
   leavePick,
 }: FrameCropOptions): FrameCrop {
-  const [adjustFrame, setAdjustFrame] = useState(false);
+  const [stageMode, setStageMode] = useState<StageMode>(IDLE_STAGE_MODE);
   const persistedFrameRatioRef = useRef(doc.frame.ratio);
 
   // A preset ratio is remembered for the next launch; a free Personalizado
@@ -92,22 +99,21 @@ export function useFrameCrop({
 
   // The crop phase freezes the preview: a moving Source under the handles is
   // distracting and makes the framing harder to judge. Playback resumes when
-  // the phase ends, but only if it was playing when it started.
-  const adjustWasOnRef = useRef(false);
-  const resumeAfterAdjustRef = useRef(false);
+  // the phase ends, but only if it was playing when it started. The memory
+  // lives in the mode itself (`resumePlayback`); this effect only mirrors the
+  // previous mode so leaving adjust can read that flag.
+  const previousStageModeRef = useRef<StageMode>(stageMode);
   useEffect(() => {
-    if (adjustFrame === adjustWasOnRef.current) return;
-    adjustWasOnRef.current = adjustFrame;
-    if (adjustFrame) {
-      if (playing) {
-        resumeAfterAdjustRef.current = true;
-        setPlaying(false);
-      }
-    } else if (resumeAfterAdjustRef.current) {
-      resumeAfterAdjustRef.current = false;
+    const previous = previousStageModeRef.current;
+    previousStageModeRef.current = stageMode;
+    if (stageMode.kind === 'adjust') {
+      if (stageMode.resumePlayback) setPlaying(false);
+    } else if (shouldResumePlayback(previous)) {
       setPlaying(true);
     }
-  }, [adjustFrame, playing, setPlaying]);
+  }, [stageMode, setPlaying]);
+
+  const adjustFrame = stageMode.kind === 'adjust';
 
   const changeMode = useCallback(
     (mode: ScaleMode) => setDoc((current) => applyScaleMode(current, mode)),
@@ -191,10 +197,12 @@ export function useFrameCrop({
     // Turning the crop phase on cancels the Pad eyedropper: the two stage
     // interactions never overlap.
     leavePick();
-    setAdjustFrame((value) => !value);
-  }, [leavePick]);
+    setStageMode((current) =>
+      current.kind === 'adjust' ? closeAdjust(current) : enterAdjust(current, playing),
+    );
+  }, [leavePick, playing]);
 
-  const closeAdjustFrame = useCallback(() => setAdjustFrame(false), []);
+  const closeAdjustFrame = useCallback(() => setStageMode((current) => closeAdjust(current)), []);
 
   const changeSnapRatios = useCallback(
     (enabled: boolean) => persistSettings({ snapRatios: enabled }),
