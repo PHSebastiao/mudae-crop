@@ -735,7 +735,7 @@ export function Stage({
               : mode.kind === 'adjust'
                 ? `arraste as bordas para ajustar o Frame · Shift proporção livre · ${
                     snapRatios ? 'Alt sem encaixe' : 'encaixe desligado'
-                  } · roda para zoom`
+                  } · roda para zoom · C ou Esc conclui`
                 : 'arraste para mover · roda do mouse para zoom'}
           </div>
         </>

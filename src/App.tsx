@@ -108,6 +108,7 @@ import { BorderBar } from './components/BorderBar';
 import { Timeline } from './components/Timeline';
 import { FrameGrid } from './components/FrameGrid';
 import { SettingsDialog, type TokenTestResult } from './components/SettingsDialog';
+import { ShortcutsDialog } from './components/ShortcutsDialog';
 import { useAppShell } from './hooks/useAppShell';
 import { useFrameCrop } from './hooks/useFrameCrop';
 
@@ -140,6 +141,7 @@ export default function App() {
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [history, setHistory] = useState<readonly HistoryEntry[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [ratioOpen, setRatioOpen] = useState(false);
   const [testingToken, setTestingToken] = useState(false);
   const [tokenResult, setTokenResult] = useState<TokenTestResult | null>(null);
@@ -297,6 +299,16 @@ export default function App() {
       alive = false;
     };
   }, []);
+
+  // A success notice is information, not a modal: let it fade out instead of
+  // staying on screen and pushing the workspace around.
+  useEffect(() => {
+    if (notice.kind !== 'info') return;
+    // Give a long link enough time to be read, but never hold the screen.
+    const delay = Math.min(9000, Math.max(4000, 1200 + notice.message.length * 40));
+    const timer = setTimeout(clearNotice, delay);
+    return () => clearTimeout(timer);
+  }, [notice, clearNotice]);
 
   // The Palette follows the Crop, Frame, Pad color and sharpness. It is
   // debounced so dragging or zooming does not sample on every pointer move,
@@ -1196,7 +1208,7 @@ export default function App() {
       // A dialog (the proportion popover) already handled this key.
       if (event.defaultPrevented) return;
       // An open dialog owns the keyboard; global shortcuts must not fire.
-      if (settingsOpen || ratioOpen) return;
+      if (settingsOpen || shortcutsOpen || ratioOpen) return;
       if (event.key === 'Escape') {
         const target = event.target as HTMLElement | null;
         if (
@@ -1210,6 +1222,21 @@ export default function App() {
           setStageMode(IDLE_STAGE_MODE);
           return;
         }
+      }
+      if (event.key === '?' && !event.ctrlKey && !event.metaKey && !event.altKey) {
+        const target = event.target as HTMLElement | null;
+        if (
+          target &&
+          (target.tagName === 'INPUT' ||
+            target.tagName === 'TEXTAREA' ||
+            target.tagName === 'SELECT' ||
+            target.isContentEditable)
+        ) {
+          return;
+        }
+        event.preventDefault();
+        setShortcutsOpen(true);
+        return;
       }
       if (
         (event.key === 'f' || event.key === 'F') &&
@@ -1293,6 +1320,7 @@ export default function App() {
     openSettings,
     ratioOpen,
     settingsOpen,
+    shortcutsOpen,
     stageMode,
     toggleAdjustFrame,
     toggleFrames,
@@ -1411,78 +1439,98 @@ export default function App() {
         ? 'waifu2x indisponível'
         : doc.waifu2x.enabled
           ? `waifu2x ${doc.waifu2x.scale}× · denoise ${doc.waifu2x.denoise}`
-          : 'waifu2x off';
+          : 'waifu2x desligado';
 
   return (
     <div className="app">
-      <header className="topbar">
-        <div className="brand">mudae crop</div>
-        <form
-          className="link-import"
-          onSubmit={(event) => {
-            event.preventDefault();
-            submitLink();
-          }}
-        >
-          <input
-            type="text"
-            inputMode="url"
-            value={link}
-            onChange={(event) => setLink(event.target.value)}
-            placeholder="link ou caminho de arquivo"
-            aria-label="Link ou caminho da Source"
-            spellCheck={false}
-            disabled={busy}
+      <div className="topbar-shell">
+        <header className="topbar">
+          <div className="brand">mudae crop</div>
+          <form
+            className="link-import"
+            onSubmit={(event) => {
+              event.preventDefault();
+              submitLink();
+            }}
+          >
+            <input
+              type="text"
+              inputMode="url"
+              value={link}
+              onChange={(event) => setLink(event.target.value)}
+              placeholder="link ou caminho de arquivo"
+              aria-label="Link ou caminho da Source"
+              spellCheck={false}
+              disabled={busy}
+            />
+            <button type="submit" disabled={busy || !linkTarget}>
+              {linkTarget === 'path' ? 'Abrir arquivo' : 'Abrir link'}
+            </button>
+            <button
+              type="button"
+              className="link-import-browse"
+              onClick={() => void handleOpen()}
+              disabled={busy}
+              aria-label="Abrir arquivo do computador"
+              title="Abrir arquivo do computador (Ctrl+O)"
+            >
+              <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                <path
+                  d="M1.75 3.25h4l1.5 1.5h6.75v7.5a.75.75 0 0 1-.75.75H2.5a.75.75 0 0 1-.75-.75V3.25Z"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.3"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </button>
+          </form>
+          <RatioMenu
+            ratio={doc.frame.ratio}
+            sourceRatio={
+              doc.source
+                ? doc.crop.rotation === 90 || doc.crop.rotation === 270
+                  ? doc.source.height / doc.source.width
+                  : doc.source.width / doc.source.height
+                : null
+            }
+            snapEnabled={snapRatios}
+            onRatio={changeRatio}
+            onSnapEnabled={changeSnapRatios}
+            onOpenChange={setRatioOpen}
           />
-          <button type="submit" disabled={busy || !linkTarget}>
-            {linkTarget === 'path' ? 'Abrir arquivo' : 'Abrir link'}
-          </button>
-          <button
-            type="button"
-            className="link-import-browse"
-            onClick={() => void handleOpen()}
-            disabled={busy}
-            aria-label="Abrir arquivo do computador"
-            title="Abrir arquivo do computador (Ctrl+O)"
-          >
-            <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-              <path
-                d="M1.75 3.25h4l1.5 1.5h6.75v7.5a.75.75 0 0 1-.75.75H2.5a.75.75 0 0 1-.75-.75V3.25Z"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.3"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </button>
-        </form>
-        <RatioMenu
-          ratio={doc.frame.ratio}
-          sourceRatio={
-            doc.source
-              ? doc.crop.rotation === 90 || doc.crop.rotation === 270
-                ? doc.source.height / doc.source.width
-                : doc.source.width / doc.source.height
-              : null
-          }
-          snapEnabled={snapRatios}
-          onRatio={changeRatio}
-          onSnapEnabled={changeSnapRatios}
-          onOpenChange={setRatioOpen}
-        />
-        <div className="topbar-right">
-          <span className="chip">{sourceChip}</span>
-          <span className="chip">{waifu2xChip}</span>
-          <button
-            type="button"
-            className="chip chip-button"
-            onClick={openSettings}
-            title="Configurações (Ctrl+,)"
-          >
-            Configurações
-          </button>
-        </div>
-      </header>
+          <div className="topbar-right">
+            <span className="chip">{sourceChip}</span>
+            <span className="chip">{waifu2xChip}</span>
+            <button
+              type="button"
+              className="chip chip-button shortcuts-button"
+              onClick={() => setShortcutsOpen(true)}
+              title="Atalhos (?)"
+              aria-label="Atalhos"
+            >
+              ?
+            </button>
+            <button
+              type="button"
+              className="chip chip-button"
+              onClick={openSettings}
+              title="Configurações (Ctrl+,)"
+            >
+              Configurações
+            </button>
+          </div>
+        </header>
+
+        {notice.kind === 'info' && (
+          <div className="notice overlay" role="status">
+            <span>{notice.message}</span>
+            <button type="button" aria-label="Fechar aviso" onClick={clearNotice}>
+              x
+            </button>
+          </div>
+        )}
+      </div>
 
       {download.kind === 'downloading' ? (
         <div className="notice download" role="status">
@@ -1517,13 +1565,10 @@ export default function App() {
             cancelar
           </button>
         </div>
-      ) : notice.kind !== 'none' ? (
-        <div
-          className={`notice${notice.kind === 'error' ? ' error' : ''}`}
-          role={notice.kind === 'error' ? 'alert' : 'status'}
-        >
+      ) : notice.kind === 'error' ? (
+        <div className="notice error" role="alert">
           <span>{notice.message}</span>
-          {notice.kind === 'error' && notice.action && (
+          {notice.action && (
             <button type="button" className="notice-action" onClick={notice.action.run}>
               {notice.action.label}
             </button>
@@ -1660,6 +1705,8 @@ export default function App() {
           onClearFolder={() => persistSettings({ saveFolder: null })}
         />
       )}
+
+      {shortcutsOpen && <ShortcutsDialog onClose={() => setShortcutsOpen(false)} />}
     </div>
   );
 }

@@ -17,7 +17,12 @@ import { formatHistoryDate, type ExportEntry, type HistoryEntry } from '../core/
 import type { HistoryPreviewLoader } from '../core/historyPreview';
 import { isPostId } from '../core/imagechest';
 import type { OptimizeResult } from '../core/optimize';
-import { mudaeExportSize, mudaeScaleOf, type CartaScale } from '../core/ratios';
+import {
+  mudaeExportSize,
+  mudaeScaleOf,
+  ratioLabel as presetRatioLabel,
+  type CartaScale,
+} from '../core/ratios';
 import type { Settings } from '../core/settings';
 import { formatBytes } from '../core/download';
 import {
@@ -220,7 +225,7 @@ export const ExportPanel = memo(function ExportPanel({
   const format = kind.label;
   const animated = isAnimated(effectiveSource(doc));
   const ratioMatches = aspectMatches(size, doc.frame.ratio);
-  const ratioLabel = formatAspect(size);
+  const aspectLabel = formatAspect(size);
   const exportLabel = downloading
     ? 'Aguarde o link…'
     : busy && !uploading
@@ -264,223 +269,435 @@ export const ExportPanel = memo(function ExportPanel({
 
   return (
     <aside className="panel">
-      <section>
-        <h4>Export</h4>
+      <div className="panel-scroll">
+        <section>
+          <h4>Export</h4>
 
-        <div className="export-summary" aria-live="polite">
-          <strong>
-            {format} · {doc.source ? `${size.width}×${size.height}` : '—'}
-          </strong>
-          {doc.source && (
-            <span className={ratioMatches ? '' : 'warn'}>
-              {ratioMatches ? 'proporção da carta' : 'esticada'}
-            </span>
+          <div className="export-summary" aria-live="polite">
+            <strong>
+              {format} · {doc.source ? `${size.width}×${size.height}` : '—'}
+            </strong>
+            {doc.source && (
+              <span className={ratioMatches ? '' : 'warn'}>
+                {ratioMatches ? 'proporção da carta' : 'esticada'}
+              </span>
+            )}
+            {estimateLabel && <span title={estimateTitle}>{estimateLabel}</span>}
+            {optimizeResult && <span>resultado {formatBytes(optimizeResult.size)}</span>}
+          </div>
+
+          {overGuidance && (
+            <p className="panel-hint warn">
+              {estimateLabel} passa dos {formatBytes(MUDAE_SIZE_GUIDANCE_BYTES)} recomendados pelo
+              Mudae.
+              {kind.format === 'gif'
+                ? ' Otimize o GIF para reduzir; o upload continua liberado.'
+                : ' O upload continua liberado; reduza a escala para um arquivo menor.'}
+            </p>
           )}
-          {estimateLabel && <span title={estimateTitle}>{estimateLabel}</span>}
-          {optimizeResult && <span>resultado {formatBytes(optimizeResult.size)}</span>}
-        </div>
 
-        {overGuidance && (
-          <p className="panel-hint warn">
-            {estimateLabel} passa dos {formatBytes(MUDAE_SIZE_GUIDANCE_BYTES)} recomendados pelo
-            Mudae.
-            {kind.format === 'gif'
-              ? ' Otimize o GIF para reduzir; o upload continua liberado.'
-              : ' O upload continua liberado; reduza a escala para um arquivo menor.'}
-          </p>
-        )}
-
-        <div className="toggle" role="group" aria-label="Formato do Export">
-          <button
-            type="button"
-            className={kind.format === 'png' ? 'on' : ''}
-            onClick={() => onExportFormat('png')}
-          >
-            PNG
-          </button>
-          <button
-            type="button"
-            className={kind.format === 'gif' ? 'on' : ''}
-            onClick={() => onExportFormat('gif')}
-            disabled={!animated}
-            title={animated ? 'GIF animado' : 'A Source é estática'}
-          >
-            GIF
-          </button>
-        </div>
-        {!animated && <p className="panel-hint">GIF indisponível: a Source é estática.</p>}
-
-        {isMudae && card1 && card2 && (
-          <div className="export-sizes" role="radiogroup" aria-label="Tamanho do Export">
+          <div className="toggle" role="group" aria-label="Formato do Export">
             <button
               type="button"
-              className={`size-option${mudaeScale === 1 ? ' on' : ''}`}
-              onClick={() => {
-                setCustomOpen(false);
-                onExportScale(1);
-              }}
-              role="radio"
-              aria-checked={!waifuLocked && mudaeScale === 1}
-              disabled={!doc.source || waifuLocked}
+              className={kind.format === 'png' ? 'on' : ''}
+              onClick={() => onExportFormat('png')}
             >
-              <span>Carta 1×</span>
-              <span className="dims">
-                {card1.width}×{card1.height}
-              </span>
+              PNG
             </button>
             <button
               type="button"
-              className={`size-option${mudaeScale === 2 ? ' on' : ''}`}
-              onClick={() => {
-                setCustomOpen(false);
-                onExportScale(2);
-              }}
-              role="radio"
-              aria-checked={!waifuLocked && mudaeScale === 2}
-              title="Renderiza a Source em 2×"
-              disabled={!doc.source || waifuLocked}
+              className={kind.format === 'gif' ? 'on' : ''}
+              onClick={() => onExportFormat('gif')}
+              disabled={!animated}
+              title={animated ? 'GIF animado' : 'A Source é estática'}
             >
-              <span>Carta 2×</span>
-              <span className="dims">
-                {card2.width}×{card2.height}
-              </span>
-            </button>
-            <button
-              type="button"
-              className={`size-option${mudaeScale === null ? ' on' : ''}`}
-              onClick={() => {
-                setCustomOpen(true);
-                if (mudaeScale !== null) onNative();
-              }}
-              role="radio"
-              aria-checked={!waifuLocked && mudaeScale === null}
-              title="Tamanho automático do recorte"
-              disabled={!doc.source || waifuLocked}
-            >
-              <span>Personalizado</span>
-              <span className="dims">—</span>
+              GIF
             </button>
           </div>
-        )}
+          {!animated && <p className="panel-hint">GIF indisponível: a Source é estática.</p>}
 
-        {showCustom && (
-          <div className="custom-size">
-            <div className="custom-size-head">
-              <NumberField
-                value={waifuLocked ? baseSize.width : size.width}
-                onCommit={(width) => {
-                  setCustomOpen(true);
-                  onResizeWidth(width);
+          {isMudae && card1 && card2 && (
+            <div className="export-sizes" role="radiogroup" aria-label="Tamanho do Export">
+              <button
+                type="button"
+                className={`size-option${mudaeScale === 1 ? ' on' : ''}`}
+                onClick={() => {
+                  setCustomOpen(false);
+                  onExportScale(1);
                 }}
-                label="Largura do Export"
-                title={sizeCapTitle}
+                role="radio"
+                aria-checked={!waifuLocked && mudaeScale === 1}
                 disabled={!doc.source || waifuLocked}
-              />
+              >
+                <span>Carta 1×</span>
+                <span className="dims">
+                  {card1.width}×{card1.height}
+                </span>
+              </button>
               <button
                 type="button"
-                className={`lock${doc.resizeLocked ? ' on' : ''}`}
-                onClick={() => onResizeLocked(!doc.resizeLocked)}
-                disabled={!doc.source || waifuLocked}
-                aria-pressed={doc.resizeLocked}
-                aria-label="Travar proporção da carta"
-                title={
-                  doc.resizeLocked
-                    ? 'Proporção da carta travada'
-                    : 'Proporção livre — a imagem pode esticar'
-                }
-              >
-                {doc.resizeLocked ? '🔒' : '🔓'}
-              </button>
-              <NumberField
-                value={waifuLocked ? baseSize.height : size.height}
-                onCommit={(height) => {
-                  setCustomOpen(true);
-                  onResizeHeight(height);
+                className={`size-option${mudaeScale === 2 ? ' on' : ''}`}
+                onClick={() => {
+                  setCustomOpen(false);
+                  onExportScale(2);
                 }}
-                label="Altura do Export"
-                title={sizeCapTitle}
-                disabled={!doc.source || waifuLocked}
-              />
-            </div>
-            <div className="custom-size-meta">
-              {doc.source && <span className="ratio-chip">{ratioLabel}</span>}
-              <span>{!doc.source ? 'sem Source' : explicit ? 'personalizado' : 'automático'}</span>
-            </div>
-            <div className="custom-size-actions">
-              <button
-                type="button"
-                onClick={onNative}
-                title="Tamanho nativo do recorte"
+                role="radio"
+                aria-checked={!waifuLocked && mudaeScale === 2}
+                title="Renderiza a Source em 2×"
                 disabled={!doc.source || waifuLocked}
               >
-                Nativo
+                <span>Carta 2×</span>
+                <span className="dims">
+                  {card2.width}×{card2.height}
+                </span>
               </button>
               <button
                 type="button"
-                onClick={onHalve}
-                title="Metade do tamanho atual"
+                className={`size-option${mudaeScale === null ? ' on' : ''}`}
+                onClick={() => {
+                  setCustomOpen(false);
+                  onNative();
+                }}
+                role="radio"
+                aria-checked={!waifuLocked && mudaeScale === null}
+                title={explicit ? 'Tamanho personalizado' : 'Tamanho automático do recorte'}
                 disabled={!doc.source || waifuLocked}
               >
-                ÷2
-              </button>
-              <button
-                type="button"
-                onClick={onDouble}
-                title="Dobro do tamanho atual"
-                disabled={!doc.source || waifuLocked}
-              >
-                ×2
+                <span>{explicit ? 'Personalizado' : 'Nativo'}</span>
+                <span className="dims">
+                  {explicit || !doc.source ? '—' : `${native.width}×${native.height}`}
+                </span>
               </button>
             </div>
-            {waifuLocked && (
-              <p className="panel-hint">
-                waifu2x {waifuScale}× define o tamanho final · base {baseSize.width}×
-                {baseSize.height}
-              </p>
-            )}
-            {!doc.resizeLocked && !ratioMatches && (
-              <p className="panel-hint bad">fora da proporção da carta — a imagem vai esticar</p>
-            )}
+          )}
+
+          {showCustom && (
+            <div className="custom-size">
+              <div className="custom-size-head">
+                <NumberField
+                  value={waifuLocked ? baseSize.width : size.width}
+                  onCommit={(width) => {
+                    setCustomOpen(true);
+                    onResizeWidth(width);
+                  }}
+                  label="Largura do Export"
+                  title={sizeCapTitle}
+                  disabled={!doc.source || waifuLocked}
+                />
+                <button
+                  type="button"
+                  className={`lock${doc.resizeLocked ? ' on' : ''}`}
+                  onClick={() => onResizeLocked(!doc.resizeLocked)}
+                  disabled={!doc.source || waifuLocked}
+                  aria-pressed={doc.resizeLocked}
+                  aria-label="Travar proporção da carta"
+                  title={
+                    doc.resizeLocked
+                      ? 'Proporção da carta travada'
+                      : 'Proporção livre — a imagem pode esticar'
+                  }
+                >
+                  {doc.resizeLocked ? '🔒' : '🔓'}
+                </button>
+                <NumberField
+                  value={waifuLocked ? baseSize.height : size.height}
+                  onCommit={(height) => {
+                    setCustomOpen(true);
+                    onResizeHeight(height);
+                  }}
+                  label="Altura do Export"
+                  title={sizeCapTitle}
+                  disabled={!doc.source || waifuLocked}
+                />
+              </div>
+              <div className="custom-size-meta">
+                {doc.source && (
+                  <span className="ratio-chip">
+                    {ratioMatches ? presetRatioLabel(doc.frame.ratio) : aspectLabel}
+                  </span>
+                )}
+                <span>
+                  {!doc.source ? 'sem Source' : explicit ? 'personalizado' : 'automático'}
+                </span>
+              </div>
+              <div className="custom-size-actions">
+                <button
+                  type="button"
+                  onClick={onNative}
+                  title="Tamanho nativo do recorte"
+                  disabled={!doc.source || waifuLocked}
+                >
+                  Nativo
+                </button>
+                <button
+                  type="button"
+                  onClick={onHalve}
+                  title="Metade do tamanho atual"
+                  disabled={!doc.source || waifuLocked}
+                >
+                  ÷2
+                </button>
+                <button
+                  type="button"
+                  onClick={onDouble}
+                  title="Dobro do tamanho atual"
+                  disabled={!doc.source || waifuLocked}
+                >
+                  ×2
+                </button>
+              </div>
+              {waifuLocked && (
+                <p className="panel-hint">
+                  waifu2x {waifuScale}× define o tamanho final · base {baseSize.width}×
+                  {baseSize.height}
+                </p>
+              )}
+              {!doc.resizeLocked && !ratioMatches && (
+                <p className="panel-hint bad">fora da proporção da carta — a imagem vai esticar</p>
+              )}
+            </div>
+          )}
+
+          {nativeCapped && (
+            <p className="panel-hint warn">
+              nativo {native.width}×{native.height} · limite de renderização: {MAX_EXPORT_SIDE} px
+              por lado
+            </p>
+          )}
+
+          {showCustom && explicit && aboveNative && (
+            <p className="panel-hint warn">acima do nativo — ampliando</p>
+          )}
+
+          {aboveNative && !(showCustom && explicit) && doc.source && (
+            <p className="panel-hint warn">acima do nativo — só amplia</p>
+          )}
+
+          {animated && kind.format === 'gif' && isMudae && mudaeScale === 2 && (
+            <p className="panel-hint">
+              Carta 2× renderiza a Source maior; o GIF pode passar de{' '}
+              {formatBytes(MUDAE_SIZE_GUIDANCE_BYTES)}.
+            </p>
+          )}
+
+          {animated && kind.format === 'gif' && (
+            <div className="optimize-block">
+              <button
+                type="button"
+                className="section-toggle"
+                onClick={() => setOptimizeOpen((open) => !open)}
+                aria-expanded={optimizeOpen}
+              >
+                <span>Otimizar GIF</span>
+                <span>
+                  {optimize.enabled
+                    ? optimize.targetEnabled
+                      ? `ligado · ${(optimize.targetBytes / (1024 * 1024)).toFixed(1).replace('.', ',')} MB`
+                      : 'ligado · sem alvo'
+                    : 'desligado'}{' '}
+                  {optimizeOpen ? '▾' : '▸'}
+                </span>
+              </button>
+              {optimizeOpen && (
+                <>
+                  <div className="toggle" role="group" aria-label="Otimizar GIF">
+                    <button
+                      type="button"
+                      className={optimize.enabled ? 'on' : ''}
+                      onClick={() => onOptimize({ enabled: !optimize.enabled })}
+                    >
+                      {optimize.enabled ? 'otimizar ligado' : 'otimizar desligado'}
+                    </button>
+                  </div>
+                  {optimize.enabled && (
+                    <>
+                      <label className="row">
+                        <span className="key">usar alvo</span>
+                        <input
+                          type="checkbox"
+                          checked={optimize.targetEnabled}
+                          onChange={(event) => onOptimize({ targetEnabled: event.target.checked })}
+                        />
+                      </label>
+                      {optimize.targetEnabled ? (
+                        <div className="row">
+                          <span className="key">alvo MB</span>
+                          <NumberField
+                            value={optimize.targetBytes / (1024 * 1024)}
+                            onCommit={(mb) => onOptimize({ targetBytes: mb * 1024 * 1024 })}
+                            label="Alvo de tamanho em MB"
+                            precision={1}
+                          />
+                        </div>
+                      ) : (
+                        <p className="panel-hint">
+                          sem alvo — aplica a compressão escolhida, mesmo abaixo de{' '}
+                          {formatBytes(MUDAE_SIZE_GUIDANCE_BYTES)}
+                        </p>
+                      )}
+                      <div className="row">
+                        <span className="key">compressão</span>
+                        <span className="pill">{optimize.lossy}</span>
+                      </div>
+                      <input
+                        className="slider"
+                        type="range"
+                        min={MIN_LOSSY}
+                        max={MAX_LOSSY}
+                        step={5}
+                        value={optimize.lossy}
+                        onChange={(event) => onOptimize({ lossy: Number(event.target.value) })}
+                        aria-label="Compressão com lossy"
+                      />
+                      <div className="toggle" role="group" aria-label="Intensidade da compressão">
+                        {[30, 100, 200].map((lossy) => (
+                          <button
+                            key={lossy}
+                            type="button"
+                            className={optimize.lossy === lossy ? 'on' : ''}
+                            onClick={() => onOptimize({ lossy })}
+                          >
+                            {lossy === 30 ? 'leve' : lossy === 100 ? 'média' : 'máxima'}
+                          </button>
+                        ))}
+                      </div>
+                      <label className="row">
+                        <span className="key">reduzir cores</span>
+                        <input
+                          type="checkbox"
+                          checked={optimize.reduceColors}
+                          onChange={(event) => onOptimize({ reduceColors: event.target.checked })}
+                        />
+                      </label>
+                      {optimize.reduceColors && (
+                        <div className="row">
+                          <span className="key">cores</span>
+                          <NumberField
+                            value={optimize.colors}
+                            onCommit={(colors) => onOptimize({ colors })}
+                            label="Número de cores"
+                          />
+                        </div>
+                      )}
+                      <p className="panel-hint">
+                        sem reduzir cores, 100–200 comprime mais · compressão até {MAX_LOSSY}
+                      </p>
+                    </>
+                  )}
+                </>
+              )}
+              {optimizeResult && (
+                <p className={`panel-hint${optimizeResult.met === false ? ' bad' : ''}`}>
+                  {optimizeResult.met === null
+                    ? 'compressão aplicada'
+                    : optimizeResult.met
+                      ? 'alvo atingido'
+                      : 'alvo não atingido'}
+                  {optimizeResult.size >= optimizeResult.baseSize ? (
+                    <> · sem ganho; original mantido</>
+                  ) : (
+                    <>
+                      {' '}
+                      · {formatBytes(optimizeResult.baseSize)} → {formatBytes(optimizeResult.size)}{' '}
+                      (−
+                      {optimizeGain}%)
+                    </>
+                  )}{' '}
+                  · lossy {optimizeResult.lossy}
+                  {optimizeResult.colors ? ` · ${optimizeResult.colors} cores` : ''}
+                  {optimizeResult.droppedFrames > 0
+                    ? ` · ${optimizeResult.droppedFrames} repetidos`
+                    : ''}
+                  {optimizeResult.error ? ` · ${optimizeResult.error}` : ''}
+                </p>
+              )}
+            </div>
+          )}
+        </section>
+
+        <section className="divided">
+          <h4>Image Chest</h4>
+          <div className="meta">
+            <span>post</span>
+            <span>{postId ? `append ${postId}` : settings.defaultPrivacy}</span>
           </div>
-        )}
+          <input
+            className="post-id"
+            type="text"
+            value={appendPostId}
+            onChange={(event) => onAppendPostId(event.target.value)}
+            onBlur={onCommitAppendPostId}
+            placeholder="Post id (opcional)"
+            aria-label="Post id para anexar o Export"
+            aria-invalid={badPostId}
+            spellCheck={false}
+            disabled={busy}
+          />
+          {badPostId && <p className="panel-hint bad">O Post id aceita só letras e números.</p>}
+        </section>
 
-        {doc.source && (
-          <p
-            className="panel-hint"
-            title="Pixels da Source que o Frame cobre; é o tamanho real do recorte."
-          >
-            nativo: {native.width}×{native.height}
-          </p>
-        )}
+        <section className="divided">
+          <div className="section-head">
+            <h4>Histórico</h4>
+            <button
+              type="button"
+              className="link"
+              onClick={onClearHistory}
+              disabled={history.length === 0}
+            >
+              limpar
+            </button>
+          </div>
+          {history.length === 0 ? (
+            <p className="panel-hint">Nenhum upload ou Export ainda.</p>
+          ) : (
+            <ul className="history" ref={listRef}>
+              {history.map((entry) =>
+                entry.kind === 'upload' ? (
+                  <li key={`upload-${entry.imageId}-${entry.createdAt}`}>
+                    <img src={entry.link} alt="" loading="lazy" />
+                    <div className="history-body">
+                      <span className="history-link" title={entry.link}>
+                        {entry.link.replace(/^https:\/\//, '')}
+                      </span>
+                      <span className="history-meta">
+                        {entry.format.toUpperCase()} · Post {entry.postId} ·{' '}
+                        {formatBytes(entry.size)}
+                      </span>
+                      <span className="history-meta">{formatHistoryDate(entry.createdAt)}</span>
+                      <span className="history-actions">
+                        <button type="button" onClick={() => onCopyText(entry.link)}>
+                          copiar
+                        </button>
+                        <button type="button" onClick={() => onOpenLink(entry.link)}>
+                          abrir
+                        </button>
+                      </span>
+                    </div>
+                  </li>
+                ) : (
+                  <ExportRow
+                    key={`export-${entry.path}-${entry.createdAt}`}
+                    entry={entry}
+                    preview={preview}
+                    root={listRef}
+                    onCopyText={onCopyText}
+                    onRevealPath={onRevealPath}
+                  />
+                ),
+              )}
+            </ul>
+          )}
+        </section>
+      </div>
 
-        {nativeCapped && (
-          <p className="panel-hint warn">
-            nativo {native.width}×{native.height} · limite de renderização: {MAX_EXPORT_SIDE} px por
-            lado
-          </p>
-        )}
-
-        {showCustom && explicit && aboveNative && (
-          <p className="panel-hint warn">acima do nativo — ampliando</p>
-        )}
-
-        {aboveNative && !(showCustom && explicit) && doc.source && (
-          <p className="panel-hint warn">acima do nativo — só amplia</p>
-        )}
-
-        {animated && kind.format === 'gif' && isMudae && mudaeScale === 2 && (
-          <p className="panel-hint">
-            Carta 2× renderiza a Source maior; o GIF pode passar de{' '}
-            {formatBytes(MUDAE_SIZE_GUIDANCE_BYTES)}.
-          </p>
-        )}
-
+      <div className="panel-actions">
+        {!doc.source && <p className="panel-hint">Importe uma Source para exportar.</p>}
         {waifuUnavailable && (
           <p className="panel-hint bad">
             waifu2x indisponível neste computador. Desligue-o para exportar ou subir.
           </p>
         )}
-
         <button
           type="button"
           className="big primary"
@@ -489,239 +706,36 @@ export const ExportPanel = memo(function ExportPanel({
         >
           {exportLabel}
         </button>
-        <p className="panel-hint">Ctrl+S exporta · salva na pasta escolhida</p>
-
-        {animated && kind.format === 'gif' && (
-          <div className="optimize-block">
-            <button
-              type="button"
-              className="section-toggle"
-              onClick={() => setOptimizeOpen((open) => !open)}
-              aria-expanded={optimizeOpen}
-            >
-              <span>Otimizar GIF</span>
-              <span>
-                {optimize.enabled
-                  ? optimize.targetEnabled
-                    ? `ligado · ${(optimize.targetBytes / (1024 * 1024)).toFixed(1).replace('.', ',')} MB`
-                    : 'ligado · sem alvo'
-                  : 'desligado'}{' '}
-                {optimizeOpen ? '▾' : '▸'}
-              </span>
-            </button>
-            {optimizeOpen && (
-              <>
-                <div className="toggle" role="group" aria-label="Otimizar GIF">
-                  <button
-                    type="button"
-                    className={optimize.enabled ? 'on' : ''}
-                    onClick={() => onOptimize({ enabled: !optimize.enabled })}
-                  >
-                    {optimize.enabled ? 'otimizar ligado' : 'otimizar desligado'}
-                  </button>
-                </div>
-                {optimize.enabled && (
-                  <>
-                    <label className="row">
-                      <span className="key">usar alvo</span>
-                      <input
-                        type="checkbox"
-                        checked={optimize.targetEnabled}
-                        onChange={(event) => onOptimize({ targetEnabled: event.target.checked })}
-                      />
-                    </label>
-                    {optimize.targetEnabled ? (
-                      <div className="row">
-                        <span className="key">alvo MB</span>
-                        <NumberField
-                          value={optimize.targetBytes / (1024 * 1024)}
-                          onCommit={(mb) => onOptimize({ targetBytes: mb * 1024 * 1024 })}
-                          label="Alvo de tamanho em MB"
-                          precision={1}
-                        />
-                      </div>
-                    ) : (
-                      <p className="panel-hint">
-                        sem alvo — aplica a compressão escolhida, mesmo abaixo de{' '}
-                        {formatBytes(MUDAE_SIZE_GUIDANCE_BYTES)}
-                      </p>
-                    )}
-                    <div className="row">
-                      <span className="key">compressão</span>
-                      <span className="pill">{optimize.lossy}</span>
-                    </div>
-                    <input
-                      className="slider"
-                      type="range"
-                      min={MIN_LOSSY}
-                      max={MAX_LOSSY}
-                      step={5}
-                      value={optimize.lossy}
-                      onChange={(event) => onOptimize({ lossy: Number(event.target.value) })}
-                      aria-label="Compressão com lossy"
-                    />
-                    <div className="toggle" role="group" aria-label="Intensidade da compressão">
-                      {[30, 100, 200].map((lossy) => (
-                        <button
-                          key={lossy}
-                          type="button"
-                          className={optimize.lossy === lossy ? 'on' : ''}
-                          onClick={() => onOptimize({ lossy })}
-                        >
-                          {lossy === 30 ? 'leve' : lossy === 100 ? 'média' : 'máxima'}
-                        </button>
-                      ))}
-                    </div>
-                    <label className="row">
-                      <span className="key">reduzir cores</span>
-                      <input
-                        type="checkbox"
-                        checked={optimize.reduceColors}
-                        onChange={(event) => onOptimize({ reduceColors: event.target.checked })}
-                      />
-                    </label>
-                    {optimize.reduceColors && (
-                      <div className="row">
-                        <span className="key">cores</span>
-                        <NumberField
-                          value={optimize.colors}
-                          onCommit={(colors) => onOptimize({ colors })}
-                          label="Número de cores"
-                        />
-                      </div>
-                    )}
-                    <p className="panel-hint">
-                      sem reduzir cores, 100–200 comprime mais · compressão até {MAX_LOSSY}
-                    </p>
-                  </>
-                )}
-              </>
-            )}
-            {optimizeResult && (
-              <p className={`panel-hint${optimizeResult.met === false ? ' bad' : ''}`}>
-                {optimizeResult.met === null
-                  ? 'compressão aplicada'
-                  : optimizeResult.met
-                    ? 'alvo atingido'
-                    : 'alvo não atingido'}
-                {optimizeResult.size >= optimizeResult.baseSize ? (
-                  <> · sem ganho; original mantido</>
-                ) : (
-                  <>
-                    {' '}
-                    · {formatBytes(optimizeResult.baseSize)} → {formatBytes(optimizeResult.size)} (−
-                    {optimizeGain}%)
-                  </>
-                )}{' '}
-                · lossy {optimizeResult.lossy}
-                {optimizeResult.colors ? ` · ${optimizeResult.colors} cores` : ''}
-                {optimizeResult.droppedFrames > 0
-                  ? ` · ${optimizeResult.droppedFrames} repetidos`
-                  : ''}
-                {optimizeResult.error ? ` · ${optimizeResult.error}` : ''}
-              </p>
-            )}
-          </div>
-        )}
-      </section>
-
-      <section className="divided">
-        <h4>Image Chest</h4>
-        <div className="meta">
-          <span>post</span>
-          <span>{postId ? `append ${postId}` : settings.defaultPrivacy}</span>
-        </div>
-        <input
-          className="post-id"
-          type="text"
-          value={appendPostId}
-          onChange={(event) => onAppendPostId(event.target.value)}
-          onBlur={onCommitAppendPostId}
-          placeholder="Post id (opcional)"
-          aria-label="Post id para anexar o Export"
-          aria-invalid={badPostId}
-          spellCheck={false}
-          disabled={busy}
-        />
-        {badPostId && <p className="panel-hint bad">O Post id aceita só letras e números.</p>}
         <button
           type="button"
           className="big"
           onClick={onUpload}
           disabled={uploadDisabled}
           title={
-            waifuUnavailable
-              ? 'Desligue o waifu2x para subir'
-              : !hasToken
-                ? 'Configure o token em Configurações'
-                : badPostId
-                  ? 'Confira o Post id'
-                  : 'Cria um Post hidden e copia o link direto'
+            !doc.source
+              ? 'Importe uma Source primeiro'
+              : waifuUnavailable
+                ? 'Desligue o waifu2x para subir'
+                : !hasToken
+                  ? 'Configure o token em Configurações'
+                  : badPostId
+                    ? 'Confira o Post id'
+                    : 'Cria um Post hidden e copia o link direto'
           }
         >
           {uploading ? 'Subindo…' : cooling ? `Aguarde ${cooldownSeconds}s` : 'Subir e copiar link'}
         </button>
-        {!hasToken ? (
+        <p className="panel-hint">
+          {hasToken
+            ? 'Ctrl+S exporta · Ctrl+Enter sobe e copia o link.'
+            : 'Ctrl+S exporta. Configure o token para subir.'}
+        </p>
+        {!hasToken && (
           <button type="button" className="link" onClick={onOpenSettings}>
             Configurar token
           </button>
-        ) : (
-          <p className="panel-hint">Ctrl+Enter sobe o Export e copia o link direto.</p>
         )}
-      </section>
-
-      <section className="divided">
-        <div className="section-head">
-          <h4>Histórico</h4>
-          <button
-            type="button"
-            className="link"
-            onClick={onClearHistory}
-            disabled={history.length === 0}
-          >
-            limpar
-          </button>
-        </div>
-        {history.length === 0 ? (
-          <p className="panel-hint">Nenhum upload ou Export ainda.</p>
-        ) : (
-          <ul className="history" ref={listRef}>
-            {history.map((entry) =>
-              entry.kind === 'upload' ? (
-                <li key={`upload-${entry.imageId}-${entry.createdAt}`}>
-                  <img src={entry.link} alt="" loading="lazy" />
-                  <div className="history-body">
-                    <span className="history-link" title={entry.link}>
-                      {entry.link.replace(/^https:\/\//, '')}
-                    </span>
-                    <span className="history-meta">
-                      {entry.format.toUpperCase()} · Post {entry.postId} · {formatBytes(entry.size)}
-                    </span>
-                    <span className="history-meta">{formatHistoryDate(entry.createdAt)}</span>
-                    <span className="history-actions">
-                      <button type="button" onClick={() => onCopyText(entry.link)}>
-                        copiar
-                      </button>
-                      <button type="button" onClick={() => onOpenLink(entry.link)}>
-                        abrir
-                      </button>
-                    </span>
-                  </div>
-                </li>
-              ) : (
-                <ExportRow
-                  key={`export-${entry.path}-${entry.createdAt}`}
-                  entry={entry}
-                  preview={preview}
-                  root={listRef}
-                  onCopyText={onCopyText}
-                  onRevealPath={onRevealPath}
-                />
-              ),
-            )}
-          </ul>
-        )}
-      </section>
+      </div>
     </aside>
   );
 });

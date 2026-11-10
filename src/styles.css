@@ -47,7 +47,8 @@ button {
 .app {
   height: 100%;
   display: grid;
-  /* Named areas keep the optional notice from shifting every row below it. */
+  /* A success notice floats under the topbar; progress and errors keep the
+     in-band row so they never hide the controls for long. */
   grid-template-rows: auto auto minmax(0, 1fr) auto;
   grid-template-areas:
     'topbar'
@@ -56,12 +57,10 @@ button {
     'border';
 }
 
-.topbar {
+.topbar-shell {
   grid-area: topbar;
-}
-
-.notice {
-  grid-area: notice;
+  position: relative;
+  z-index: 30;
 }
 
 .workspace {
@@ -318,9 +317,15 @@ button {
   color: #e9e6ef;
 }
 
+.shortcuts-button {
+  padding: 3px 9px;
+  font-weight: 650;
+}
+
 /* Notices */
 
 .notice {
+  grid-area: notice;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -329,6 +334,16 @@ button {
   color: var(--ok);
   border-bottom: 1px solid #1f4a32;
   font-size: 11.5px;
+}
+
+.notice.overlay {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 30;
+  grid-area: auto;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
 }
 
 .notice.error {
@@ -390,7 +405,7 @@ button {
 
 .workspace {
   display: grid;
-  grid-template-columns: 132px minmax(0, 1fr) 236px;
+  grid-template-columns: 164px minmax(0, 1fr) 246px;
   min-height: 0;
 }
 
@@ -403,10 +418,11 @@ button {
 
 .rail {
   border-right: 1px solid var(--line-soft);
-  padding: 12px 8px;
+  padding: 12px 10px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 13px;
+  overflow-x: hidden;
 }
 
 .group .label,
@@ -602,6 +618,7 @@ button {
   color: #c3bfce;
   font: inherit;
   font-size: 10.5px;
+  white-space: nowrap;
   text-align: left;
   cursor: pointer;
   transition:
@@ -615,6 +632,13 @@ button {
   height: 12px;
   flex: none;
   opacity: 0.85;
+}
+
+.rail-adjust > span:not(.rail-adjust-key) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .rail-adjust:hover:not(:disabled) {
@@ -1346,10 +1370,35 @@ button {
 
 .panel {
   border-left: 1px solid var(--line-soft);
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  overflow: hidden;
+}
+
+.panel-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
   padding: 12px 11px;
   display: flex;
   flex-direction: column;
   gap: 14px;
+}
+
+.panel-actions {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 11px 12px;
+  border-top: 1px solid var(--line);
+  background: #1b1a21;
+}
+
+.panel-actions .panel-hint {
+  color: var(--text-dim);
 }
 
 .panel section {
@@ -1577,6 +1626,13 @@ button {
   background: var(--accent);
   color: var(--accent-ink);
   border-color: var(--accent);
+}
+
+.big.primary:disabled {
+  background: #2a2831;
+  color: var(--text-faint);
+  border-color: #3a3745;
+  opacity: 1;
 }
 
 .panel-hint {
@@ -1892,6 +1948,50 @@ button {
   flex-direction: column;
   gap: 16px;
   user-select: text;
+}
+
+.shortcuts-modal {
+  width: min(460px, 100%);
+}
+
+.shortcut-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+}
+
+.shortcut-list > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.shortcut-list dt {
+  flex: none;
+  margin: 0;
+}
+
+.shortcut-list dd {
+  flex: 1;
+  margin: 0;
+  text-align: right;
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+.shortcut-list kbd {
+  display: inline-block;
+  min-width: 18px;
+  padding: 1px 5px;
+  border: 1px solid #3a3745;
+  border-radius: 4px;
+  background: #17161c;
+  color: #d8d3e3;
+  font: inherit;
+  font-size: 10px;
+  text-align: center;
 }
 
 .settings-head {

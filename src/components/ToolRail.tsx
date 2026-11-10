@@ -82,6 +82,7 @@ export const ToolRail = memo(function ToolRail({
   const offsetY = Math.round(offset.y * 1000) / 10;
   const waifu2xReady = waifu2xStatus === 'ready';
   const waifu2xDisabled = !hasSource || !waifu2xReady;
+  const waifu2xControlsDisabled = waifu2xDisabled || !waifu2x.enabled;
   // A group with `pointer-events: none` would also trap the off switch, so an
   // enabled-but-unavailable waifu2x keeps the group interactive.
   const waifu2xGroupDisabled = !hasSource || (!waifu2xReady && !waifu2x.enabled);
@@ -89,7 +90,9 @@ export const ToolRail = memo(function ToolRail({
     waifu2xStatus === 'checking'
       ? 'verificando a GPU e o sidecar…'
       : waifu2xStatus === 'ready'
-        ? 'aplica no Export; a prévia mostra o Crop sem waifu2x'
+        ? waifu2x.enabled
+          ? 'aplicado no Export'
+          : 'ligue para aplicar no Export'
         : (waifu2xDetail ?? 'waifu2x indisponível neste computador');
 
   const [tip, setTip] = useState<{ left: number; top: number } | null>(null);
@@ -130,7 +133,7 @@ export const ToolRail = memo(function ToolRail({
                 strokeLinecap="round"
               />
             </svg>
-            <span>{adjustFrame ? 'Ajustando Frame' : 'Ajustar Frame'}</span>
+            <span>{adjustFrame ? 'Concluir' : 'Ajustar Frame'}</span>
             <span className="rail-adjust-key">C</span>
           </button>
           {tip && (
@@ -142,7 +145,7 @@ export const ToolRail = memo(function ToolRail({
             >
               <strong>Ajustar Frame</strong>
               Arraste as bordas ou os cantos do Frame para enquadrar. Shift solta a proporção; +Alt
-              solta os encaixes (proporção e centro); a roda do mouse dá zoom.
+              solta os encaixes (proporção e centro); a roda do mouse dá zoom. C ou Esc conclui.
             </span>
           )}
         </div>
@@ -283,6 +286,19 @@ export const ToolRail = memo(function ToolRail({
 
       <div className={waifu2xGroupDisabled ? 'group disabled-group' : 'group'}>
         <div className="label">waifu2x</div>
+        <div className="toggle" role="group" aria-label="waifu2x">
+          <button
+            type="button"
+            className={waifu2x.enabled ? 'on' : ''}
+            onClick={() => onWaifu2x({ enabled: !waifu2x.enabled })}
+            aria-pressed={waifu2x.enabled}
+            // Turning it off must always work, even if the probe failed later.
+            disabled={!hasSource || (!waifu2xReady && !waifu2x.enabled)}
+            title={waifu2x.enabled ? 'Desligar o waifu2x' : 'Ligar o waifu2x'}
+          >
+            {waifu2x.enabled ? 'ligado' : 'desligado'}
+          </button>
+        </div>
         <div className="row">
           <span className="key">denoise</span>
           <span className="pill">{waifu2x.denoise}</span>
@@ -295,7 +311,7 @@ export const ToolRail = memo(function ToolRail({
               className={waifu2x.denoise === level ? 'on' : ''}
               onClick={() => onWaifu2x({ denoise: level as Waifu2xSettings['denoise'] })}
               aria-pressed={waifu2x.denoise === level}
-              disabled={waifu2xDisabled}
+              disabled={waifu2xControlsDisabled}
               title={`Denoise ${level}`}
             >
               {level}
@@ -310,7 +326,7 @@ export const ToolRail = memo(function ToolRail({
               className={waifu2x.scale === scale ? 'on' : ''}
               onClick={() => onWaifu2x({ scale: scale as Waifu2xSettings['scale'] })}
               aria-pressed={waifu2x.scale === scale}
-              disabled={waifu2xDisabled}
+              disabled={waifu2xControlsDisabled}
               title={
                 scale === 1
                   ? 'Mantém o tamanho do Export'
@@ -321,87 +337,86 @@ export const ToolRail = memo(function ToolRail({
             </button>
           ))}
         </div>
-        {/* Turning it off must always work, even if the probe failed later. */}
-        <button
-          type="button"
-          className={`link rail-waifu2x${waifu2x.enabled ? ' on' : ''}`}
-          onClick={() => onWaifu2x({ enabled: !waifu2x.enabled })}
-          aria-pressed={waifu2x.enabled}
-          disabled={!hasSource || (!waifu2xReady && !waifu2x.enabled)}
-        >
-          {waifu2x.enabled ? 'desligar waifu2x' : 'ligar waifu2x'}
-        </button>
         <p className="panel-hint">{waifu2xHint}</p>
       </div>
 
-      <div className={animated ? 'group' : 'group disabled-group'}>
-        <div className="label">GIF</div>
-        <div className="row">
-          <span className="key">quadros</span>
-          <span>{animated ? `${trimmed} de ${frames}` : '—'}</span>
-        </div>
-        <div className="row">
-          <span className="key">duração</span>
-          <span>
-            {animated
-              ? formatPlaybackDuration(
-                  trimDurationMs(effectiveSource(doc), effectiveTrim(doc), doc.speed),
-                )
-              : '—'}
-          </span>
-        </div>
-        <div className="row">
-          <span className="key">trim</span>
-          <span>
-            {animated
-              ? `${trim.start + 1}–${trim.end + 1} · ${doc.trimEnabled ? 'on' : 'off'}`
-              : '—'}
-          </span>
-        </div>
-        <div className="row">
-          <span className="key">velocidade</span>
-          <span className="pill">{speedLabel}</span>
-        </div>
-        <input
-          className="slider"
-          type="range"
-          min={MIN_SPEED}
-          max={MAX_SPEED}
-          step={0.05}
-          value={doc.speed}
-          onChange={(event) => onSpeed(Number(event.target.value))}
-          aria-label="Velocidade do GIF"
-          disabled={!animated}
-        />
-        <div className="toggle" role="group" aria-label="Velocidade do GIF">
-          {[0.5, 1, 2].map((speed) => (
-            <button
-              key={speed}
-              type="button"
-              className={Math.abs(doc.speed - speed) < 0.001 ? 'on' : ''}
-              onClick={() => onSpeed(speed)}
-              disabled={!animated}
-            >
-              {speed.toString().replace('.', ',')}×
-            </button>
-          ))}
-        </div>
-        <button type="button" className="link" onClick={() => onTrim(null)} disabled={!animated}>
-          redefinir trim
-        </button>
-        {imageAnimation && (
-          <button
-            type="button"
-            className={`link rail-frames${framesOpen ? ' on' : ''}`}
-            onClick={onToggleFrames}
-            aria-pressed={framesOpen}
-            aria-keyshortcuts="F"
-            title="Mostrar ou ocultar o painel de quadros (F)"
-          >
-            {framesOpen ? 'ocultar painel de quadros' : 'ver painel de quadros'}
+      {animated ? (
+        <div className="group">
+          <div className="label">GIF</div>
+          <div className="row">
+            <span className="key">quadros</span>
+            <span>{`${trimmed} de ${frames}`}</span>
+          </div>
+          <div className="row">
+            <span className="key">duração</span>
+            <span>
+              {animated
+                ? formatPlaybackDuration(
+                    trimDurationMs(effectiveSource(doc), effectiveTrim(doc), doc.speed),
+                  )
+                : '—'}
+            </span>
+          </div>
+          <div className="row">
+            <span className="key">trim</span>
+            <span>
+              {animated
+                ? `${trim.start + 1}–${trim.end + 1} · ${doc.trimEnabled ? 'on' : 'off'}`
+                : '—'}
+            </span>
+          </div>
+          <div className="row">
+            <span className="key">velocidade</span>
+            <span className="pill">{speedLabel}</span>
+          </div>
+          <input
+            className="slider"
+            type="range"
+            min={MIN_SPEED}
+            max={MAX_SPEED}
+            step={0.05}
+            value={doc.speed}
+            onChange={(event) => onSpeed(Number(event.target.value))}
+            aria-label="Velocidade do GIF"
+            disabled={!animated}
+          />
+          <div className="toggle" role="group" aria-label="Velocidade do GIF">
+            {[0.5, 1, 2].map((speed) => (
+              <button
+                key={speed}
+                type="button"
+                className={Math.abs(doc.speed - speed) < 0.001 ? 'on' : ''}
+                onClick={() => onSpeed(speed)}
+                disabled={!animated}
+              >
+                {speed.toString().replace('.', ',')}×
+              </button>
+            ))}
+          </div>
+          <button type="button" className="link" onClick={() => onTrim(null)} disabled={!animated}>
+            redefinir trim
           </button>
-        )}
-      </div>
+          {imageAnimation && (
+            <button
+              type="button"
+              className={`link rail-frames${framesOpen ? ' on' : ''}`}
+              onClick={onToggleFrames}
+              aria-pressed={framesOpen}
+              aria-keyshortcuts="F"
+              title="Mostrar ou ocultar o painel de quadros (F)"
+            >
+              {framesOpen ? 'ocultar painel de quadros' : 'ver painel de quadros'}
+            </button>
+          )}
+        </div>
+      ) : (
+        <div className="group">
+          <div className="label">GIF</div>
+          <p className="panel-hint">
+            {hasSource ? 'Source estática · sem quadros' : 'disponível para animações'}
+          </p>
+        </div>
+      )}
     </aside>
   );
 });
