@@ -48,6 +48,10 @@ The same GPU exposed a sidecar bug with its automatic tile size (`-t 0`): large 
 
 `npm run tauri dev` with the sidecar copied into the Tauri resource directory returned `waifu2x probe: ready` from the real `waifu2x_probe` command. This also caught a Windows-only path bug: Tauri's resource directory is an extended-length `\\?\` path, and ncnn could not open the models until `plain_path` stripped the prefix. The probe is now cached, and a fresh document starts with waifu2x off.
 
+## Console window (executed)
+
+The sidecar is a console-subsystem program, so a GUI app that spawns it without a flag makes a terminal flash for every probe and Export. On 2026-11-10 the portable ZIP was launched while a 20 ms `EnumWindows` scan watched for visible `ConsoleWindowClass` or `waifu2x` windows: the `waifu2x-ncnn-vulkan` process was observed during the launch probe and no visible console window appeared. The spawn in `execute_waifu2x` sets `CREATE_NO_WINDOW` on Windows, so the same applies to a real Export.
+
 ## App window pass (run after packaging)
 
 Run this after `npm run waifu2x:install` and `npm run tauri dev`.

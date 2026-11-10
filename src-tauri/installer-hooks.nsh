@@ -7,4 +7,9 @@
   Delete /REBOOTOK "$INSTDIR\waifu2x\waifu2x-ncnn-vulkan.exe"
   RMDir /REBOOTOK "$INSTDIR\waifu2x"
   RMDir "$INSTDIR"
+
+  ; Tauri keeps the install location under the publisher key; clear it so a
+  ; later install starts from the default folder instead of a removed one.
+  DeleteRegKey SHCTX "Software\${MANUFACTURER}\${PRODUCTNAME}"
+  DeleteRegKey /ifempty SHCTX "Software\${MANUFACTURER}"
 !macroend

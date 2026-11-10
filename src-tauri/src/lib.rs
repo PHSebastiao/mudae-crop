@@ -680,6 +680,28 @@ const WAIFU2X_BINARY: &str = if cfg!(windows) {
 };
 const WAIFU2X_MODEL: &str = "models-cunet";
 
+/// Windows `CREATE_NO_WINDOW`. The sidecar is a console program, so a GUI app
+/// spawning it without this flag flashes a console window for every probe and
+/// every Export.
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+/// Build the sidecar command with its output streams and, on Windows, no
+/// console window. The front-end still owns the arguments and progress.
+fn sidecar_command(binary: &Path, args: &[String]) -> Command {
+    let mut command = Command::new(binary);
+    command
+        .args(args)
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    command
+}
+
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct Waifu2xProbe {
@@ -914,12 +936,7 @@ fn execute_waifu2x(
         })
         .collect();
 
-    let mut child = match Command::new(binary)
-        .args(&resolved)
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .spawn()
-    {
+    let mut child = match sidecar_command(binary, &resolved).spawn() {
         Ok(child) => child,
         Err(error) => {
             let _ = std::fs::remove_dir_all(&dir);
