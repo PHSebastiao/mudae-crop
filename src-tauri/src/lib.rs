@@ -7,8 +7,10 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 use futures_util::StreamExt;
-use serde::Serialize;
-use tauri::{AppHandle, Emitter, Manager, State};
+use serde::{Deserialize, Serialize};
+use tauri::{
+    AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, State, Window, WindowEvent,
+};
 
 /// The download ceiling matches Image Chest's 30 MB per-file limit, so a fetched
 /// Source never exceeds what the upload path accepts. The front-end wrapper
@@ -18,6 +20,184 @@ const MAX_DOWNLOAD_BYTES: u64 = 30 * 1024 * 1024;
 /// How many early cancels may wait for a download that never starts. A cancel
 /// whose download never starts is harmless, so the oldest one is dropped.
 const MAX_EARLY_CANCELS: usize = 32;
+
+/// The window can never be restored smaller than the configured minimum, and a
+/// corrupt state file cannot ask for an unbounded window.
+const MIN_WINDOW_WIDTH: u32 = 960;
+const MIN_WINDOW_HEIGHT: u32 = 640;
+const MAX_WINDOW_SIDE: u32 = 16_384;
+
+/// A restored window must show at least this much of itself on a monitor, so a
+/// saved position from a disconnected screen does not hide the app.
+const MIN_VISIBLE_EDGE: i32 = 48;
+
+/// The remembered geometry of the main window, in physical pixels.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+struct WindowState {
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+    #[serde(default)]
+    maximized: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ScreenRect {
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+}
+
+/// The last normal (not minimized or maximized) window bounds. The window is
+/// saved from this on close, so closing while maximized keeps a sensible size
+/// to restore to after unmaximizing.
+#[derive(Default)]
+struct WindowBounds(Mutex<Option<WindowState>>);
+
+impl WindowBounds {
+    fn lock(&self) -> MutexGuard<'_, Option<WindowState>> {
+        self.0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+}
+
+/// Read a state file leniently: a missing, corrupt or out-of-range file falls
+/// back to the default centered window instead of failing the launch.
+fn parse_window_state(raw: &str) -> Option<WindowState> {
+    let state: WindowState = serde_json::from_str(raw).ok()?;
+    if state.width == 0 || state.height == 0 {
+        return None;
+    }
+    Some(WindowState {
+        width: state.width.clamp(MIN_WINDOW_WIDTH, MAX_WINDOW_SIDE),
+        height: state.height.clamp(MIN_WINDOW_HEIGHT, MAX_WINDOW_SIDE),
+        ..state
+    })
+}
+
+fn intersects_enough(window: &WindowState, monitor: &ScreenRect) -> bool {
+    let left = window.x.max(monitor.x);
+    let top = window.y.max(monitor.y);
+    let right = (window.x + window.width as i32).min(monitor.x + monitor.width as i32);
+    let bottom = (window.y + window.height as i32).min(monitor.y + monitor.height as i32);
+    right - left >= MIN_VISIBLE_EDGE && bottom - top >= MIN_VISIBLE_EDGE
+}
+
+fn visibly_on_screen(window: &WindowState, monitors: &[ScreenRect]) -> bool {
+    monitors.is_empty()
+        || monitors
+            .iter()
+            .any(|monitor| intersects_enough(window, monitor))
+}
+
+fn current_window_state(window: &Window) -> Option<WindowState> {
+    let position = window.outer_position().ok()?;
+    let size = window.inner_size().ok()?;
+    Some(WindowState {
+        x: position.x,
+        y: position.y,
+        width: size.width,
+        height: size.height,
+        maximized: false,
+    })
+}
+
+fn window_state_file(app: &AppHandle) -> Option<PathBuf> {
+    app.path()
+        .app_config_dir()
+        .ok()
+        .map(|dir| dir.join("window.json"))
+}
+
+fn read_window_state(app: &AppHandle) -> Option<WindowState> {
+    parse_window_state(&std::fs::read_to_string(window_state_file(app)?).ok()?)
+}
+
+fn write_window_state(app: &AppHandle, state: &WindowState) {
+    let Some(path) = window_state_file(app) else {
+        return;
+    };
+    if let Some(dir) = path.parent() {
+        if std::fs::create_dir_all(dir).is_err() {
+            return;
+        }
+    }
+    let Ok(contents) = serde_json::to_string(state) else {
+        return;
+    };
+    let temporary = path.with_extension("json.tmp");
+    if std::fs::write(&temporary, contents).is_ok() {
+        let _ = std::fs::rename(&temporary, &path);
+    }
+}
+
+/// Restore the saved geometry before the first frame is shown. A position that
+/// no longer lands on a monitor is dropped, so the window stays reachable.
+fn restore_window_state(window: &tauri::WebviewWindow) {
+    let Some(state) = read_window_state(&window.app_handle()) else {
+        return;
+    };
+    let monitors: Vec<ScreenRect> = window
+        .available_monitors()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|monitor| ScreenRect {
+            x: monitor.position().x,
+            y: monitor.position().y,
+            width: monitor.size().width,
+            height: monitor.size().height,
+        })
+        .collect();
+    let on_screen = visibly_on_screen(&state, &monitors);
+    let _ = window.set_size(PhysicalSize::new(state.width, state.height));
+    if on_screen {
+        let _ = window.set_position(PhysicalPosition::new(state.x, state.y));
+    }
+    if state.maximized {
+        let _ = window.maximize();
+    }
+    *window.state::<WindowBounds>().lock() = Some(WindowState {
+        maximized: false,
+        ..state
+    });
+}
+
+/// Keep the latest normal size and position while the window moves or resizes.
+fn record_window_bounds(window: &Window) {
+    if window.label() != "main" {
+        return;
+    }
+    if window.is_minimized().unwrap_or(false) || window.is_maximized().unwrap_or(false) {
+        return;
+    }
+    let Some(state) = current_window_state(window) else {
+        return;
+    };
+    *window.state::<WindowBounds>().lock() = Some(state);
+}
+
+/// Write the normal bounds plus whether the window was maximized. A close while
+/// maximized saves the last normal geometry, so the next launch can restore to
+/// a maximized window with a usable normal size underneath.
+fn save_window_state(window: &Window) {
+    if window.label() != "main" {
+        return;
+    }
+    let maximized = window.is_maximized().unwrap_or(false);
+    if !maximized {
+        if let Some(state) = current_window_state(window) {
+            *window.state::<WindowBounds>().lock() = Some(state);
+        }
+    }
+    let Some(mut state) = window.state::<WindowBounds>().lock().clone() else {
+        return;
+    };
+    state.maximized = maximized;
+    write_window_state(&window.app_handle(), &state);
+}
 
 /// Cancellation state of one download, keyed by the id the front-end chose.
 ///
@@ -128,7 +308,9 @@ struct Downloads(Mutex<DownloadRegistry>);
 
 impl Downloads {
     fn lock(&self) -> MutexGuard<'_, DownloadRegistry> {
-        self.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+        self.0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 }
 
@@ -511,7 +693,9 @@ struct Waifu2xProbeCache(Mutex<Option<Waifu2xProbe>>);
 
 impl Waifu2xProbeCache {
     fn lock(&self) -> MutexGuard<'_, Option<Waifu2xProbe>> {
-        self.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+        self.0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 }
 
@@ -703,7 +887,10 @@ fn execute_waifu2x(
         sanitize_job_id(job_id)
     ));
     std::fs::create_dir_all(&dir).map_err(|error| {
-        Waifu2xFailure::detail("failed", format!("Não foi possível criar o diretório temporário: {error}"))
+        Waifu2xFailure::detail(
+            "failed",
+            format!("Não foi possível criar o diretório temporário: {error}"),
+        )
     })?;
     let input_path = dir.join("input.png");
     let output_path = dir.join("output.png");
@@ -868,7 +1055,7 @@ fn probe_waifu2x(app: &AppHandle, args: &[String], input: &[u8]) -> Waifu2xProbe
         return Waifu2xProbe {
             status: "missing".into(),
             detail: Some(
-                "O waifu2x não está instalado nesta build. Rode scripts/install-waifu2x.ps1 e gere o app de novo."
+                "O waifu2x não faz parte desta versão. Use o instalador ou o ZIP portátil para tê-lo; o resto do editor continua funcionando."
                     .into(),
             ),
         };
@@ -976,6 +1163,19 @@ pub fn run() {
         .manage(Downloads::default())
         .manage(Waifu2xRuns::default())
         .manage(Waifu2xProbeCache::default())
+        .manage(WindowBounds::default())
+        .setup(|app| {
+            if let Some(window) = app.get_webview_window("main") {
+                restore_window_state(&window);
+                let _ = window.show();
+            }
+            Ok(())
+        })
+        .on_window_event(|window, event| match event {
+            WindowEvent::Moved(_) | WindowEvent::Resized(_) => record_window_bounds(window),
+            WindowEvent::CloseRequested { .. } => save_window_state(window),
+            _ => {}
+        })
         .invoke_handler(tauri::generate_handler![
             read_file_bytes,
             write_file_bytes,
@@ -1171,5 +1371,75 @@ mod tests {
         assert!(!registry.start("0").load(Ordering::Relaxed));
         assert!(registry.start("1").load(Ordering::Relaxed));
         assert!(registry.start("overflow").load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn window_state_keeps_a_valid_geometry() {
+        let state =
+            parse_window_state(r#"{"x":120,"y":80,"width":1280,"height":720,"maximized":true}"#)
+                .unwrap();
+
+        assert_eq!(
+            state,
+            WindowState {
+                x: 120,
+                y: 80,
+                width: 1280,
+                height: 720,
+                maximized: true,
+            }
+        );
+    }
+
+    #[test]
+    fn window_state_clamps_an_unbounded_size() {
+        let state = parse_window_state(r#"{"x":0,"y":0,"width":99999,"height":1}"#).unwrap();
+
+        assert_eq!(state.width, MAX_WINDOW_SIDE);
+        assert_eq!(state.height, MIN_WINDOW_HEIGHT);
+    }
+
+    #[test]
+    fn window_state_rejects_a_corrupt_or_empty_file() {
+        assert!(parse_window_state("not json").is_none());
+        assert!(parse_window_state(r#"{"x":0,"y":0,"width":0,"height":700}"#).is_none());
+    }
+
+    #[test]
+    fn a_saved_position_on_a_connected_monitor_is_restored() {
+        let monitors = [ScreenRect {
+            x: 0,
+            y: 0,
+            width: 1920,
+            height: 1080,
+        }];
+        let state = WindowState {
+            x: 100,
+            y: 100,
+            width: 1200,
+            height: 800,
+            maximized: false,
+        };
+
+        assert!(visibly_on_screen(&state, &monitors));
+    }
+
+    #[test]
+    fn a_saved_position_off_every_monitor_is_dropped() {
+        let monitors = [ScreenRect {
+            x: 0,
+            y: 0,
+            width: 1920,
+            height: 1080,
+        }];
+        let state = WindowState {
+            x: 5000,
+            y: 5000,
+            width: 1200,
+            height: 800,
+            maximized: false,
+        };
+
+        assert!(!visibly_on_screen(&state, &monitors));
     }
 }

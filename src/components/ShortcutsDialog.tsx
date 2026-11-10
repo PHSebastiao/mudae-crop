@@ -14,6 +14,12 @@ const KEYBOARD: readonly Shortcut[] = [
   { keys: 'C', label: 'Ajustar ou concluir o Frame' },
   { keys: 'F', label: 'Mostrar ou ocultar os quadros (imagem animada)' },
   { keys: 'Espaço', label: 'Reproduzir ou pausar a animação' },
+  { keys: 'Setas', label: 'Mover o Crop 1 px' },
+  { keys: 'Shift+Setas', label: 'Mover o Crop 10 px' },
+  { keys: '+ / −', label: 'Aumentar ou diminuir o zoom' },
+  { keys: 'R', label: 'Girar o Crop 90°' },
+  { keys: '[ / ]', label: 'Diminuir ou aumentar a Borda' },
+  { keys: '1 / 2', label: 'Escolher as proporções Mudae e 1:1' },
   { keys: 'Esc', label: 'Sair da ferramenta atual' },
   { keys: '?', label: 'Abrir esta lista' },
 ];

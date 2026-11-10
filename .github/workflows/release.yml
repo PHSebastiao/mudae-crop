@@ -1,0 +1,114 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version for the asset names (defaults to the tag or tauri.conf.json)'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  windows:
+    name: Windows release
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Resolve version
+        id: version
+        shell: pwsh
+        run: |
+          $version = '${{ inputs.version }}'
+          if (-not $version -and $env:GITHUB_REF_TYPE -eq 'tag') { $version = $env:GITHUB_REF_NAME }
+          if ($version -like 'v*') { $version = $version.Substring(1) }
+          if (-not $version) {
+            $version = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Check the version matches tauri.conf.json
+        shell: pwsh
+        run: |
+          $config = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          $version = '${{ steps.version.outputs.version }}'
+          if ($version -ne $config) {
+            throw "Release version $version does not match the app version $config in tauri.conf.json."
+          }
+
+      - run: npm ci
+
+      # The sidecar is a release asset, never committed. `beforeBuildCommand`
+      # also runs this, so a manual `npm run tauri build` cannot forget it.
+      - name: Install the waifu2x sidecar
+        run: npm run waifu2x:install
+
+      - name: Build the NSIS installer and the app
+        run: npm run tauri build -- --bundles nsis
+
+      - name: Pack the portable ZIP and the standalone executable
+        shell: pwsh
+        run: ./scripts/make-portable.ps1 -Version '${{ steps.version.outputs.version }}'
+
+      - name: Write release notes with checksums
+        shell: pwsh
+        run: |
+          $version = '${{ steps.version.outputs.version }}'
+          $lines = @(
+            "# Mudae Crop $version",
+            "",
+            "Three Windows x64 assets:",
+            "",
+            "- **Mudae-Crop-$version-win64-setup.exe** - NSIS installer with a Start-menu shortcut and the bundled waifu2x sidecar and models. The installer downloads WebView2 when it is missing.",
+            "- **Mudae-Crop-$version-portable-win64.zip** - ``Mudae-Crop.exe`` plus the ``waifu2x/`` folder. Unzip it anywhere; WebView2 must already be installed.",
+            "- **Mudae-Crop-$version-win64.exe** - the standalone app, no sidecar. The waifu2x controls stay disabled with the missing-sidecar explanation; import, Crop, Border, Palette, PNG/GIF Export and upload still work. WebView2 must already be installed.",
+            "",
+            "The portable and standalone builds still store ``settings.json`` and ``history.json`` in ``%LOCALAPPDATA%\Mudae Crop``, next to ``window.json``.",
+            "",
+            "Only the Image Chest upload needs the network; everything else works offline.",
+            "",
+            "## SHA-256",
+            ""
+          )
+          Get-ChildItem dist-portable -File | Sort-Object Name | ForEach-Object {
+            $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            $lines += ('- `{0}`: `{1}`' -f $_.Name, $hash)
+          }
+          $lines | Set-Content release-notes.md -Encoding utf8
+          Get-Content release-notes.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Mudae-Crop-${{ steps.version.outputs.version }}-win64
+          path: dist-portable/*
+          if-no-files-found: error
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          name: Mudae Crop ${{ steps.version.outputs.version }}
+          body_path: release-notes.md
+          files: dist-portable/*
+          fail_on_unmatched_files: true

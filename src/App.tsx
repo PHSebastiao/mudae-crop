@@ -78,6 +78,7 @@ import {
 } from './core/imagechest';
 import { exportFileName, postTitle } from './core/naming';
 import { mudaeExportSize, ratioSlug, type CartaScale } from './core/ratios';
+import { resolveShortcut } from './core/shortcuts';
 import { loadHistory, loadSettings, saveHistory, saveSettings } from './core/config';
 import { DEFAULT_SETTINGS, type ExportFormat, type Settings } from './core/settings';
 import { browserExportAdapter, browserPaletteAdapter, decodeWithBrowser } from './platform/browser';
@@ -116,6 +117,18 @@ function messageOf(error: unknown): string {
   if (typeof error === 'string') return error;
   if (error instanceof Error && error.message) return error.message;
   return 'Algo deu errado.';
+}
+
+/** A text field or editable control keeps every key for itself. */
+function isTextEntry(target: EventTarget | null): boolean {
+  const element = target as HTMLElement | null;
+  return (
+    !!element &&
+    (element.tagName === 'INPUT' ||
+      element.tagName === 'TEXTAREA' ||
+      element.tagName === 'SELECT' ||
+      element.isContentEditable)
+  );
 }
 
 export default function App() {
@@ -236,6 +249,7 @@ export default function App() {
     changeMode,
     changeRatio,
     changeZoom,
+    zoomBy,
     changeOffset,
     resizeFrame,
     zoomAtPoint,
@@ -1210,13 +1224,7 @@ export default function App() {
       // An open dialog owns the keyboard; global shortcuts must not fire.
       if (settingsOpen || shortcutsOpen || ratioOpen) return;
       if (event.key === 'Escape') {
-        const target = event.target as HTMLElement | null;
-        if (
-          target &&
-          (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)
-        ) {
-          return;
-        }
+        if (isTextEntry(event.target)) return;
         if (stageMode.kind !== 'idle') {
           event.preventDefault();
           setStageMode(IDLE_STAGE_MODE);
@@ -1224,16 +1232,7 @@ export default function App() {
         }
       }
       if (event.key === '?' && !event.ctrlKey && !event.metaKey && !event.altKey) {
-        const target = event.target as HTMLElement | null;
-        if (
-          target &&
-          (target.tagName === 'INPUT' ||
-            target.tagName === 'TEXTAREA' ||
-            target.tagName === 'SELECT' ||
-            target.isContentEditable)
-        ) {
-          return;
-        }
+        if (isTextEntry(event.target)) return;
         event.preventDefault();
         setShortcutsOpen(true);
         return;
@@ -1244,16 +1243,7 @@ export default function App() {
         !event.metaKey &&
         !event.altKey
       ) {
-        const target = event.target as HTMLElement | null;
-        if (
-          target &&
-          (target.tagName === 'INPUT' ||
-            target.tagName === 'TEXTAREA' ||
-            target.tagName === 'SELECT' ||
-            target.isContentEditable)
-        ) {
-          return;
-        }
+        if (isTextEntry(event.target)) return;
         if (!hasFrames) return;
         event.preventDefault();
         toggleFrames();
@@ -1265,34 +1255,36 @@ export default function App() {
         !event.metaKey &&
         !event.altKey
       ) {
-        const target = event.target as HTMLElement | null;
-        if (
-          target &&
-          (target.tagName === 'INPUT' ||
-            target.tagName === 'TEXTAREA' ||
-            target.tagName === 'SELECT' ||
-            target.isContentEditable)
-        ) {
-          return;
-        }
+        if (isTextEntry(event.target)) return;
         if (!doc.source) return;
         event.preventDefault();
         toggleAdjustFrame();
         return;
       }
       if (event.key === ' ' && isAnimated(effectiveSource(doc))) {
-        const target = event.target as HTMLElement | null;
-        if (
-          target &&
-          (target.tagName === 'INPUT' ||
-            target.tagName === 'TEXTAREA' ||
-            target.tagName === 'BUTTON' ||
-            target.isContentEditable)
-        ) {
-          return;
-        }
+        const element = event.target as HTMLElement | null;
+        if (isTextEntry(element) || element?.tagName === 'BUTTON') return;
         event.preventDefault();
         togglePlay();
+        return;
+      }
+      const typing = isTextEntry(event.target);
+      const shortcut = resolveShortcut(event, { typing });
+      if (shortcut) {
+        event.preventDefault();
+        if (shortcut.kind === 'border') {
+          persistSettings({
+            borderWidth: clampBorderWidth(docRef.current.border.width + shortcut.delta),
+          });
+        } else if (shortcut.kind === 'preset') {
+          changeRatio(shortcut.ratio);
+        } else if (doc.source && shortcut.kind === 'nudge') {
+          pan(shortcut.dx, shortcut.dy, false, 0);
+        } else if (doc.source && shortcut.kind === 'zoom') {
+          zoomBy(shortcut.factor);
+        } else if (doc.source && shortcut.kind === 'rotate') {
+          rotate();
+        }
         return;
       }
       if (!(event.ctrlKey || event.metaKey)) return;
@@ -1314,17 +1306,22 @@ export default function App() {
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [
+    changeRatio,
     doc.source,
     handleOpen,
     hasFrames,
     openSettings,
+    pan,
+    persistSettings,
     ratioOpen,
+    rotate,
     settingsOpen,
     shortcutsOpen,
     stageMode,
     toggleAdjustFrame,
     toggleFrames,
     togglePlay,
+    zoomBy,
   ]);
 
   useEffect(() => {

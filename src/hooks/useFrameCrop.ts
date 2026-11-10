@@ -9,6 +9,7 @@ import {
   resizeFrame as resizeFrameDocument,
   rotate90,
   zoomAt,
+  zoomOf,
   zoomTo,
 } from '../core/geometry';
 import { presetForRatio } from '../core/ratios';
@@ -29,6 +30,8 @@ export interface FrameCrop {
   readonly changeMode: (mode: ScaleMode) => void;
   readonly changeRatio: (ratio: number) => void;
   readonly changeZoom: (zoom: number) => void;
+  /** Multiply the current zoom, keeping the Crop centred. */
+  readonly zoomBy: (factor: number) => void;
   readonly changeOffset: (offsetX: number, offsetY: number) => void;
   readonly resizeFrame: (
     handle: Handle,
@@ -96,6 +99,12 @@ export function useFrameCrop({
 
   const changeZoom = useCallback(
     (zoom: number) => setDoc((current) => zoomTo(current, zoom)),
+    [setDoc],
+  );
+
+  const zoomBy = useCallback(
+    (factor: number) =>
+      setDoc((current) => (current.source ? zoomTo(current, zoomOf(current) * factor) : current)),
     [setDoc],
   );
 
@@ -179,6 +188,7 @@ export function useFrameCrop({
     changeMode,
     changeRatio,
     changeZoom,
+    zoomBy,
     changeOffset,
     resizeFrame,
     zoomAtPoint,
