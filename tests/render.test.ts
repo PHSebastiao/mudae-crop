@@ -228,6 +228,68 @@ describe('rotation', () => {
   });
 });
 
+describe('deliberate stretch', () => {
+  /**
+   * A square fixture stretched into a 1:2 raster. The two axis factors differ,
+   * so a canvas that scaled uniformly could not reproduce these samples.
+   */
+  function stretchedDoc(): DocumentState {
+    return makeDoc(makeSource(400, 400, paintQuadrants), 1, 'fit');
+  }
+
+  function line(
+    ctx: SKRSContext2D,
+    axis: 'row' | 'column',
+    fixed: number,
+    length: number,
+  ): number[][] {
+    return Array.from({ length }, (_, index) =>
+      axis === 'row' ? pixel(ctx, index, fixed) : pixel(ctx, fixed, index),
+    );
+  }
+
+  it('repeats the per-axis factor at 2× of a stretched export', () => {
+    const doc = stretchedDoc();
+    const once = createCanvas(200, 400);
+    renderFrame(contextOf(once), doc, { outputWidth: 200, outputHeight: 400, border: false });
+    const twice = createCanvas(400, 800);
+    renderFrame(contextOf(twice), doc, { outputWidth: 400, outputHeight: 800, border: false });
+
+    const onceCtx = once.getContext('2d');
+    const twiceCtx = twice.getContext('2d');
+
+    // All four quadrants survive the extra factor on each axis.
+    expect(pixel(twiceCtx, 20, 20)).toEqual([0xd9, 0x4f, 0x6d, 255]);
+    expect(pixel(twiceCtx, 380, 20)).toEqual([0x2b, 0x9c, 0x8f, 255]);
+    expect(pixel(twiceCtx, 20, 780)).toEqual([0xf0, 0xd7, 0xa8, 255]);
+    expect(pixel(twiceCtx, 380, 780)).toEqual([0x23, 0x20, 0x2c, 255]);
+
+    // Away from the quadrant boundary the 2× raster is the 1× one doubled.
+    for (const [x, y] of [
+      [60, 120],
+      [140, 120],
+      [60, 280],
+      [140, 280],
+    ]) {
+      expect(pixel(twiceCtx, x * 2, y * 2)).toEqual(pixel(onceCtx, x, y));
+    }
+
+    // The quadrant boundaries stay on the raster midlines: a uniform scale
+    // would put the vertical one at 200/600 instead of 400. The high-quality
+    // smoothing bleeds a few pixels, so follow a channel across its midpoint.
+    const firstCrossing = (colors: number[][], channel: number, from: number, to: number) => {
+      const middle = (from + to) / 2;
+      return colors.findIndex((color) =>
+        to > from ? color[channel] > middle : color[channel] < middle,
+      );
+    };
+    const row = line(twiceCtx, 'row', 100, 400);
+    const column = line(twiceCtx, 'column', 100, 800);
+    expect(firstCrossing(row, 0, 0xd9, 0x2b)).toBe(200);
+    expect(firstCrossing(column, 1, 0x4f, 0xd7)).toBe(400);
+  });
+});
+
 function renderContext(
   doc: DocumentState,
   width: number,

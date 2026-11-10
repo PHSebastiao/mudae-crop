@@ -8,7 +8,12 @@ import {
   type Waifu2xFrameRunner,
 } from '../src/core/export';
 import { makeAnimatedSource, makeDoc, makeSource, pngSize, testExportAdapter } from './helpers';
-import { withWaifu2x, type DocumentState } from '../src/core/document';
+import {
+  withWaifu2x,
+  withResize,
+  withResizeLocked,
+  type DocumentState,
+} from '../src/core/document';
 import { Waifu2xError } from '../src/core/waifu2x';
 
 const adapter: ExportAdapter = {
@@ -100,6 +105,20 @@ function withWaifu2xEnabled(doc: DocumentState, scale: 1 | 2 | 4): DocumentState
   return withWaifu2x(doc, { enabled: true, denoise: 3, scale });
 }
 
+/** A 400×400 square split into four flat quadrants. */
+function quadrantSource() {
+  return makeSource(400, 400, (ctx) => {
+    ctx.fillStyle = '#d94f6d';
+    ctx.fillRect(0, 0, 200, 200);
+    ctx.fillStyle = '#2b9c8f';
+    ctx.fillRect(200, 0, 200, 200);
+    ctx.fillStyle = '#f0d7a8';
+    ctx.fillRect(0, 200, 200, 200);
+    ctx.fillStyle = '#23202c';
+    ctx.fillRect(200, 200, 200, 200);
+  });
+}
+
 describe('waifu2x PNG Export', () => {
   it('denoises at 1× without changing the dimensions and draws the Border last', async () => {
     const doc = makeDoc(noisySource());
@@ -135,6 +154,27 @@ describe('waifu2x PNG Export', () => {
     const doc = withWaifu2xEnabled(makeDoc(makeSource(225, 350)), 4);
     const bytes = await renderPng(doc, adapter, { waifu2x: fakeSidecar(4) });
     expect(pngSize(bytes)).toEqual({ width: 900, height: 1400 });
+  });
+
+  it('keeps a stretched base per axis through the 2× upscale', async () => {
+    // An unlocked Resize stretches the 400×400 Crop into 200×400; the 2×
+    // sidecar then doubles that raster, so the quadrant boundaries must stay on
+    // the final raster's midlines rather than in a centred square.
+    const doc = withResize(
+      withResizeLocked(withWaifu2xEnabled(makeDoc(quadrantSource()), 2), false),
+      { width: 200, height: 400 },
+    );
+    const bytes = await renderPng(doc, adapter, { waifu2x: fakeSidecar(2) });
+
+    expect(pngSize(bytes)).toEqual({ width: 400, height: 800 });
+    const image = await loadImage(Buffer.from(bytes));
+    const canvas = createCanvas(image.width, image.height);
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(image, 0, 0);
+    expect(Array.from(ctx.getImageData(2, 2, 1, 1).data)).toEqual([0xd9, 0x4f, 0x6d, 255]);
+    expect(Array.from(ctx.getImageData(397, 2, 1, 1).data)).toEqual([0x2b, 0x9c, 0x8f, 255]);
+    expect(Array.from(ctx.getImageData(2, 797, 1, 1).data)).toEqual([0xf0, 0xd7, 0xa8, 255]);
+    expect(Array.from(ctx.getImageData(397, 797, 1, 1).data)).toEqual([0x23, 0x20, 0x2c, 255]);
   });
 
   it('refuses an enabled waifu2x without a runner', async () => {
