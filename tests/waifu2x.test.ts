@@ -50,7 +50,7 @@ function fakeSidecar(
 }
 
 describe('waifu2x arguments', () => {
-  it('passes the denoise level, the scale and PNG output to the sidecar', () => {
+  it('passes the denoise level, the scale, the fixed tile and PNG output', () => {
     expect(waifu2xArgs({ denoise: 3, scale: 4 })).toEqual([
       '-i',
       '{input}',
@@ -62,6 +62,8 @@ describe('waifu2x arguments', () => {
       '3',
       '-s',
       '4',
+      '-t',
+      '128',
       '-f',
       'png',
     ]);

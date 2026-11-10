@@ -29,6 +29,21 @@ The pinned binary and cunet models were run directly with the same arguments the
 
 Pass: the GPU was detected, the models loaded, every denoise level ran at 1× without changing the dimensions, levels 2 and 3 visibly reduced the noise, and 2×/4× multiplied both sides exactly. (The level-to-variance shape is the model's own; 0 is deliberately the mildest.)
 
+## Tile-size failure (executed)
+
+The same GPU exposed a sidecar bug with its automatic tile size (`-t 0`): large tiles can come back fully transparent, which the app used to save as a blank card or a card with a missing rectangle. The failing files in `C:\Users\phsebastiao\Pictures\mudae-crop-tests` measured:
+
+| Input   | Run           | Transparent pixels                      |
+| ------- | ------------- | --------------------------------------- |
+| 450×700 | auto tile, 2× | 480,000 (an 800×600 block, bottom-left) |
+| 225×350 | auto tile, 2× | 315,000 (the whole 450×700 output)      |
+| 225×350 | auto tile, 4× | 1,260,000 (the whole 900×1400 output)   |
+| 450×700 | `-t 128`, 2×  | 0                                       |
+| 225×350 | `-t 128`, 2×  | 0                                       |
+| 225×350 | `-t 128`, 4×  | 0                                       |
+
+`-t 32` still left 11/22 edge pixels; `-t 64` through `-t 192` were clean; `-t 256` and above failed again. The app now pins **`-t 128`** in `waifu2xArgs` and rejects any sidecar frame that introduces fully transparent pixels into an otherwise opaque Crop, so a future tile failure becomes a visible export error instead of a silently broken card.
+
 ## App probe (executed)
 
 `npm run tauri dev` with the sidecar copied into the Tauri resource directory returned `waifu2x probe: ready` from the real `waifu2x_probe` command. This also caught a Windows-only path bug: Tauri's resource directory is an extended-length `\\?\` path, and ncnn could not open the models until `plain_path` stripped the prefix. The probe is now cached, and a fresh document starts with waifu2x off.

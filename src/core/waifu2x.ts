@@ -63,9 +63,18 @@ export const WAIFU2X_OUTPUT = '{output}';
 export const WAIFU2X_MODELS = '{models}';
 
 /**
+ * The sidecar's automatic tile size (`-t 0`) leaves transparent tiles on some
+ * Vulkan devices: a 450×700 image at 2× loses an 800×600 block, and a 225×350
+ * image at 2×/4× can come back fully transparent. A fixed 128 px tile is
+ * processed correctly on the same GPU and stays within the memory budget.
+ */
+export const WAIFU2X_TILE_SIZE = 128;
+
+/**
  * The sidecar invocation. `-n` is denoise 0–3 (0 still processes), `-s` is the
- * upscale, `-m` is the bundled cunet model and `-f png` keeps the alpha we
- * rendered. Paths are placeholders so the wrapper is testable without files.
+ * upscale, `-t` is the fixed tile size, `-m` is the bundled cunet model and
+ * `-f png` keeps the alpha we rendered. Paths are placeholders so the wrapper
+ * is testable without files.
  */
 export function waifu2xArgs(settings: Pick<Waifu2xSettings, 'denoise' | 'scale'>): string[] {
   return [
@@ -79,6 +88,8 @@ export function waifu2xArgs(settings: Pick<Waifu2xSettings, 'denoise' | 'scale'>
     String(settings.denoise),
     '-s',
     String(settings.scale),
+    '-t',
+    String(WAIFU2X_TILE_SIZE),
     '-f',
     'png',
   ];

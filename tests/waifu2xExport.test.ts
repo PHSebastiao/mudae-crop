@@ -143,6 +143,16 @@ describe('waifu2x PNG Export', () => {
     ).rejects.toMatchObject({ message: 'O waifu2x não está disponível.' });
   });
 
+  it('refuses a transparent sidecar output when the Crop was opaque', async () => {
+    const doc = withWaifu2xEnabled(makeDoc(makeSource(225, 350)), 1);
+    const transparent = new Uint8Array(createCanvas(225, 350).toBuffer('image/png'));
+    const waifu2x: Waifu2xFrameRunner = async () => transparent;
+
+    await expect(renderPng(doc, adapter, { waifu2x })).rejects.toMatchObject({
+      message: 'O waifu2x não processou a imagem inteira. Tente exportar de novo.',
+    });
+  });
+
   it('turns a non-zero sidecar exit into an Export error', async () => {
     const doc = withWaifu2xEnabled(makeDoc(makeSource(10, 10)), 1);
     const waifu2x: Waifu2xFrameRunner = async () => {

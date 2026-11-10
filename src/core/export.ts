@@ -65,6 +65,14 @@ export interface Waifu2xFrameRequest {
 /** The waifu2x seam: one rendered PNG in, one processed PNG out. */
 export type Waifu2xFrameRunner = (request: Waifu2xFrameRequest) => Promise<Uint8Array>;
 
+/** True when any pixel is fully transparent; the sidecar's failed tiles are. */
+function hasTransparentPixel(data: Uint8ClampedArray): boolean {
+  for (let index = 3; index < data.length; index += 4) {
+    if (data[index] === 0) return true;
+  }
+  return false;
+}
+
 /**
  * Render one output raster through the normal pipeline and, when a waifu2x
  * runner is present, through the sidecar before the Border. Sharpness is
@@ -99,6 +107,9 @@ async function renderOutputFrame(
     return baseCanvas;
   }
 
+  // The sidecar's tile failures come back transparent. If the Crop was fully
+  // opaque, any transparent output pixel is a failed tile, not a real hole.
+  const baseOpaque = !hasTransparentPixel(baseCtx.getImageData(0, 0, base.width, base.height).data);
   const input = await adapter.encodePng(baseCanvas);
   let processed: Uint8Array;
   try {
@@ -120,6 +131,9 @@ async function renderOutputFrame(
   ctx.clearRect(0, 0, output.width, output.height);
   prepareContext(ctx);
   ctx.drawImage(image, 0, 0, output.width, output.height);
+  if (baseOpaque && hasTransparentPixel(ctx.getImageData(0, 0, output.width, output.height).data)) {
+    throw new ExportError('O waifu2x não processou a imagem inteira. Tente exportar de novo.');
+  }
   const rect = doc.crop.rect;
   const scale =
     rect.width > 0 && rect.height > 0
