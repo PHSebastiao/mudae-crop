@@ -702,6 +702,14 @@ export function Stage({
             </div>
           </div>
         )}
+        {!doc.source && (
+          <div className="stage-steps" aria-hidden="true">
+            <span className="on">1 Importar</span>
+            <span>2 Enquadrar</span>
+            <span>3 Borda</span>
+            <span>4 Exportar</span>
+          </div>
+        )}
         {mode.kind === 'adjust' && doc.source && (
           <div
             className="snap-badge"

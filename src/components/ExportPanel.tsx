@@ -204,14 +204,16 @@ export const ExportPanel = memo(function ExportPanel({
   const card1 = mudaeExportSize(doc.frame.ratio, 1);
   const card2 = mudaeExportSize(doc.frame.ratio, 2);
   const isMudae = card1 !== null;
-  // The automatic/native state is deliberately Personalizado, even if the
-  // covered pixels happen to equal a Carta size.
+  // The automatic state is Nativo; a Carta or a hand-typed size is an
+  // explicit Resize. A custom size stays on the third option and keeps its
+  // fields visible even when it does not match a Carta.
   const mudaeScale = doc.resize !== null ? mudaeScaleOf(size, doc.frame.ratio) : null;
   const explicit = doc.resize !== null;
   // The custom block stays open once the user is editing it, so a Mudae size
   // that happens to land on a Carta does not unmount the fields mid-typing.
   const [customOpen, setCustomOpen] = useState(false);
-  const showCustom = doc.source !== null && (!isMudae || customOpen || mudaeScale === null);
+  const customSelected = explicit && mudaeScale === null;
+  const showCustom = doc.source !== null && (!isMudae || customOpen || customSelected);
   const aboveNative = exceedsSource(size, native);
   const nativeCapped = native.width > MAX_EXPORT_SIDE || native.height > MAX_EXPORT_SIDE;
   const sizeCapTitle = `Limite de renderização: ${MAX_EXPORT_SIDE} px por lado (memória do canvas/GIF, não é uma regra do Mudae).`;
@@ -267,6 +269,74 @@ export const ExportPanel = memo(function ExportPanel({
     preview.retain(history.filter((entry): entry is ExportEntry => entry.kind === 'export'));
   }, [history, preview]);
 
+  const actions = (
+    <div className="panel-actions">
+      {!doc.source && <p className="panel-hint">Importe uma Source para exportar.</p>}
+      {waifuUnavailable && (
+        <p className="panel-hint bad">
+          waifu2x indisponível neste computador. Desligue-o para exportar ou subir.
+        </p>
+      )}
+      <button
+        type="button"
+        className="big primary"
+        onClick={onExport}
+        disabled={!doc.source || busy || waifuUnavailable}
+      >
+        {exportLabel}
+      </button>
+      <button
+        type="button"
+        className="big"
+        onClick={onUpload}
+        disabled={uploadDisabled}
+        title={
+          !doc.source
+            ? 'Importe uma Source primeiro'
+            : waifuUnavailable
+              ? 'Desligue o waifu2x para subir'
+              : !hasToken
+                ? 'Configure o token em Configurações'
+                : badPostId
+                  ? 'Confira o Post id'
+                  : 'Cria um Post hidden e copia o link direto'
+        }
+      >
+        {uploading ? 'Subindo…' : cooling ? `Aguarde ${cooldownSeconds}s` : 'Subir e copiar link'}
+      </button>
+      <p className="panel-hint">
+        {hasToken
+          ? 'Ctrl+S exporta · Ctrl+Enter sobe e copia o link.'
+          : 'Ctrl+S exporta. Configure o token para subir.'}
+      </p>
+      {!hasToken && (
+        <button type="button" className="link" onClick={onOpenSettings}>
+          Configurar token
+        </button>
+      )}
+    </div>
+  );
+
+  if (!doc.source) {
+    return (
+      <aside className="panel">
+        <div className="panel-scroll">
+          <section>
+            <h4>Export</h4>
+            <div className="export-summary" aria-live="polite">
+              <strong>PNG · —</strong>
+              <span>sem Source</span>
+            </div>
+            <p className="panel-hint">
+              Importe uma Source para abrir o Frame, a Borda e as opções de Export.
+            </p>
+          </section>
+        </div>
+        {actions}
+      </aside>
+    );
+  }
+
   return (
     <aside className="panel">
       <div className="panel-scroll">
@@ -316,6 +386,7 @@ export const ExportPanel = memo(function ExportPanel({
           </div>
           {!animated && <p className="panel-hint">GIF indisponível: a Source é estática.</p>}
 
+          <div className="size-label">Tamanho</div>
           {isMudae && card1 && card2 && (
             <div className="export-sizes" role="radiogroup" aria-label="Tamanho do Export">
               <button
@@ -355,8 +426,13 @@ export const ExportPanel = memo(function ExportPanel({
                 type="button"
                 className={`size-option${mudaeScale === null ? ' on' : ''}`}
                 onClick={() => {
-                  setCustomOpen(false);
-                  onNative();
+                  if (explicit) {
+                    setCustomOpen(true);
+                    if (mudaeScale !== null) onNative();
+                  } else {
+                    setCustomOpen(false);
+                    onNative();
+                  }
                 }}
                 role="radio"
                 aria-checked={!waifuLocked && mudaeScale === null}
@@ -369,6 +445,12 @@ export const ExportPanel = memo(function ExportPanel({
                 </span>
               </button>
             </div>
+          )}
+
+          {isMudae && !showCustom && (
+            <button type="button" className="link size-edit" onClick={() => setCustomOpen(true)}>
+              ajustar tamanho
+            </button>
           )}
 
           {showCustom && (
@@ -421,14 +503,16 @@ export const ExportPanel = memo(function ExportPanel({
                 </span>
               </div>
               <div className="custom-size-actions">
-                <button
-                  type="button"
-                  onClick={onNative}
-                  title="Tamanho nativo do recorte"
-                  disabled={!doc.source || waifuLocked}
-                >
-                  Nativo
-                </button>
+                {!isMudae && (
+                  <button
+                    type="button"
+                    onClick={onNative}
+                    title="Tamanho nativo do recorte"
+                    disabled={!doc.source || waifuLocked}
+                  >
+                    Nativo
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={onHalve}
@@ -615,127 +699,94 @@ export const ExportPanel = memo(function ExportPanel({
           )}
         </section>
 
-        <section className="divided">
-          <h4>Image Chest</h4>
-          <div className="meta">
-            <span>post</span>
+        <details className="panel-disclosure">
+          <summary>
+            <h4>Image Chest</h4>
             <span>{postId ? `append ${postId}` : settings.defaultPrivacy}</span>
+          </summary>
+          <div className="panel-disclosure-body">
+            <input
+              className="post-id"
+              type="text"
+              value={appendPostId}
+              onChange={(event) => onAppendPostId(event.target.value)}
+              onBlur={onCommitAppendPostId}
+              placeholder="Post id (opcional)"
+              aria-label="Post id para anexar o Export"
+              aria-invalid={badPostId}
+              spellCheck={false}
+              disabled={busy}
+            />
+            {badPostId && <p className="panel-hint bad">O Post id aceita só letras e números.</p>}
           </div>
-          <input
-            className="post-id"
-            type="text"
-            value={appendPostId}
-            onChange={(event) => onAppendPostId(event.target.value)}
-            onBlur={onCommitAppendPostId}
-            placeholder="Post id (opcional)"
-            aria-label="Post id para anexar o Export"
-            aria-invalid={badPostId}
-            spellCheck={false}
-            disabled={busy}
-          />
-          {badPostId && <p className="panel-hint bad">O Post id aceita só letras e números.</p>}
-        </section>
+        </details>
 
-        <section className="divided">
-          <div className="section-head">
+        <details className="panel-disclosure">
+          <summary>
             <h4>Histórico</h4>
-            <button
-              type="button"
-              className="link"
-              onClick={onClearHistory}
-              disabled={history.length === 0}
-            >
-              limpar
-            </button>
+            <span>
+              {history.length === 0
+                ? 'vazio'
+                : `${history.length} ${history.length === 1 ? 'item' : 'itens'}`}
+            </span>
+          </summary>
+          <div className="panel-disclosure-body">
+            <div className="section-head">
+              <span className="panel-hint">Últimos uploads e Exports</span>
+              <button
+                type="button"
+                className="link"
+                onClick={onClearHistory}
+                disabled={history.length === 0}
+              >
+                limpar
+              </button>
+            </div>
+            {history.length === 0 ? (
+              <p className="panel-hint">Nenhum upload ou Export ainda.</p>
+            ) : (
+              <ul className="history" ref={listRef}>
+                {history.map((entry) =>
+                  entry.kind === 'upload' ? (
+                    <li key={`upload-${entry.imageId}-${entry.createdAt}`}>
+                      <img src={entry.link} alt="" loading="lazy" />
+                      <div className="history-body">
+                        <span className="history-link" title={entry.link}>
+                          {entry.link.replace(/^https:\/\//, '')}
+                        </span>
+                        <span className="history-meta">
+                          {entry.format.toUpperCase()} · Post {entry.postId} ·{' '}
+                          {formatBytes(entry.size)}
+                        </span>
+                        <span className="history-meta">{formatHistoryDate(entry.createdAt)}</span>
+                        <span className="history-actions">
+                          <button type="button" onClick={() => onCopyText(entry.link)}>
+                            copiar
+                          </button>
+                          <button type="button" onClick={() => onOpenLink(entry.link)}>
+                            abrir
+                          </button>
+                        </span>
+                      </div>
+                    </li>
+                  ) : (
+                    <ExportRow
+                      key={`export-${entry.path}-${entry.createdAt}`}
+                      entry={entry}
+                      preview={preview}
+                      root={listRef}
+                      onCopyText={onCopyText}
+                      onRevealPath={onRevealPath}
+                    />
+                  ),
+                )}
+              </ul>
+            )}
           </div>
-          {history.length === 0 ? (
-            <p className="panel-hint">Nenhum upload ou Export ainda.</p>
-          ) : (
-            <ul className="history" ref={listRef}>
-              {history.map((entry) =>
-                entry.kind === 'upload' ? (
-                  <li key={`upload-${entry.imageId}-${entry.createdAt}`}>
-                    <img src={entry.link} alt="" loading="lazy" />
-                    <div className="history-body">
-                      <span className="history-link" title={entry.link}>
-                        {entry.link.replace(/^https:\/\//, '')}
-                      </span>
-                      <span className="history-meta">
-                        {entry.format.toUpperCase()} · Post {entry.postId} ·{' '}
-                        {formatBytes(entry.size)}
-                      </span>
-                      <span className="history-meta">{formatHistoryDate(entry.createdAt)}</span>
-                      <span className="history-actions">
-                        <button type="button" onClick={() => onCopyText(entry.link)}>
-                          copiar
-                        </button>
-                        <button type="button" onClick={() => onOpenLink(entry.link)}>
-                          abrir
-                        </button>
-                      </span>
-                    </div>
-                  </li>
-                ) : (
-                  <ExportRow
-                    key={`export-${entry.path}-${entry.createdAt}`}
-                    entry={entry}
-                    preview={preview}
-                    root={listRef}
-                    onCopyText={onCopyText}
-                    onRevealPath={onRevealPath}
-                  />
-                ),
-              )}
-            </ul>
-          )}
-        </section>
+        </details>
       </div>
 
-      <div className="panel-actions">
-        {!doc.source && <p className="panel-hint">Importe uma Source para exportar.</p>}
-        {waifuUnavailable && (
-          <p className="panel-hint bad">
-            waifu2x indisponível neste computador. Desligue-o para exportar ou subir.
-          </p>
-        )}
-        <button
-          type="button"
-          className="big primary"
-          onClick={onExport}
-          disabled={!doc.source || busy || waifuUnavailable}
-        >
-          {exportLabel}
-        </button>
-        <button
-          type="button"
-          className="big"
-          onClick={onUpload}
-          disabled={uploadDisabled}
-          title={
-            !doc.source
-              ? 'Importe uma Source primeiro'
-              : waifuUnavailable
-                ? 'Desligue o waifu2x para subir'
-                : !hasToken
-                  ? 'Configure o token em Configurações'
-                  : badPostId
-                    ? 'Confira o Post id'
-                    : 'Cria um Post hidden e copia o link direto'
-          }
-        >
-          {uploading ? 'Subindo…' : cooling ? `Aguarde ${cooldownSeconds}s` : 'Subir e copiar link'}
-        </button>
-        <p className="panel-hint">
-          {hasToken
-            ? 'Ctrl+S exporta · Ctrl+Enter sobe e copia o link.'
-            : 'Ctrl+S exporta. Configure o token para subir.'}
-        </p>
-        {!hasToken && (
-          <button type="button" className="link" onClick={onOpenSettings}>
-            Configurar token
-          </button>
-        )}
-      </div>
+      {actions}
     </aside>
   );
 });

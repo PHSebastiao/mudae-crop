@@ -1680,15 +1680,17 @@ export default function App() {
         />
       </main>
 
-      <BorderBar
-        border={doc.border}
-        palette={palette}
-        hasSource={doc.source !== null}
-        onColor={(color) => persistSettings({ borderColor: color })}
-        onWidth={(width) => persistSettings({ borderWidth: width })}
-        onCopy={copyExportText}
-        onRecalc={recalcPalette}
-      />
+      {doc.source && (
+        <BorderBar
+          border={doc.border}
+          palette={palette}
+          hasSource
+          onColor={(color) => persistSettings({ borderColor: color })}
+          onWidth={(width) => persistSettings({ borderWidth: width })}
+          onCopy={copyExportText}
+          onRecalc={recalcPalette}
+        />
+      )}
 
       {settingsOpen && (
         <SettingsDialog

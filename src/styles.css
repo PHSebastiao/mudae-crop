@@ -709,6 +709,157 @@ button {
   color: #e9e6ef;
 }
 
+/* Progressive disclosure in the rail */
+
+.rail-disclosure {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px dashed #2d2b36;
+}
+
+.rail-disclosure > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 2px 0;
+  list-style: none;
+  cursor: pointer;
+  color: #b9b3c6;
+  font-size: 9.5px;
+}
+
+.rail-disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+
+.rail-disclosure > summary:hover {
+  color: var(--text);
+}
+
+.rail-chevron {
+  color: var(--text-faint);
+  font-size: 8px;
+  transition: transform 120ms ease;
+}
+
+.rail-disclosure[open] .rail-chevron {
+  transform: rotate(90deg);
+}
+
+.rail-disclosure-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 4px;
+}
+
+.waifu2x-block {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.toggle-pill {
+  padding: 2px 8px;
+  border: 1px solid #3a3745;
+  border-radius: 5px;
+  background: #232129;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.toggle-pill.on {
+  background: #34313e;
+  color: #fff;
+  border-color: #55505f;
+}
+
+.toggle-pill:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* The empty rail is a roadmap, not a set of controls. */
+
+.rail-steps {
+  gap: 6px;
+}
+
+.rail-step {
+  display: grid;
+  grid-template-columns: 15px 1fr;
+  grid-template-rows: auto auto;
+  column-gap: 5px;
+  padding: 5px;
+  border: 1px solid #302f39;
+  border-radius: 5px;
+  color: var(--text-dim);
+}
+
+.rail-step b {
+  grid-row: 1 / span 2;
+  width: 15px;
+  height: 15px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: #302f39;
+  color: #cfcadb;
+  font-size: 8px;
+}
+
+.rail-step span {
+  color: var(--text);
+  font-size: 9.5px;
+}
+
+.rail-step small {
+  color: var(--text-faint);
+  font-size: 8px;
+}
+
+.rail-step.active {
+  border-color: #9c98a9;
+  background: #232129;
+}
+
+.rail-step.active b {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.rail-step-hint {
+  margin: 4px 0 0;
+  color: var(--text-faint);
+  font-size: 9px;
+  line-height: 1.4;
+}
+
+.stage-steps {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border: 1px solid #2d2b36;
+  border-radius: 999px;
+  background: #1b1a21cc;
+  color: var(--text-faint);
+  font-size: 10px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.stage-steps .on {
+  color: var(--text);
+}
+
 /* Stage */
 
 .stage-column {
@@ -1399,6 +1550,54 @@ button {
 
 .panel-actions .panel-hint {
   color: var(--text-dim);
+}
+
+.size-label {
+  margin-top: 2px;
+  color: var(--text-faint);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.9px;
+  text-transform: uppercase;
+}
+
+.panel-disclosure {
+  padding-top: 10px;
+  border-top: 1px dashed #2d2b36;
+}
+
+.panel-disclosure > summary {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  list-style: none;
+  cursor: pointer;
+}
+
+.panel-disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+
+.panel-disclosure > summary h4 {
+  margin: 0;
+}
+
+.panel-disclosure > summary span {
+  color: var(--text-faint);
+  font-size: 9px;
+  white-space: nowrap;
+}
+
+.panel-disclosure-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 9px;
+}
+
+.size-edit {
+  align-self: flex-start;
 }
 
 .panel section {

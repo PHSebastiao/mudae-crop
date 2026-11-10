@@ -1,4 +1,4 @@
-import { memo, useState } from 'react';
+import { memo, useState, type ReactNode } from 'react';
 import {
   MAX_SHARPNESS,
   MAX_SPEED,
@@ -46,6 +46,29 @@ interface ToolRailProps {
   readonly onToggleAdjustFrame: () => void;
 }
 
+/** A native disclosure, so the folded controls stay keyboard-accessible. */
+function RailDisclosure({
+  label,
+  open,
+  children,
+}: {
+  readonly label: string;
+  readonly open?: boolean;
+  readonly children: ReactNode;
+}) {
+  return (
+    <details className="rail-disclosure" open={open}>
+      <summary>
+        <span>{label}</span>
+        <span className="rail-chevron" aria-hidden="true">
+          ▸
+        </span>
+      </summary>
+      <div className="rail-disclosure-body">{children}</div>
+    </details>
+  );
+}
+
 export const ToolRail = memo(function ToolRail({
   doc,
   onMode,
@@ -83,9 +106,9 @@ export const ToolRail = memo(function ToolRail({
   const waifu2xReady = waifu2xStatus === 'ready';
   const waifu2xDisabled = !hasSource || !waifu2xReady;
   const waifu2xControlsDisabled = waifu2xDisabled || !waifu2x.enabled;
-  // A group with `pointer-events: none` would also trap the off switch, so an
-  // enabled-but-unavailable waifu2x keeps the group interactive.
-  const waifu2xGroupDisabled = !hasSource || (!waifu2xReady && !waifu2x.enabled);
+  // An enabled-but-unavailable block stays interactive so its off switch
+  // always works; only an unavailable block that is already off dims.
+  const waifu2xBlockDisabled = !hasSource || (!waifu2xReady && !waifu2x.enabled);
   const waifu2xHint =
     waifu2xStatus === 'checking'
       ? 'verificando a GPU e o sidecar…'
@@ -104,10 +127,38 @@ export const ToolRail = memo(function ToolRail({
     });
   };
 
+  if (!hasSource) {
+    return (
+      <aside className="rail rail-steps" aria-label="Passos para começar">
+        <div className="rail-step active" aria-current="step">
+          <b>1</b>
+          <span>Source</span>
+          <small>abrir · arrastar · colar</small>
+        </div>
+        <div className="rail-step">
+          <b>2</b>
+          <span>Frame</span>
+          <small>proporção no topo</small>
+        </div>
+        <div className="rail-step">
+          <b>3</b>
+          <span>Borda</span>
+          <small>cor e largura</small>
+        </div>
+        <div className="rail-step">
+          <b>4</b>
+          <span>Export</span>
+          <small>PNG ou GIF</small>
+        </div>
+        <p className="rail-step-hint">A prévia aparece aqui assim que a Source entrar.</p>
+      </aside>
+    );
+  }
+
   return (
     <aside className="rail">
       <div className="group">
-        <div className="label">Crop</div>
+        <div className="label">Frame</div>
         <div
           className="rail-adjust-row"
           onMouseEnter={(event) => showTip(event.currentTarget)}
@@ -122,7 +173,6 @@ export const ToolRail = memo(function ToolRail({
             aria-pressed={adjustFrame}
             aria-keyshortcuts="C"
             aria-describedby={tip ? 'frame-adjust-tip' : undefined}
-            disabled={!hasSource}
           >
             <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
               <path
@@ -185,88 +235,79 @@ export const ToolRail = memo(function ToolRail({
             altura
           </button>
         </div>
-        <div className="row">
-          <span className="key">zoom</span>
-          <span className="field">
-            <NumberField
-              value={zoom}
-              onCommit={onZoom}
-              label="Zoom"
-              precision={2}
-              disabled={!hasSource}
-            />
-            <span className="unit">×</span>
-          </span>
-        </div>
-        <div className="row">
-          <span className="key">offset x</span>
-          <span className="field">
-            <NumberField
-              value={offsetX}
-              onCommit={(next) => onOffset(next, offset.y * 100)}
-              label="Offset horizontal"
-              precision={1}
-              disabled={!hasSource}
-            />
-            <span className="unit">%</span>
-          </span>
-        </div>
-        <div className="row">
-          <span className="key">offset y</span>
-          <span className="field">
-            <NumberField
-              value={offsetY}
-              onCommit={(next) => onOffset(offset.x * 100, next)}
-              label="Offset vertical"
-              precision={1}
-              disabled={!hasSource}
-            />
-            <span className="unit">%</span>
-          </span>
-        </div>
-        <div className="row">
-          <span className="key">rotate</span>
-          <button type="button" className="pill" onClick={onRotate} disabled={!hasSource}>
-            {doc.crop.rotation}° ↻
+        <RailDisclosure label="Ajuste fino">
+          <div className="row">
+            <span className="key">zoom</span>
+            <span className="field">
+              <NumberField value={zoom} onCommit={onZoom} label="Zoom" precision={2} />
+              <span className="unit">×</span>
+            </span>
+          </div>
+          <div className="row">
+            <span className="key">offset x</span>
+            <span className="field">
+              <NumberField
+                value={offsetX}
+                onCommit={(next) => onOffset(next, offset.y * 100)}
+                label="Offset horizontal"
+                precision={1}
+              />
+              <span className="unit">%</span>
+            </span>
+          </div>
+          <div className="row">
+            <span className="key">offset y</span>
+            <span className="field">
+              <NumberField
+                value={offsetY}
+                onCommit={(next) => onOffset(offset.x * 100, next)}
+                label="Offset vertical"
+                precision={1}
+              />
+              <span className="unit">%</span>
+            </span>
+          </div>
+          <div className="row">
+            <span className="key">rotate</span>
+            <button type="button" className="pill" onClick={onRotate}>
+              {doc.crop.rotation}° ↻
+            </button>
+          </div>
+          <div className="row">
+            <span className="key">pad</span>
+            <span className="field">
+              <input
+                className="color"
+                type="color"
+                value={doc.padColor}
+                onChange={(event) => onPadColor(event.target.value)}
+                aria-label="Cor do Pad"
+                title="Para pegar uma cor da imagem, use “pegar cor da imagem”"
+              />
+              <HexInput
+                className="rail-hex"
+                value={doc.padColor}
+                onCommit={onPadColor}
+                label="HEX do Pad"
+              />
+            </span>
+          </div>
+          <button
+            type="button"
+            className="link rail-pick"
+            onClick={onPickPadColor}
+            aria-pressed={pickingPad}
+          >
+            {pickingPad ? 'clique na imagem · Esc cancela' : 'pegar cor da imagem'}
           </button>
-        </div>
-        <div className="row">
-          <span className="key">pad</span>
-          <span className="field">
-            <input
-              className="color"
-              type="color"
-              value={doc.padColor}
-              onChange={(event) => onPadColor(event.target.value)}
-              aria-label="Cor do Pad"
-              title="Para pegar uma cor da imagem, use “pegar cor da imagem”"
-              disabled={!hasSource}
-            />
-            <HexInput
-              className="rail-hex"
-              value={doc.padColor}
-              onCommit={onPadColor}
-              label="HEX do Pad"
-              disabled={!hasSource}
-            />
-          </span>
-        </div>
-        <button
-          type="button"
-          className="link rail-pick"
-          onClick={onPickPadColor}
-          disabled={!hasSource}
-          aria-pressed={pickingPad}
-        >
-          {pickingPad ? 'clique na imagem · Esc cancela' : 'pegar cor da imagem'}
-        </button>
-        <button type="button" className="link" onClick={onResetCrop} disabled={!hasSource}>
-          redefinir Crop
-        </button>
+          <button type="button" className="link" onClick={onResetCrop}>
+            redefinir Crop
+          </button>
+        </RailDisclosure>
       </div>
 
       <div className="group">
-        <div className="label">Nitidez</div>
+        <div className="label">Realce</div>
         <div className="row">
           <span className="key">sharpness</span>
           <span className="pill">{doc.sharpness}</span>
@@ -280,143 +321,133 @@ export const ToolRail = memo(function ToolRail({
           value={doc.sharpness}
           onChange={(event) => onSharpness(Number(event.target.value))}
           aria-label="Nitidez"
-          disabled={!hasSource}
         />
+        <div className={waifu2xBlockDisabled ? 'waifu2x-block disabled-group' : 'waifu2x-block'}>
+          <div className="row">
+            <span className="key">waifu2x</span>
+            <button
+              type="button"
+              className={`toggle-pill${waifu2x.enabled ? ' on' : ''}`}
+              onClick={() => onWaifu2x({ enabled: !waifu2x.enabled })}
+              aria-pressed={waifu2x.enabled}
+              disabled={!waifu2xReady && !waifu2x.enabled}
+              title={waifu2x.enabled ? 'Desligar o waifu2x' : 'Ligar o waifu2x'}
+            >
+              {waifu2x.enabled ? 'ligado' : 'desligado'}
+            </button>
+          </div>
+          <RailDisclosure label="Denoise e escala">
+            <div className="row">
+              <span className="key">denoise</span>
+              <span className="pill">{waifu2x.denoise}</span>
+            </div>
+            <div className="toggle" role="group" aria-label="Denoise do waifu2x">
+              {[0, 1, 2, 3].map((level) => (
+                <button
+                  key={level}
+                  type="button"
+                  className={waifu2x.denoise === level ? 'on' : ''}
+                  onClick={() => onWaifu2x({ denoise: level as Waifu2xSettings['denoise'] })}
+                  aria-pressed={waifu2x.denoise === level}
+                  disabled={waifu2xControlsDisabled}
+                  title={`Denoise ${level}`}
+                >
+                  {level}
+                </button>
+              ))}
+            </div>
+            <div className="toggle" role="group" aria-label="Escala do waifu2x">
+              {[1, 2, 4].map((scale) => (
+                <button
+                  key={scale}
+                  type="button"
+                  className={waifu2x.scale === scale ? 'on' : ''}
+                  onClick={() => onWaifu2x({ scale: scale as Waifu2xSettings['scale'] })}
+                  aria-pressed={waifu2x.scale === scale}
+                  disabled={waifu2xControlsDisabled}
+                  title={
+                    scale === 1
+                      ? 'Mantém o tamanho do Export'
+                      : `Amplia ${scale}× e define o tamanho do Export`
+                  }
+                >
+                  {scale}×
+                </button>
+              ))}
+            </div>
+          </RailDisclosure>
+          <p className="panel-hint">{waifu2xHint}</p>
+        </div>
       </div>
 
-      <div className={waifu2xGroupDisabled ? 'group disabled-group' : 'group'}>
-        <div className="label">waifu2x</div>
-        <div className="toggle" role="group" aria-label="waifu2x">
-          <button
-            type="button"
-            className={waifu2x.enabled ? 'on' : ''}
-            onClick={() => onWaifu2x({ enabled: !waifu2x.enabled })}
-            aria-pressed={waifu2x.enabled}
-            // Turning it off must always work, even if the probe failed later.
-            disabled={!hasSource || (!waifu2xReady && !waifu2x.enabled)}
-            title={waifu2x.enabled ? 'Desligar o waifu2x' : 'Ligar o waifu2x'}
-          >
-            {waifu2x.enabled ? 'ligado' : 'desligado'}
-          </button>
-        </div>
-        <div className="row">
-          <span className="key">denoise</span>
-          <span className="pill">{waifu2x.denoise}</span>
-        </div>
-        <div className="toggle" role="group" aria-label="Denoise do waifu2x">
-          {[0, 1, 2, 3].map((level) => (
-            <button
-              key={level}
-              type="button"
-              className={waifu2x.denoise === level ? 'on' : ''}
-              onClick={() => onWaifu2x({ denoise: level as Waifu2xSettings['denoise'] })}
-              aria-pressed={waifu2x.denoise === level}
-              disabled={waifu2xControlsDisabled}
-              title={`Denoise ${level}`}
-            >
-              {level}
-            </button>
-          ))}
-        </div>
-        <div className="toggle" role="group" aria-label="Escala do waifu2x">
-          {[1, 2, 4].map((scale) => (
-            <button
-              key={scale}
-              type="button"
-              className={waifu2x.scale === scale ? 'on' : ''}
-              onClick={() => onWaifu2x({ scale: scale as Waifu2xSettings['scale'] })}
-              aria-pressed={waifu2x.scale === scale}
-              disabled={waifu2xControlsDisabled}
-              title={
-                scale === 1
-                  ? 'Mantém o tamanho do Export'
-                  : `Amplia ${scale}× e define o tamanho do Export`
-              }
-            >
-              {scale}×
-            </button>
-          ))}
-        </div>
-        <p className="panel-hint">{waifu2xHint}</p>
-      </div>
-
-      {animated ? (
-        <div className="group">
-          <div className="label">GIF</div>
-          <div className="row">
-            <span className="key">quadros</span>
-            <span>{`${trimmed} de ${frames}`}</span>
-          </div>
-          <div className="row">
-            <span className="key">duração</span>
-            <span>
-              {animated
-                ? formatPlaybackDuration(
-                    trimDurationMs(effectiveSource(doc), effectiveTrim(doc), doc.speed),
-                  )
-                : '—'}
-            </span>
-          </div>
-          <div className="row">
-            <span className="key">trim</span>
-            <span>
-              {animated
-                ? `${trim.start + 1}–${trim.end + 1} · ${doc.trimEnabled ? 'on' : 'off'}`
-                : '—'}
-            </span>
-          </div>
-          <div className="row">
-            <span className="key">velocidade</span>
-            <span className="pill">{speedLabel}</span>
-          </div>
-          <input
-            className="slider"
-            type="range"
-            min={MIN_SPEED}
-            max={MAX_SPEED}
-            step={0.05}
-            value={doc.speed}
-            onChange={(event) => onSpeed(Number(event.target.value))}
-            aria-label="Velocidade do GIF"
-            disabled={!animated}
-          />
-          <div className="toggle" role="group" aria-label="Velocidade do GIF">
-            {[0.5, 1, 2].map((speed) => (
-              <button
-                key={speed}
-                type="button"
-                className={Math.abs(doc.speed - speed) < 0.001 ? 'on' : ''}
-                onClick={() => onSpeed(speed)}
-                disabled={!animated}
-              >
-                {speed.toString().replace('.', ',')}×
+      <div className="group">
+        <div className="label">GIF</div>
+        {animated ? (
+          <>
+            <div className="row">
+              <span className="key">quadros</span>
+              <span>{`${trimmed} de ${frames}`}</span>
+            </div>
+            <div className="row">
+              <span className="key">duração</span>
+              <span>
+                {formatPlaybackDuration(
+                  trimDurationMs(effectiveSource(doc), effectiveTrim(doc), doc.speed),
+                )}
+              </span>
+            </div>
+            <div className="row">
+              <span className="key">trim</span>
+              <span>{`${trim.start + 1}–${trim.end + 1} · ${doc.trimEnabled ? 'on' : 'off'}`}</span>
+            </div>
+            <div className="row">
+              <span className="key">velocidade</span>
+              <span className="pill">{speedLabel}</span>
+            </div>
+            <RailDisclosure label="Ajustes do GIF">
+              <input
+                className="slider"
+                type="range"
+                min={MIN_SPEED}
+                max={MAX_SPEED}
+                step={0.05}
+                value={doc.speed}
+                onChange={(event) => onSpeed(Number(event.target.value))}
+                aria-label="Velocidade do GIF"
+              />
+              <div className="toggle" role="group" aria-label="Velocidade do GIF">
+                {[0.5, 1, 2].map((speed) => (
+                  <button
+                    key={speed}
+                    type="button"
+                    className={Math.abs(doc.speed - speed) < 0.001 ? 'on' : ''}
+                    onClick={() => onSpeed(speed)}
+                  >
+                    {speed.toString().replace('.', ',')}×
+                  </button>
+                ))}
+              </div>
+              <button type="button" className="link" onClick={() => onTrim(null)}>
+                redefinir trim
               </button>
-            ))}
-          </div>
-          <button type="button" className="link" onClick={() => onTrim(null)} disabled={!animated}>
-            redefinir trim
-          </button>
-          {imageAnimation && (
-            <button
-              type="button"
-              className={`link rail-frames${framesOpen ? ' on' : ''}`}
-              onClick={onToggleFrames}
-              aria-pressed={framesOpen}
-              aria-keyshortcuts="F"
-              title="Mostrar ou ocultar o painel de quadros (F)"
-            >
-              {framesOpen ? 'ocultar painel de quadros' : 'ver painel de quadros'}
-            </button>
-          )}
-        </div>
-      ) : (
-        <div className="group">
-          <div className="label">GIF</div>
-          <p className="panel-hint">
-            {hasSource ? 'Source estática · sem quadros' : 'disponível para animações'}
-          </p>
-        </div>
-      )}
+              {imageAnimation && (
+                <button
+                  type="button"
+                  className={`link rail-frames${framesOpen ? ' on' : ''}`}
+                  onClick={onToggleFrames}
+                  aria-pressed={framesOpen}
+                  aria-keyshortcuts="F"
+                  title="Mostrar ou ocultar o painel de quadros (F)"
+                >
+                  {framesOpen ? 'ocultar painel de quadros' : 'ver painel de quadros'}
+                </button>
+              )}
+            </RailDisclosure>
+          </>
+        ) : (
+          <p className="panel-hint">Source estática · sem quadros</p>
+        )}
+      </div>
     </aside>
   );
 });
