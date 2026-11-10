@@ -1,0 +1,889 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      :root {
+        color-scheme: dark;
+        --foreground: #e9e6ef;
+        --muted: #9c98a9;
+        --border: #2b2a33;
+        --card: #1b1a21;
+        --radius: 10px;
+        --app-bg: #17161c;
+        --app-panel: #1b1a21;
+        --app-line: #2b2a33;
+        --app-line-soft: #26252e;
+        --app-text: #e9e6ef;
+        --app-dim: #9c98a9;
+        --app-faint: #6f6b7d;
+        --app-accent: #f2eef8;
+        --app-ink: #17151c;
+        --app-ok: #9be3c0;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        font-family:
+          system-ui,
+          -apple-system,
+          'Segoe UI',
+          sans-serif;
+      }
+      .page {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        padding: 2px 0 8px;
+      }
+      .intro {
+        margin: 0;
+        font-size: 12px;
+        line-height: 1.55;
+        color: var(--muted);
+      }
+      .intro strong {
+        color: var(--foreground);
+      }
+      .figure {
+        margin: 0;
+      }
+      .caption {
+        display: flex;
+        align-items: baseline;
+        gap: 8px;
+        margin: 0 0 6px;
+      }
+      .caption h3 {
+        margin: 0;
+        font-size: 12px;
+        font-weight: 650;
+        color: var(--foreground);
+      }
+      .caption span {
+        font-size: 10px;
+        color: var(--muted);
+      }
+      .note {
+        margin: 6px 0 0;
+        font-size: 10.5px;
+        line-height: 1.45;
+        color: var(--muted);
+      }
+      .note b {
+        color: var(--foreground);
+        font-weight: 600;
+      }
+
+      .screen {
+        position: relative;
+        width: 100%;
+        height: 380px;
+        overflow: hidden;
+        display: grid;
+        grid-template-rows: 28px minmax(0, 1fr) 30px;
+        background: var(--app-bg);
+        border: 1px solid var(--app-line);
+        border-radius: 9px;
+        color: var(--app-text);
+        font-size: 9px;
+        line-height: 1.25;
+      }
+      .screen.empty {
+        grid-template-rows: 28px minmax(0, 1fr);
+      }
+      .topbar {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        padding: 0 8px;
+        background: #1d1c23;
+        border-bottom: 1px solid var(--app-line);
+        font-size: 8px;
+      }
+      .brand {
+        font-weight: 650;
+        font-size: 9.5px;
+        color: #f1eef7;
+      }
+      .input {
+        flex: 0 1 145px;
+        height: 16px;
+        display: flex;
+        align-items: center;
+        padding: 0 5px;
+        border: 1px solid #302f39;
+        border-radius: 4px;
+        background: #14131a;
+        color: var(--app-faint);
+      }
+      .spacer {
+        flex: 1;
+      }
+      .pill {
+        padding: 1px 6px;
+        border: 1px solid #34323f;
+        border-radius: 999px;
+        color: #b7b2c5;
+        white-space: nowrap;
+      }
+      .pill.accent {
+        color: var(--app-text);
+        border-color: #55505f;
+      }
+      .workspace {
+        display: grid;
+        grid-template-columns: 92px minmax(0, 1fr) 168px;
+        min-height: 0;
+      }
+      .rail {
+        padding: 6px;
+        border-right: 1px solid var(--app-line-soft);
+        display: flex;
+        flex-direction: column;
+        gap: 7px;
+        overflow: hidden;
+      }
+      .panel {
+        padding: 6px;
+        border-left: 1px solid var(--app-line-soft);
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+        overflow: hidden;
+      }
+      .stage {
+        position: relative;
+        min-height: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: radial-gradient(120% 90% at 50% 0%, #22202a 0%, #14131a 60%, #101016 100%);
+      }
+      .stage-hint {
+        position: absolute;
+        bottom: 8px;
+        left: 50%;
+        transform: translateX(-50%);
+        font-size: 7.5px;
+        color: #6c687a;
+        white-space: nowrap;
+      }
+      .plabel {
+        font-size: 7px;
+        letter-spacing: 0.8px;
+        text-transform: uppercase;
+        color: var(--app-faint);
+        font-weight: 650;
+      }
+      .muted {
+        color: var(--app-dim);
+      }
+      .faint {
+        color: var(--app-faint);
+      }
+      .row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 5px;
+        color: var(--app-dim);
+      }
+      .row b {
+        color: var(--app-text);
+        font-weight: 600;
+      }
+      .field {
+        min-width: 36px;
+        padding: 1px 4px;
+        text-align: right;
+        border: 1px solid #302f39;
+        border-radius: 3px;
+        background: #14131a;
+        color: var(--app-text);
+      }
+      .btn {
+        padding: 2px 5px;
+        border: 1px solid #3a3745;
+        border-radius: 4px;
+        background: #232129;
+        color: var(--app-text);
+        text-align: center;
+        white-space: nowrap;
+      }
+      .btn.primary {
+        background: var(--app-accent);
+        color: var(--app-ink);
+        border-color: var(--app-accent);
+        font-weight: 650;
+      }
+      .btn.disabled {
+        background: #2a2831;
+        color: var(--app-faint);
+        border-color: #3a3745;
+      }
+      .btn.wide {
+        width: 100%;
+        display: flex;
+        justify-content: space-between;
+      }
+      kbd {
+        padding: 0 3px;
+        border: 1px solid #3a3745;
+        border-radius: 2px;
+        font-size: 7px;
+        color: #8f8a9d;
+      }
+      .seg {
+        display: flex;
+        border: 1px solid #302f39;
+        border-radius: 4px;
+        overflow: hidden;
+      }
+      .seg span {
+        flex: 1;
+        text-align: center;
+        padding: 1px 0;
+        color: var(--app-dim);
+      }
+      .seg .on {
+        background: #34313e;
+        color: #fff;
+      }
+      .toggle {
+        padding: 1px 5px;
+        border: 1px solid #3a3745;
+        border-radius: 4px;
+        color: var(--app-dim);
+        text-align: center;
+      }
+      .slider {
+        height: 3px;
+        border-radius: 2px;
+        background: #302f39;
+        position: relative;
+      }
+      .slider:after {
+        content: '';
+        position: absolute;
+        left: 0;
+        top: -2px;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #e9e6ef;
+      }
+      .link {
+        color: #b9b3c6;
+        text-decoration: underline;
+        text-underline-offset: 1px;
+        font-size: 8px;
+      }
+      .disclosure {
+        display: flex;
+        justify-content: space-between;
+        padding: 3px 0;
+        border-top: 1px dashed #2d2b36;
+        color: var(--app-dim);
+      }
+      .summary {
+        padding: 3px 5px;
+        border: 1px solid var(--app-line-soft);
+        border-radius: 4px;
+        background: #17161c;
+        color: var(--app-dim);
+      }
+      .summary b {
+        color: var(--app-text);
+      }
+      .size {
+        display: flex;
+        justify-content: space-between;
+        padding: 2px 5px;
+        border: 1px solid #302f39;
+        border-radius: 4px;
+        color: var(--app-dim);
+      }
+      .size.on {
+        border-color: #f2eef8;
+        color: var(--app-text);
+        background: #232129;
+      }
+      .radio {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        padding: 2px 4px;
+        color: var(--app-dim);
+      }
+      .radio.on {
+        color: var(--app-text);
+      }
+      .radio .dot {
+        width: 6px;
+        height: 6px;
+        border: 1px solid #55505f;
+        border-radius: 50%;
+      }
+      .radio.on .dot {
+        background: var(--app-accent);
+        border-color: var(--app-accent);
+      }
+      .footer {
+        margin-top: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+        padding-top: 4px;
+        border-top: 1px solid var(--app-line);
+      }
+      .hint {
+        font-size: 7.5px;
+        color: var(--app-faint);
+        line-height: 1.35;
+      }
+      .bottom {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        padding: 0 8px;
+        border-top: 1px solid var(--app-line-soft);
+        background: var(--app-bg);
+      }
+      .swatch {
+        width: 11px;
+        height: 11px;
+        border: 1px solid #55505f;
+        border-radius: 3px;
+        display: inline-block;
+      }
+      .swatch.white {
+        background: #fff;
+      }
+      .swatch.p1 {
+        background: #d94f6d;
+      }
+      .swatch.p2 {
+        background: #2b9c8f;
+      }
+      .swatch.p3 {
+        background: #f0d7a8;
+      }
+      .swatch.p4 {
+        background: #23202c;
+      }
+      .hex {
+        color: var(--app-faint);
+      }
+
+      .frame {
+        width: 145px;
+        height: 238px;
+        border: 1px solid #fff;
+        background: linear-gradient(155deg, #2b3a67 0%, #6d3e66 42%, #b14a6b 68%, #f0c987 100%);
+        position: relative;
+      }
+      .frame:before {
+        content: '';
+        position: absolute;
+        left: 52%;
+        top: 12%;
+        width: 46%;
+        height: 27%;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.24);
+      }
+      .frame:after {
+        content: '';
+        position: absolute;
+        left: 8%;
+        bottom: 12%;
+        width: 32%;
+        height: 16%;
+        background: #2b9c8f;
+      }
+      .frame.small {
+        width: 150px;
+        height: 245px;
+      }
+      .frame.dashed {
+        border: 1px dashed #9c98a9;
+        background: #14131a;
+      }
+      .frame.dashed:before,
+      .frame.dashed:after {
+        display: none;
+      }
+      .frame.dashed .plus {
+        position: absolute;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        font-size: 18px;
+        color: #6f6b7d;
+      }
+
+      .steps {
+        gap: 5px;
+      }
+      .step {
+        display: grid;
+        grid-template-columns: 13px 1fr;
+        grid-template-rows: auto auto;
+        column-gap: 4px;
+        padding: 4px;
+        border: 1px solid #302f39;
+        border-radius: 4px;
+        color: var(--app-dim);
+      }
+      .step b {
+        grid-row: 1 / span 2;
+        width: 13px;
+        height: 13px;
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        font-size: 7px;
+        background: #302f39;
+        color: #cfcadb;
+      }
+      .step span {
+        font-size: 8px;
+        color: var(--app-text);
+      }
+      .step small {
+        font-size: 7px;
+        color: var(--app-faint);
+      }
+      .step.active {
+        border-color: #9c98a9;
+        background: #232129;
+      }
+      .step.active b {
+        background: var(--app-accent);
+        color: var(--app-ink);
+      }
+
+      .onboard {
+        width: 230px;
+        text-align: center;
+        padding: 14px 12px;
+        border: 1px solid #34323f;
+        border-radius: 8px;
+        background: #1b1a2188;
+      }
+      .kicker {
+        font-size: 7px;
+        letter-spacing: 1px;
+        text-transform: uppercase;
+        color: #9be3c0;
+      }
+      .h1 {
+        font-size: 13px;
+        font-weight: 650;
+        margin: 3px 0 4px;
+        color: #f1eef7;
+      }
+      .stage .btn {
+        display: inline-block;
+        padding: 4px 10px;
+        margin: 7px 0 4px;
+        font-size: 9px;
+      }
+      .stage .muted {
+        font-size: 8px;
+        line-height: 1.45;
+      }
+      .stepstrip {
+        position: absolute;
+        left: 50%;
+        bottom: 10px;
+        transform: translateX(-50%);
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        padding: 3px 7px;
+        border: 1px solid #2d2b36;
+        border-radius: 999px;
+        background: #1b1a21cc;
+        color: #6f6b7d;
+        font-size: 7.5px;
+        white-space: nowrap;
+      }
+      .stepstrip .on {
+        color: #e9e6ef;
+      }
+      .dropzone {
+        position: absolute;
+        inset: 12px;
+        border: 1px dashed #4a4756;
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #14131a66;
+      }
+      .checklist {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .check {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        padding: 3px 4px;
+        border: 1px solid #302f39;
+        border-radius: 4px;
+      }
+      .check .dot {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        background: #302f39;
+        color: #cfcadb;
+        font-size: 7px;
+      }
+      .check.done .dot {
+        background: #2b9c8f;
+        color: #0f221e;
+      }
+      .check div {
+        display: flex;
+        flex-direction: column;
+      }
+      .check b {
+        font-size: 8px;
+        font-weight: 600;
+        color: var(--app-text);
+      }
+      .check small {
+        font-size: 7px;
+        color: var(--app-faint);
+      }
+
+      .tag {
+        display: inline-block;
+        padding: 0 4px;
+        border: 1px solid #3a3745;
+        border-radius: 999px;
+        font-size: 6.5px;
+        color: #b7b2c5;
+        vertical-align: 1px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <p class="intro">
+        <strong>P1 — duas rotas para a primeira vez.</strong> A diferença principal não está no
+        estado vazio: está no que continua visível depois que a Source entra. A rota
+        <strong>Minimal</strong> esconde a rail sem Source e mantém o app atual depois; a rota
+        <strong>Full</strong> também dobra o avançado depois da Source (Ajuste fino, tamanho, GIF,
+        painéis).
+      </p>
+
+      <figure class="figure">
+        <div class="caption">
+          <h3>1 · Minimal — sem Source</h3>
+          <span>a menor mudança possível</span>
+        </div>
+        <div class="screen empty">
+          <div class="topbar">
+            <span class="brand">mudae crop</span>
+            <span class="input">link ou caminho de arquivo</span>
+            <span class="pill">Mudae 9:14</span>
+            <span class="spacer"></span>
+            <span class="pill">sem Source</span>
+            <span class="pill">waifu2x desligado</span>
+            <span class="pill">?</span>
+            <span class="pill">Configurações</span>
+          </div>
+          <div class="workspace">
+            <div class="rail steps">
+              <div class="step active">
+                <b>1</b><span>Source</span><small>abrir · arrastar · colar</small>
+              </div>
+              <div class="step"><b>2</b><span>Frame</span><small>Mudae 9:14</small></div>
+              <div class="step"><b>3</b><span>Borda</span><small>1 px branca</small></div>
+              <div class="step"><b>4</b><span>Export</span><small>PNG ou GIF</small></div>
+            </div>
+            <div class="stage">
+              <div class="onboard">
+                <div class="kicker">comece aqui</div>
+                <div class="h1">Traga uma Source</div>
+                <div class="muted">PNG, JPG, GIF, WebP, APNG, MP4, MOV, WebM</div>
+                <div class="btn primary">Abrir arquivo...</div>
+                <div class="muted">arraste · Ctrl+V · cole um link</div>
+              </div>
+              <div class="stepstrip">
+                <span class="on">1 Importar</span><span>2 Enquadrar</span><span>3 Borda</span
+                ><span>4 Exportar</span>
+              </div>
+            </div>
+            <div class="panel">
+              <div class="plabel">Export</div>
+              <div class="summary"><b>PNG · —</b><br /><span class="muted">sem Source</span></div>
+              <div class="footer">
+                <div class="hint">Importe uma Source para exportar.</div>
+                <div class="btn primary disabled">Exportar PNG</div>
+                <div class="btn disabled">Subir e copiar link</div>
+                <div class="hint">Ctrl+S exporta. Configure o token para subir.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="note">
+          <b>O que muda:</b> a rail de especialista some até existir uma Source; a barra de Borda
+          também. Só ficam o cartão de importação, a faixa de 4 passos e as ações de Export/Upload
+          no rodapé.
+        </p>
+      </figure>
+
+      <figure class="figure">
+        <div class="caption">
+          <h3>2 · Full — sem Source</h3>
+          <span>a versão que ensina o caminho</span>
+        </div>
+        <div class="screen empty">
+          <div class="topbar">
+            <span class="brand">mudae crop</span>
+            <span class="input">link ou caminho de arquivo</span>
+            <span class="pill">Mudae 9:14</span>
+            <span class="spacer"></span>
+            <span class="pill">sem Source</span>
+            <span class="pill">waifu2x desligado</span>
+            <span class="pill">?</span>
+            <span class="pill">Configurações</span>
+          </div>
+          <div class="workspace">
+            <div class="rail steps">
+              <div class="step active">
+                <b>1</b><span>Source</span><small>abrir · arrastar · colar</small>
+              </div>
+              <div class="step"><b>2</b><span>Frame</span><small>9:14 no topo</small></div>
+              <div class="step"><b>3</b><span>Borda</span><small>cor e largura</small></div>
+              <div class="step"><b>4</b><span>Export</span><small>PNG ou GIF</small></div>
+            </div>
+            <div class="stage">
+              <div class="dropzone">
+                <div class="onboard">
+                  <div class="kicker">1 · importar</div>
+                  <div class="h1">Arraste uma Source</div>
+                  <div class="muted">para qualquer lugar da janela</div>
+                  <div class="btn primary">Abrir arquivo...</div>
+                  <div class="muted">ou Ctrl+V · ou cole um link na barra</div>
+                </div>
+              </div>
+              <div class="stepstrip">
+                <span class="on">1 Importar</span><span>2 Enquadrar</span><span>3 Borda</span
+                ><span>4 Exportar</span>
+              </div>
+            </div>
+            <div class="panel">
+              <div class="plabel">Próximos passos</div>
+              <div class="checklist">
+                <div class="check">
+                  <span class="dot">1</span>
+                  <div><b>Source</b><small>pendente</small></div>
+                </div>
+                <div class="check">
+                  <span class="dot">2</span>
+                  <div><b>Frame</b><small>Mudae 9:14</small></div>
+                </div>
+                <div class="check">
+                  <span class="dot">3</span>
+                  <div><b>Borda</b><small>1 px branca</small></div>
+                </div>
+                <div class="check">
+                  <span class="dot">4</span>
+                  <div><b>Export</b><small>PNG · Nativo</small></div>
+                </div>
+              </div>
+              <div class="footer">
+                <div class="hint">Importe uma Source para exportar.</div>
+                <div class="btn primary disabled">Exportar PNG</div>
+                <div class="btn disabled">Subir e copiar link</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="note">
+          <b>O que muda:</b> além de esconder a rail, a janela inteira vira dropzone e o painel
+          mostra um checklist de 4 passos. A mesma informação aparece na rail, no palco e no painel
+          — mais ensino, mais repetição.
+        </p>
+      </figure>
+
+      <figure class="figure">
+        <div class="caption">
+          <h3>3 · Minimal — com Source</h3>
+          <span>o app de hoje, sem dobras</span>
+        </div>
+        <div class="screen">
+          <div class="topbar">
+            <span class="brand">mudae crop</span>
+            <span class="input">link ou caminho de arquivo</span>
+            <span class="pill">Mudae 9:14</span>
+            <span class="spacer"></span>
+            <span class="pill">PNG · 300×400</span>
+            <span class="pill">waifu2x desligado</span>
+            <span class="pill">?</span>
+            <span class="pill">Configurações</span>
+          </div>
+          <div class="workspace">
+            <div class="rail">
+              <div class="plabel">Crop</div>
+              <div class="btn wide">Ajustar Frame <kbd>C</kbd></div>
+              <div class="seg"><span class="on">Fit</span><span>Pad</span></div>
+              <div class="seg"><span>largura</span><span>altura</span></div>
+              <div class="row"><span>zoom</span><span class="field">1,00 ×</span></div>
+              <div class="row"><span>offset x</span><span class="field">0,0 %</span></div>
+              <div class="row"><span>offset y</span><span class="field">0,0 %</span></div>
+              <div class="row"><span>rotate</span><span class="field">0° ↻</span></div>
+              <div class="row"><span>pad</span><span class="field">#FFFFFF</span></div>
+              <div class="link">pegar cor da imagem</div>
+              <div class="link">redefinir Crop</div>
+              <div class="plabel" style="margin-top: 3px">Nitidez</div>
+              <div class="slider"></div>
+              <div class="plabel" style="margin-top: 3px">waifu2x</div>
+              <div class="toggle">desligado</div>
+              <div class="seg"><span>0</span><span>1</span><span>2</span><span>3</span></div>
+              <div class="seg"><span>1×</span><span>2×</span><span>4×</span></div>
+              <div class="plabel" style="margin-top: 3px">GIF</div>
+              <div class="muted">Source estática</div>
+            </div>
+            <div class="stage">
+              <div class="frame"></div>
+              <div class="stage-hint">arraste para mover · roda do mouse para zoom</div>
+            </div>
+            <div class="panel">
+              <div class="plabel">Export</div>
+              <div class="summary">
+                <b>PNG · 257×400</b> <span class="muted">proporção da carta</span>
+              </div>
+              <div class="seg"><span class="on">PNG</span><span>GIF</span></div>
+              <div class="hint">GIF indisponível: a Source é estática.</div>
+              <div class="size">Carta 1× <b>225×350</b></div>
+              <div class="size">Carta 2× <b>450×700</b></div>
+              <div class="size on">Nativo <b>257×400</b></div>
+              <div class="row">
+                <span class="field">257</span><span>🔒</span><span class="field">400</span>
+              </div>
+              <div class="row"><span>Mudae 9:14</span><span>automático</span></div>
+              <div class="row">
+                <span class="field">Nativo</span><span class="field">÷2</span
+                ><span class="field">×2</span>
+              </div>
+              <div class="plabel" style="margin-top: 2px">Image Chest</div>
+              <div class="row"><span>post</span><span>hidden</span></div>
+              <div class="field" style="text-align: left">Post id (opcional)</div>
+              <div class="plabel" style="margin-top: 2px">Histórico</div>
+              <div class="muted">Nenhum upload ou Export ainda.</div>
+              <div class="footer">
+                <div class="btn primary">Exportar PNG</div>
+                <div class="btn">Subir e copiar link</div>
+                <div class="hint">Ctrl+S exporta · Ctrl+Enter sobe.</div>
+              </div>
+            </div>
+          </div>
+          <div class="bottom">
+            <span class="plabel">Borda</span>
+            <span class="swatch white"></span><span class="hex">#FFFFFF</span>
+            <span class="link">copiar</span>
+            <span class="field">1 px</span>
+            <span class="link">cores da imagem</span>
+            <span class="swatch white"></span><span class="swatch p1"></span
+            ><span class="swatch p2"></span><span class="swatch p3"></span
+            ><span class="swatch p4"></span>
+            <span class="link">recalcular</span>
+          </div>
+        </div>
+        <p class="note">
+          <b>O que muda:</b> nada depois da Source. A rail continua com zoom, offset, rotação,
+          waifu2x e GIF; o painel continua com Carta, campos, Image Chest e Histórico. É a menor
+          intervenção e a que menos surpreende quem já usa o app.
+        </p>
+      </figure>
+
+      <figure class="figure">
+        <div class="caption">
+          <h3>4 · Full — com Source</h3>
+          <span>essencial primeiro; avançado sob demanda</span>
+        </div>
+        <div class="screen">
+          <div class="topbar">
+            <span class="brand">mudae crop</span>
+            <span class="input">link ou caminho de arquivo</span>
+            <span class="pill">Mudae 9:14</span>
+            <span class="spacer"></span>
+            <span class="pill">PNG · 300×400</span>
+            <span class="pill">waifu2x desligado</span>
+            <span class="pill">?</span>
+            <span class="pill">Configurações</span>
+          </div>
+          <div class="workspace">
+            <div class="rail">
+              <div class="plabel">Frame</div>
+              <div class="btn wide">Ajustar Frame <kbd>C</kbd></div>
+              <div class="seg"><span class="on">Fit</span><span>Pad</span></div>
+              <div class="seg"><span>largura</span><span>altura</span></div>
+              <div class="disclosure">Ajuste fino <span>▸</span></div>
+              <div class="plabel" style="margin-top: 3px">Realce</div>
+              <div class="row"><span>sharpness</span><span class="field">0</span></div>
+              <div class="slider"></div>
+              <div class="row"><span>waifu2x</span><span class="toggle">desligado</span></div>
+              <div class="disclosure">Denoise e escala <span>▸</span></div>
+              <div class="plabel" style="margin-top: 3px">GIF</div>
+              <div class="muted">Source estática</div>
+              <div class="disclosure">Avançado <span>▸</span></div>
+            </div>
+            <div class="stage">
+              <div class="frame"></div>
+              <div class="stage-hint">arraste para mover · roda do mouse para zoom</div>
+            </div>
+            <div class="panel">
+              <div class="plabel">Export</div>
+              <div class="summary">
+                <b>PNG · 257×400</b> <span class="muted">proporção da carta</span>
+              </div>
+              <div class="seg"><span class="on">PNG</span><span>GIF</span></div>
+              <div class="plabel" style="margin-top: 2px">Tamanho</div>
+              <div class="radio on"><span class="dot"></span>Nativo <b>257×400</b></div>
+              <div class="radio"><span class="dot"></span>Carta 1× <b>225×350</b></div>
+              <div class="radio"><span class="dot"></span>Carta 2× <b>450×700</b></div>
+              <div class="link">ajustar tamanho</div>
+              <div class="disclosure">Image Chest <span>▸</span></div>
+              <div class="disclosure">Histórico <span>▸</span></div>
+              <div class="footer">
+                <div class="btn primary">Exportar PNG</div>
+                <div class="btn">Subir e copiar link</div>
+                <div class="hint">Ctrl+S exporta · Ctrl+Enter sobe.</div>
+              </div>
+            </div>
+          </div>
+          <div class="bottom">
+            <span class="plabel">Borda</span>
+            <span class="swatch white"></span><span class="hex">#FFFFFF</span>
+            <span class="link">copiar</span>
+            <span class="field">1 px</span>
+            <span class="link">cores da imagem</span>
+            <span class="swatch white"></span><span class="swatch p1"></span
+            ><span class="swatch p2"></span><span class="swatch p3"></span
+            ><span class="swatch p4"></span>
+            <span class="link">recalcular</span>
+          </div>
+        </div>
+        <p class="note">
+          <b>O que muda:</b> “Ajuste fino”, “Denoise e escala”, Image Chest e Histórico viram
+          disclosures; o tamanho vira uma lista única (Nativo / Carta 1× / Carta 2×) e os campos só
+          aparecem em “ajustar tamanho”. O palco respira; o essencial continua a um clique.
+        </p>
+      </figure>
+    </div>
+  </body>
+</html>
