@@ -7,13 +7,14 @@ their scope are listed in the README; this file is the sign-off record.
 
 ## Environment
 
-| Item     | Value                      |
-| -------- | -------------------------- |
-| Date     | 2026-11-10                 |
-| OS       | Windows 11                 |
-| GPU      | NVIDIA GeForce RTX 5060    |
-| Vulkan   | available (`vulkan-1.dll`) |
-| WebView2 | installed                  |
+| Item     | Value                                                                              |
+| -------- | ---------------------------------------------------------------------------------- |
+| Date     | 2026-11-10                                                                         |
+| OS       | Windows 11                                                                         |
+| GPU      | NVIDIA GeForce RTX 5060                                                            |
+| Vulkan   | available (`vulkan-1.dll`)                                                         |
+| WebView2 | installed                                                                          |
+| Method   | `maestri computer` UI automation in the background; control mode only for the drop |
 
 ## Automated checks (executed)
 
@@ -42,56 +43,74 @@ Run `npm run tauri dev`, or the installed build for the packaging rows.
 
 | #   | Check                                                                                                                      | Result         |
 | --- | -------------------------------------------------------------------------------------------------------------------------- | -------------- |
-| 1   | Drag a PNG and a GIF from Explorer onto the window. Both become the Source and the old Crop/Border/Preset survive.         |                |
-| 2   | Copy an image with the Snipping Tool, then press Ctrl+V in the window. The clipboard image becomes the Source.             |                |
-| 3   | Copy an image **file** in Explorer and press Ctrl+V. The file is read from the clipboard.                                  |                |
-| 4   | Ctrl+O opens the native open dialog; a URL in the Source bar downloads with progress and can be cancelled.                 |                |
+| 1   | Drag a PNG and a GIF from Explorer onto the window. Both become the Source and the old Crop/Border/Preset survive.         | pass           |
+| 2   | Copy an image with the Snipping Tool, then press Ctrl+V in the window. The clipboard image becomes the Source.             | pass           |
+| 3   | Copy an image **file** in Explorer and press Ctrl+V. The file is read from the clipboard.                                  | pass           |
+| 4   | Ctrl+O opens the native open dialog; a URL in the Source bar downloads with progress and can be cancelled.                 | pass           |
 | 5   | Resize and move the window, close it, and launch again. The same size and position return.                                 | pass (harness) |
-| 6   | Change the document (Source, Crop, Border, Trim), close and launch again. The document is empty; Settings survive.         |                |
-| 7   | Ctrl+S opens the native save dialog in the remembered folder; the file is written and the History shows its path.          |                |
-| 8   | **explorador** in a saved Export reveals the file in Explorer.                                                             |                |
-| 9   | Play an animated Source, scrub its Timeline and toggle Trim. Playback and the exported loop match.                         |                |
-| 10  | Export a GIF and open it in a browser and in Discord. It loops and plays at the same speed as Preview.                     |                |
-| 11  | Press the arrows (1 px), Shift+arrows (10 px), `+`/`-`, `R`, `[`/`]`, `1` and `2`. Each does what the Atalhos dialog says. |                |
-| 12  | `?` lists every shortcut above and Esc closes the list.                                                                    |                |
-| 13  | Save an Image Chest token, test it, upload a PNG and a GIF, then paste the copied link into Discord.                       |                |
+| 6   | Change the document (Source, Crop, Border, Trim), close and launch again. The document is empty; Settings survive.         | pass           |
+| 7   | Ctrl+S opens the native save dialog in the remembered folder; the file is written and the History shows its path.          | pass           |
+| 8   | **explorador** in a saved Export reveals the file in Explorer.                                                             | pass           |
+| 9   | Play an animated Source, scrub its Timeline and toggle Trim. Playback and the exported loop match.                         | pass           |
+| 10  | Export a GIF and open it in a browser and in Discord. It loops and plays at the same speed as Preview.                     | pass           |
+| 11  | Press the arrows (1 px), Shift+arrows (10 px), `+`/`-`, `R`, `[`/`]`, `1` and `2`. Each does what the Atalhos dialog says. | pass           |
+| 12  | `?` lists every shortcut above and Esc closes the list.                                                                    | pass           |
+| 13  | Save an Image Chest token, test it, upload a PNG and a GIF, then paste the copied link into Discord.                       | pass           |
 
 ## Installer
 
 | #   | Check                                                                                                      | Result         |
 | --- | ---------------------------------------------------------------------------------------------------------- | -------------- |
 | 14  | `Mudae-Crop-<version>-win64-setup.exe` installs without a developer prompt and adds a Start-menu shortcut. | pass (harness) |
-| 15  | The installed app starts, finds the bundled `waifu2x` sidecar, and the waifu2x group is ready on this GPU. |                |
-| 16  | The installed app runs with the network disconnected except for Image Chest upload.                        |                |
+| 15  | The installed app starts, finds the bundled `waifu2x` sidecar, and the waifu2x group is ready on this GPU. | pass           |
+| 16  | The installed app runs with the network disconnected except for Image Chest upload.                        | pass           |
 | 17  | Uninstall from Windows Settings removes the program files and the Start-menu shortcut.                     | pass (harness) |
-| 18  | `settings.json`, `history.json` and `window.json` remain in `%LOCALAPPDATA%\Mudae Crop` across reinstall.  |                |
+| 18  | `settings.json`, `history.json` and `window.json` remain in `%LOCALAPPDATA%\Mudae Crop` across reinstall.  | pass           |
 
 ## Portable ZIP
 
 | #   | Check                                                                                                           | Result         |
 | --- | --------------------------------------------------------------------------------------------------------------- | -------------- |
 | 19  | Unzip `Mudae-Crop-<version>-portable-win64.zip` into an empty folder; `waifu2x/` sits next to `Mudae-Crop.exe`. | pass (harness) |
-| 20  | Launch the ZIP build on this Vulkan machine; the waifu2x controls are ready.                                    |                |
-| 21  | On a machine without Vulkan, launch the same ZIP; the controls are disabled with the unsupported explanation.   |                |
+| 20  | Launch the ZIP build on this Vulkan machine; the waifu2x controls are ready.                                    | pass           |
+| 21  | On a machine without Vulkan, launch the same ZIP; the controls are disabled with the unsupported explanation.   | not run        |
 
 ## Standalone executable
 
 | #   | Check                                                                                                                                                      | Result         |
 | --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- |
 | 22  | Put `Mudae-Crop-<version>-win64.exe` in an empty folder with no `waifu2x/` beside it and no sidecar in `%LOCALAPPDATA%\com.phsebastiao.mudaecrop\waifu2x`. | pass (harness) |
-| 23  | The waifu2x controls are disabled and explain that the sidecar is missing.                                                                                 |                |
-| 24  | Import, Crop, Border, Palette, PNG Export, GIF Export and upload still work.                                                                               |                |
+| 23  | The waifu2x controls are disabled and explain that the sidecar is missing.                                                                                 | pass           |
+| 24  | Import, Crop, Border, Palette, PNG Export, GIF Export and upload still work.                                                                               | pass           |
 
 ## Sign-off
 
 Record the build under test for each pass:
 
-| Date       | Build                    | Rows passed       | Notes                                                                                                                      |
-| ---------- | ------------------------ | ----------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| 2026-11-10 | Mudae Crop 0.1.0 (win64) | 5, 14, 17, 19, 22 | Window restore, installer install/launch/uninstall, ZIP contents and standalone startup were run by the packaging harness. |
-|            |                          |                   |                                                                                                                            |
+| Date       | Build                    | Rows passed                     | Notes                                                                                                                                                                                                                                           |
+| ---------- | ------------------------ | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2026-11-10 | Mudae Crop 0.1.0 (win64) | 5, 14, 17, 19, 22               | Window restore, installer install/launch/uninstall, ZIP contents and standalone startup were run by the packaging harness.                                                                                                                      |
+| 2026-11-10 | Mudae Crop 0.1.0 (win64) | 1-4, 6-13, 15-16, 18, 20, 23-24 | App rows on the portable ZIP build and the installed build through `maestri computer`; row 16 was re-run by the user with the network disconnected; the native drop used the real pointer; uploads and the browser/Discord loop check included. |
 
 A row is only checked after it was run on the build named above. The automated
 checks and the packaging harness rows are the only ones this repository can sign
-off without a person and a real Image Chest token. Rows 1-4, 6-13, 15-16, 18,
-20-21 and 23-24 still need the manual pass.
+off without a person and a real Image Chest token. Row 21 still needs a person
+on a machine without Vulkan.
+
+Run notes from the 2026-11-10 automated pass:
+
+- Row 2's bitmap was put on the clipboard by PowerShell (`Clipboard::SetImage`)
+  instead of the Snipping Tool; the app's paste path is the same.
+- Row 3 used a `FileDrop` list, which is what copying a file in Explorer
+  produces.
+- Row 11's `+` reached the app as `=` (the same key on this layout); the
+  shortcut map accepts both.
+- The installer restores its previous location from
+  `HKCU\Software\phsebastiao\mudae crop`, which still named
+  `%LOCALAPPDATA%\mudae-uninstall-debug2` from an earlier harness run, so both
+  installs landed there. Install, launch and uninstall worked from that folder;
+  the key survives uninstall, so a later install repeats it until the key is
+  removed. `src-tauri/installer-hooks.nsh` now deletes that key on uninstall.
+- Row 13 uploaded two PNGs and two GIFs because a retried click repeated the
+  first upload. The uploaded PNG is 690×1073; the GIF is 116×180, 48 frames over
+  4.0 s, looping, and both render in Discord and Brave from the copied link.
