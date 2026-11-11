@@ -696,18 +696,8 @@ export function Stage({
               <button type="button" className="primary" onClick={onOpen} disabled={busy}>
                 Abrir arquivo…
               </button>
-              <p className="hint">Arraste uma imagem para a janela</p>
-              <p className="hint">ou Ctrl+V para colar da área de transferência</p>
-              <p className="hint">ou cole um link ou caminho na barra acima</p>
+              <p className="hint">Arraste para a janela, cole com Ctrl+V ou use o link acima.</p>
             </div>
-          </div>
-        )}
-        {!doc.source && (
-          <div className="stage-steps" aria-hidden="true">
-            <span className="on">1 Importar</span>
-            <span>2 Enquadrar</span>
-            <span>3 Borda</span>
-            <span>4 Exportar</span>
           </div>
         )}
         {mode.kind === 'adjust' && doc.source && (
@@ -728,7 +718,7 @@ export function Stage({
               {doc.source.name}
             </span>
             <span>
-              {doc.source.format.toUpperCase()} · {doc.source.width}×{doc.source.height} ·{' '}
+              arquivo {doc.source.format.toUpperCase()} · {doc.source.width}×{doc.source.height} ·{' '}
               {formatBytes(doc.source.bytes)} ·{' '}
               {doc.source.video
                 ? `vídeo ${formatFps(doc.source.video.fps)} fps · ${formatPlaybackDuration(doc.source.video.durationMs)}`

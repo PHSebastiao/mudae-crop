@@ -79,7 +79,7 @@ export function ShortcutsDialog({ onClose }: { readonly onClose: () => void }) {
             aria-label="Fechar atalhos"
             autoFocus
           >
-            x
+            ×
           </button>
         </header>
 

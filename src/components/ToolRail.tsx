@@ -61,7 +61,16 @@ function RailDisclosure({
       <summary>
         <span>{label}</span>
         <span className="rail-chevron" aria-hidden="true">
-          ▸
+          <svg viewBox="0 0 16 16" focusable="false">
+            <path
+              d="M6.25 3.5 10.75 8l-4.5 4.5"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
         </span>
       </summary>
       <div className="rail-disclosure-body">{children}</div>
@@ -150,7 +159,6 @@ export const ToolRail = memo(function ToolRail({
           <span>Export</span>
           <small>PNG ou GIF</small>
         </div>
-        <p className="rail-step-hint">A prévia aparece aqui assim que a Source entrar.</p>
       </aside>
     );
   }

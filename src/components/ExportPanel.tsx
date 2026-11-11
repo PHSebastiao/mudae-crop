@@ -15,7 +15,7 @@ import { exportKindFor, type SizeEstimate } from '../core/export';
 import { nativeSize } from '../core/geometry';
 import { formatHistoryDate, type ExportEntry, type HistoryEntry } from '../core/history';
 import type { HistoryPreviewLoader } from '../core/historyPreview';
-import { isPostId } from '../core/imagechest';
+import { PRIVACY_OPTIONS, isPostId } from '../core/imagechest';
 import type { OptimizeResult } from '../core/optimize';
 import {
   mudaeExportSize,
@@ -253,7 +253,9 @@ export const ExportPanel = memo(function ExportPanel({
       ? null
       : cappedByTarget
         ? `≤ ${formatBytes(estimatedBytes)}`
-        : `${sizeEstimate?.exact ? '' : '~'}${formatBytes(estimatedBytes)}`;
+        : `${sizeEstimate?.exact ? '' : '~'}${formatBytes(estimatedBytes)}${
+            sizeEstimate?.exact ? '' : ' estimado'
+          }`;
   const estimateTitle = doc.source?.video
     ? 'Estimativa pelo frame atual; um vídeo em movimento pode ficar maior'
     : sizeEstimate?.exact
@@ -271,7 +273,6 @@ export const ExportPanel = memo(function ExportPanel({
 
   const actions = (
     <div className="panel-actions">
-      {!doc.source && <p className="panel-hint">Importe uma Source para exportar.</p>}
       {waifuUnavailable && (
         <p className="panel-hint bad">
           waifu2x indisponível neste computador. Desligue-o para exportar ou subir.
@@ -320,17 +321,13 @@ export const ExportPanel = memo(function ExportPanel({
   if (!doc.source) {
     return (
       <aside className="panel">
-        <div className="panel-scroll">
-          <section>
+        <div className="panel-scroll panel-empty">
+          <div className="panel-empty-inner">
             <h4>Export</h4>
-            <div className="export-summary" aria-live="polite">
-              <strong>PNG · —</strong>
-              <span>sem Source</span>
-            </div>
             <p className="panel-hint">
               Importe uma Source para abrir o Frame, a Borda e as opções de Export.
             </p>
-          </section>
+          </div>
         </div>
         {actions}
       </aside>
@@ -479,7 +476,47 @@ export const ExportPanel = memo(function ExportPanel({
                       : 'Proporção livre — a imagem pode esticar'
                   }
                 >
-                  {doc.resizeLocked ? '🔒' : '🔓'}
+                  {doc.resizeLocked ? (
+                    <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                      <rect
+                        x="3.25"
+                        y="7"
+                        width="9.5"
+                        height="6.25"
+                        rx="1.4"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.3"
+                      />
+                      <path
+                        d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.3"
+                        strokeLinecap="round"
+                      />
+                    </svg>
+                  ) : (
+                    <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                      <rect
+                        x="3.25"
+                        y="7"
+                        width="9.5"
+                        height="6.25"
+                        rx="1.4"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.3"
+                      />
+                      <path
+                        d="M5.5 7V5a2.5 2.5 0 0 1 4.7-1.1"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.3"
+                        strokeLinecap="round"
+                      />
+                    </svg>
+                  )}
                 </button>
                 <NumberField
                   value={waifuLocked ? baseSize.height : size.height}
@@ -702,7 +739,12 @@ export const ExportPanel = memo(function ExportPanel({
         <details className="panel-disclosure">
           <summary>
             <h4>Image Chest</h4>
-            <span>{postId ? `append ${postId}` : settings.defaultPrivacy}</span>
+            <span>
+              {postId
+                ? `append ${postId}`
+                : (PRIVACY_OPTIONS.find((option) => option.value === settings.defaultPrivacy)
+                    ?.label ?? settings.defaultPrivacy)}
+            </span>
           </summary>
           <div className="panel-disclosure-body">
             <input

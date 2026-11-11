@@ -79,7 +79,7 @@ export function SettingsDialog({
         <header className="settings-head">
           <h2 id="settings-title">Configurações</h2>
           <button type="button" className="icon" onClick={close} aria-label="Fechar Configurações">
-            x
+            ×
           </button>
         </header>
 

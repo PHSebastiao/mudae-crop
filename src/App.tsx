@@ -33,12 +33,7 @@ import {
 } from './core/document';
 import { normalizeHexColor } from './core/color';
 import { IDLE_STAGE_MODE, enterPickPad, leavePick, type StageMode } from './core/stageMode';
-import {
-  formatFps,
-  formatPlaybackDuration,
-  trimDurationMs,
-  videoPreviewRate,
-} from './core/animation';
+import { trimDurationMs, videoPreviewRate } from './core/animation';
 import {
   DownloadError,
   downloadErrorMessage,
@@ -1413,30 +1408,9 @@ export default function App() {
   }, [importCandidate]);
 
   const sourceView = effectiveSource(doc);
-  const sourceAnimated = isAnimated(sourceView);
-  const sourceChip = doc.source
-    ? `${doc.source.format.toUpperCase()} · ${doc.source.width}×${doc.source.height} · ${formatBytes(
-        doc.source.bytes,
-      )} · ${
-        doc.source.video
-          ? `vídeo ${formatFps(doc.source.video.fps)} fps · ${formatPlaybackDuration(doc.source.video.durationMs)}`
-          : sourceAnimated
-            ? `animado ${animationFrameCount(sourceView)}f`
-            : 'estático'
-      }`
-    : 'sem Source';
 
   /** What the Source bar currently holds, so the button can name the action. */
   const linkTarget = sourceUrlFrom(link) ? 'link' : localPathFrom(link) ? 'path' : null;
-
-  const waifu2xChip =
-    waifu2xAvailability.status === 'checking'
-      ? 'waifu2x verificando'
-      : waifu2xAvailability.status !== 'ready'
-        ? 'waifu2x indisponível'
-        : doc.waifu2x.enabled
-          ? `waifu2x ${doc.waifu2x.scale}× · denoise ${doc.waifu2x.denoise}`
-          : 'waifu2x desligado';
 
   return (
     <div className="app">
@@ -1497,8 +1471,6 @@ export default function App() {
             onOpenChange={setRatioOpen}
           />
           <div className="topbar-right">
-            <span className="chip">{sourceChip}</span>
-            <span className="chip">{waifu2xChip}</span>
             <button
               type="button"
               className="chip chip-button shortcuts-button"
@@ -1627,7 +1599,7 @@ export default function App() {
               onRetime={changeFrameDelay}
             />
           )}
-          {sourceAnimated && (
+          {isAnimated(sourceView) && (
             <Timeline
               frameIndex={frameIndex}
               frameCount={animationFrameCount(sourceView)}
