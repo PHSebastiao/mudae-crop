@@ -376,6 +376,11 @@ export async function estimateExportSize(
     height: sampleSize.height,
     loopCount: view.video ? 0 : (view.animation?.loopCount ?? null),
   });
+  // Only a whole-Trim sample can mirror the Export's frame folding: extrapolating
+  // from a folded sample would divide merged bytes over unmerged frames and
+  // underestimate the file. A sampled estimate stays deliberately moored to
+  // one image per frame, so it errs high instead of low.
+  const whole = indices.length >= total;
   let pendingFrame: GifEncodeFrame | null = null;
   for (const [slot, frameIndex] of indices.entries()) {
     // The tile carries the Border at the real export's proportion, not at the
@@ -388,20 +393,18 @@ export async function estimateExportSize(
           referenceWidth: borderReferenceWidth(measureDoc),
         }
       : undefined;
-    // The real Export merges held frames, so the estimate folds them the same
-    // way; otherwise an animation with still frames would be overestimated.
-    pendingFrame = foldFrame(
-      writer,
-      pendingFrame,
-      renderedGifFrame(ctx, estimateDoc, sampleSize, frameIndex, border),
-    ).pending;
+    const frame = renderedGifFrame(ctx, estimateDoc, sampleSize, frameIndex, border);
+    if (whole) {
+      pendingFrame = foldFrame(writer, pendingFrame, frame).pending;
+    } else {
+      writer.addFrame(frame);
+    }
     // Keep the window responsive while a large GIF is measured.
     if (slot + 1 < indices.length) await yieldToUi();
   }
   if (pendingFrame) writer.addFrame(pendingFrame);
 
   const sampled = writer.finish();
-  const whole = indices.length >= total;
   const sampledBytes = whole
     ? sampled.length
     : Math.round((sampled.length * total) / indices.length);
