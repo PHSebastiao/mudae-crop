@@ -18,7 +18,7 @@ import { formatBytes } from '../core/download';
 import { centreSnapAxes, frameRect, rotatedBounds } from '../core/geometry';
 import { stageLayout, type Handle } from '../core/rect';
 import { presetForRatio, ratioLabel } from '../core/ratios';
-import { drawSource, paintsPadColor, renderFrame } from '../core/render';
+import { borderReferenceWidth, drawSource, paintsPadColor, renderFrame } from '../core/render';
 import { type StageMode } from '../core/stageMode';
 
 /** Screen pixels of drag before a free resize starts snapping. */
@@ -209,7 +209,11 @@ export function Stage({
         outputHeight: frameCanvas.height,
         // The empty Frame has no Export size yet; a constant 1px keeps it visible.
         border: doc.source
-          ? { scale: frameCanvas.width / outputSize(doc).width, minPx: 1 }
+          ? {
+              scale: frameCanvas.width / outputSize(doc).width,
+              minPx: 1,
+              referenceWidth: borderReferenceWidth(doc),
+            }
           : undefined,
         frameIndex,
       });

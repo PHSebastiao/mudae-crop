@@ -720,16 +720,24 @@ button {
   font-variant-numeric: tabular-nums;
   text-align: right;
   user-select: text;
+  cursor: ns-resize;
 }
 
 .num:focus {
   outline-offset: 0;
+  cursor: text;
+}
+
+.num[data-scrub='true'] {
+  border-color: var(--accent-state);
+  user-select: none;
 }
 
 .num:disabled {
   color: var(--text-faint);
   border-color: #2b2934;
   background: #1a1920;
+  cursor: default;
 }
 
 .unit {

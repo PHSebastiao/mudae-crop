@@ -11,7 +11,13 @@ import {
   type Rotation,
 } from '../src/core/document';
 import { panBy, rotate90, zoomAt } from '../src/core/geometry';
-import { drawSource, frameBorderStroke, renderFrame } from '../src/core/render';
+import {
+  drawSource,
+  borderReferenceWidth,
+  borderStroke,
+  frameBorderStroke,
+  renderFrame,
+} from '../src/core/render';
 import { contextOf, makeDoc, makeSource } from './helpers';
 
 /**
@@ -300,7 +306,7 @@ function renderContext(
   renderFrame(contextOf(canvas), doc, {
     outputWidth: width * scale,
     outputHeight: height * scale,
-    border: { scale, minPx: 1 },
+    border: { scale, minPx: 1, referenceWidth: borderReferenceWidth(doc) },
   });
   return canvas.getContext('2d');
 }
@@ -335,25 +341,28 @@ describe('Border', () => {
     expect(pixel(two, 2, 2)).toEqual([0xd9, 0x4f, 0x6d, 255]);
   });
 
-  it('draws the Border at its width in output pixels at any size', () => {
+  it('scales the Border with a 2× Export, keeping the card percentage', () => {
     const doc = makeDoc(makeSource(450, 700, paintQuadrants));
     const canvas = createCanvas(450, 700);
     // No preview border scale: this is the real Export path.
     renderFrame(contextOf(canvas), doc, { outputWidth: 450, outputHeight: 700 });
     const ctx = canvas.getContext('2d');
 
+    // The default 1 px Border at the 225-wide 1× card draws 2 px at 2×.
     expect(pixel(ctx, 0, 0)).toEqual([255, 255, 255, 255]);
-    expect(pixel(ctx, 1, 1)).not.toEqual([255, 255, 255, 255]);
+    expect(pixel(ctx, 1, 1)).toEqual([255, 255, 255, 255]);
+    expect(pixel(ctx, 2, 2)).not.toEqual([255, 255, 255, 255]);
     expect(pixel(ctx, 0, 350)).toEqual([255, 255, 255, 255]);
   });
 
   it('clamps a scaled-down Preview Border to one canvas pixel', () => {
     const doc = makeDoc(makeSource(450, 700, paintQuadrants));
-    const canvas = createCanvas(450, 700);
+    const canvas = createCanvas(100, 156);
     renderFrame(contextOf(canvas), doc, {
-      outputWidth: 450,
-      outputHeight: 700,
-      border: { scale: 0.5, minPx: 1 },
+      outputWidth: 100,
+      outputHeight: 156,
+      // A 100 px Preview of the 225 px card would draw a 0.44 px Border.
+      border: { scale: 100 / 225, minPx: 1, referenceWidth: 225 },
     });
     const ctx = canvas.getContext('2d');
 
@@ -369,13 +378,66 @@ describe('Border', () => {
     expect(pixel(ctx, 224, 349)).toEqual([0x23, 0x20, 0x2c, 255]);
   });
 
+  it('paints the whole Frame when the Border covers it', () => {
+    const doc = withBorder(makeDoc(fixtureSource()), { color: '#FF0000', width: 400 });
+    const ctx = renderContext(doc, 225, 350);
+
+    expect(pixel(ctx, 0, 0)).toEqual([255, 0, 0, 255]);
+    expect(pixel(ctx, 112, 175)).toEqual([255, 0, 0, 255]);
+    expect(pixel(ctx, 224, 349)).toEqual([255, 0, 0, 255]);
+  });
+
+  it('paints the whole Frame once the opposite edges meet', () => {
+    // 120 px on the 225 px card: the side strokes overlap (they meet at 112.5).
+    const doc = withBorder(makeDoc(fixtureSource()), { color: '#FF0000', width: 120 });
+    const ctx = renderContext(doc, 225, 350);
+
+    expect(pixel(ctx, 0, 0)).toEqual([255, 0, 0, 255]);
+    expect(pixel(ctx, 112, 175)).toEqual([255, 0, 0, 255]);
+    expect(pixel(ctx, 224, 349)).toEqual([255, 0, 0, 255]);
+  });
+
   it('shares one preview stroke formula with the adjust overlay', () => {
     const doc = withBorder(makeDoc(makeSource(450, 700, paintQuadrants)), { width: 2 });
 
-    expect(frameBorderStroke(doc, 225, 450)).toBe(1);
-    expect(frameBorderStroke(doc, 900, 450)).toBe(4);
-    expect(frameBorderStroke(doc, 450, 450)).toBe(2);
-    expect(frameBorderStroke(withBorder(doc, { width: 0 }), 900, 450)).toBe(0);
+    // 2 px on the 225-wide 1× card becomes 4 px at the 450-wide Export.
+    expect(frameBorderStroke(doc, 225, 450, borderReferenceWidth(doc))).toBe(2);
+    expect(frameBorderStroke(doc, 900, 450, borderReferenceWidth(doc))).toBe(8);
+    expect(frameBorderStroke(doc, 450, 450, borderReferenceWidth(doc))).toBe(4);
+    expect(
+      frameBorderStroke(withBorder(doc, { width: 0 }), 900, 450, borderReferenceWidth(doc)),
+    ).toBe(0);
+  });
+
+  it('scales from the native Crop when the proportion has no Carta', () => {
+    const doc = withBorder(makeDoc(makeSource(400, 400), 1), { width: 2 });
+
+    expect(frameBorderStroke(doc, 400, 400, 400)).toBe(2);
+    expect(frameBorderStroke(doc, 800, 400, 400)).toBe(4);
+  });
+
+  it('keeps the card width at 1×, rounds fractional scales and floors at one pixel', () => {
+    const doc = makeDoc(fixtureSource());
+
+    expect(borderStroke(doc, 225)).toBe(1);
+    expect(borderStroke(doc, 337)).toBe(1);
+    expect(borderStroke(doc, 338)).toBe(2);
+    // An Export narrower than the card still draws one pixel.
+    expect(borderStroke(doc, 100)).toBe(1);
+  });
+
+  it('accepts the real card reference when the rendered doc is a sampled tile', () => {
+    const doc = withBorder(makeDoc(makeSource(400, 400), 1), { width: 2 });
+
+    expect(frameBorderStroke(doc, 800, 400, 200)).toBe(8);
+    expect(frameBorderStroke(doc, 800, 400, 800)).toBe(2);
+  });
+
+  it('uses the landscape Carta width as the reference', () => {
+    const doc = makeDoc(makeSource(700, 450), 14 / 9);
+
+    expect(borderReferenceWidth(doc)).toBe(350);
+    expect(borderStroke(doc, 700)).toBe(2);
   });
 
   it('stays aligned to the Frame when the Source is rotated', () => {

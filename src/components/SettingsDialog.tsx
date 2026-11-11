@@ -233,8 +233,8 @@ export function SettingsDialog({
             </span>
           </div>
           <p className="settings-hint">
-            A Borda é desenhada no Export em pixels do arquivo final; estes valores também são
-            guardados para a próxima sessão.
+            A Borda é desenhada em pixels do card 1× e cresce junto com o Export; estes valores
+            também são guardados para a próxima sessão.
           </p>
         </section>
 

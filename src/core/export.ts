@@ -20,6 +20,7 @@ import {
 } from './optimize';
 import {
   applySharpness,
+  borderReferenceWidth,
   paintFrameBorder,
   prepareContext,
   renderFrame,
@@ -301,7 +302,11 @@ export async function estimateExportSize(
       renderFrame(canvas.getContext('2d'), measureDoc, {
         outputWidth: sample.width,
         outputHeight: sample.height,
-        border: { scale: sample.width / size.width, minPx: 0 },
+        border: {
+          scale: sample.width / size.width,
+          minPx: 0,
+          referenceWidth: borderReferenceWidth(measureDoc),
+        },
         frameIndex: options.frameIndex ?? 0,
       });
       const bytes = await adapter.encodePng(canvas);
@@ -373,8 +378,15 @@ export async function estimateExportSize(
   });
   for (const [slot, frameIndex] of indices.entries()) {
     // The tile carries the Border at the real export's proportion, not at the
-    // tile's own scale, so the area scaling does not inflate it.
-    const border = sampling ? { scale: sampleSize.width / size.width, minPx: 0 } : undefined;
+    // tile's own scale, so the area scaling does not inflate it. The reference
+    // must come from the real Crop, because the sampled doc's Crop is the tile.
+    const border = sampling
+      ? {
+          scale: sampleSize.width / size.width,
+          minPx: 0,
+          referenceWidth: borderReferenceWidth(measureDoc),
+        }
+      : undefined;
     writer.addFrame(renderedGifFrame(ctx, estimateDoc, sampleSize, frameIndex, border));
     // Keep the window responsive while a large GIF is measured.
     if (slot + 1 < indices.length) await yieldToUi();

@@ -117,14 +117,15 @@ describe('document', () => {
 });
 
 describe('Border and sharpness', () => {
-  it('normalizes the Border color and clamps its width to 0–20', () => {
+  it('normalizes the Border color and keeps its width a non-negative integer', () => {
     const doc = makeDoc(makeSource(225, 350));
 
     expect(withBorder(doc, { color: '#aabbcc' }).border).toEqual({
       color: '#AABBCC',
       width: 1,
     });
-    expect(withBorder(doc, { width: 99 }).border.width).toBe(20);
+    expect(withBorder(doc, { width: 99 }).border.width).toBe(99);
+    expect(withBorder(doc, { width: 1000 }).border.width).toBe(1000);
     expect(withBorder(doc, { width: -3 }).border.width).toBe(0);
     expect(withBorder(doc, { width: 2.6 }).border.width).toBe(3);
     expect(withBorder(doc, { color: 'not-a-color' }).border.color).toBe('#FFFFFF');

@@ -2,7 +2,7 @@ use std::collections::{HashMap, VecDeque};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
@@ -548,6 +548,9 @@ fn read_config(app: AppHandle, key: String) -> Result<Option<String>, String> {
     }
 }
 
+/// Distinguishes overlapping config writes, so two saves never share a temp.
+static CONFIG_WRITE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
 #[tauri::command]
 fn write_config(app: AppHandle, key: String, contents: String) -> Result<(), String> {
     if contents.len() > 1_048_576 {
@@ -555,9 +558,14 @@ fn write_config(app: AppHandle, key: String, contents: String) -> Result<(), Str
     }
     let path = config_path(&app, &key)?;
     // Write beside the target and rename, so a crash never leaves half a file.
-    let temporary = path.with_extension("json.tmp");
+    // The sequence keeps concurrent saves from truncating one shared temp.
+    let sequence = CONFIG_WRITE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    let temporary = path.with_extension(format!("json.{sequence}.tmp"));
     std::fs::write(&temporary, contents).map_err(|error| error.to_string())?;
-    std::fs::rename(&temporary, &path).map_err(|error| error.to_string())
+    std::fs::rename(&temporary, &path).map_err(|error| {
+        let _ = std::fs::remove_file(&temporary);
+        error.to_string()
+    })
 }
 
 #[derive(Serialize)]

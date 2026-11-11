@@ -1,5 +1,7 @@
 import { effectiveSource, frameImage, type DocumentState } from './document';
 import { frameRect, rotatedBounds } from './geometry';
+import { mudaeExportSize } from './ratios';
+import { nativeSize } from './rect';
 import { applyUnsharpMask } from './sharpen';
 
 /**
@@ -35,6 +37,12 @@ export interface BorderScale {
   readonly scale: number;
   /** Floor so a shrunken Preview Border never disappears. */
   readonly minPx: number;
+  /**
+   * The 1× card width the stored Border is measured against. Required so a
+   * render of a different document (the size estimator's sampled tile) cannot
+   * silently fall back to that document's own Crop.
+   */
+  readonly referenceWidth: number;
 }
 
 export interface RenderOptions {
@@ -43,8 +51,8 @@ export interface RenderOptions {
   readonly outputHeight: number;
   /**
    * `false` skips the Border (Palette sampling and the eyedropper source).
-   * Absent draws exactly `doc.border.width` output pixels; a scale keeps a
-   * Preview Border visible at any zoom.
+   * Absent means a real Export: the Border is scaled from the 1× card to the
+   * output. A scale keeps a Preview Border visible at any zoom.
    */
   readonly border?: BorderScale | false;
   /** Frame index in the document's animation view; ignored for a still. */
@@ -158,27 +166,56 @@ export function applySharpness(
 }
 
 /**
- * The Border stroke for a Preview of a given width, scaled from the final
- * file's pixels and floored to `minPx` canvas pixels. This is the one formula
- * Stage and the renderer share, so the adjust preview cannot drift.
+ * The pixels of the 1× card the Border width is measured against: the Carta 1×
+ * width for a Mudae proportion, otherwise the native Crop. A bigger Export
+ * scales from here, so 1 px stays the same fraction of the card at 2×.
+ */
+export function borderReferenceWidth(doc: DocumentState): number {
+  const carta = mudaeExportSize(doc.frame.ratio, 1);
+  return carta ? carta.width : nativeSize(doc.crop.rect).width;
+}
+
+/**
+ * The Border stroke in pixels of an Export `outputWidth` wide. The stored width
+ * is in 1× card pixels, rounds to whole output pixels, and never disappears
+ * while the Border is on.
+ */
+export function borderStroke(
+  doc: DocumentState,
+  outputWidth: number,
+  referenceWidth = borderReferenceWidth(doc),
+): number {
+  if (doc.border.width <= 0) return 0;
+  if (!(referenceWidth > 0) || !(outputWidth > 0)) return doc.border.width;
+  return Math.max(1, Math.round(doc.border.width * (outputWidth / referenceWidth)));
+}
+
+/**
+ * The Border stroke for a Preview of a given width, scaled from the Export
+ * stroke and floored to `minPx` canvas pixels. This is the one formula Stage
+ * and the renderer share, so the adjust preview cannot drift.
  */
 export function frameBorderStroke(
   doc: DocumentState,
   previewWidth: number,
   exportWidth: number,
+  referenceWidth: number,
   minPx = 1,
 ): number {
-  if (doc.border.width <= 0) return 0;
-  if (!(previewWidth > 0) || !(exportWidth > 0)) return doc.border.width;
-  return Math.max(minPx, doc.border.width * (previewWidth / exportWidth));
+  const stroke = borderStroke(doc, exportWidth, referenceWidth);
+  if (stroke <= 0) return 0;
+  if (!(previewWidth > 0) || !(exportWidth > 0)) return stroke;
+  return Math.max(minPx, stroke * (previewWidth / exportWidth));
 }
 
 /**
- * The Border is stroked inside the Frame edge in pixels of the final file. It
- * is drawn after the Source transform is restored, so rotation can never tilt
- * it. A Preview scale keeps it visible at any zoom, but never below one canvas
- * pixel; an Export draws exactly the stored width. waifu2x upscales the crop
- * before this runs, so the Border must be painted on the final raster.
+ * The Border is stroked inside the Frame edge in pixels of the final file,
+ * scaled from the 1× card width so its share of the card never changes. It is
+ * drawn after the Source transform is restored, so rotation can never tilt it.
+ * A Preview scale keeps it visible at any zoom, but never below one canvas
+ * pixel; an Export draws the full rounded stroke. Once the opposite edges meet
+ * the Border paints the Frame solid. waifu2x upscales the crop before this runs,
+ * so the Border must be painted on the final raster.
  */
 export function paintFrameBorder(
   ctx: RenderContext,
@@ -189,12 +226,19 @@ export function paintFrameBorder(
 ): void {
   const stroke =
     preview === undefined
-      ? doc.border.width
-      : frameBorderStroke(doc, width, width / preview.scale, preview.minPx);
-  const inset = stroke / 2;
+      ? borderStroke(doc, width)
+      : frameBorderStroke(doc, width, width / preview.scale, preview.referenceWidth, preview.minPx);
   ctx.save();
   ctx.strokeStyle = doc.border.color;
-  ctx.lineWidth = stroke;
-  ctx.strokeRect(inset, inset, width - stroke, height - stroke);
+  ctx.fillStyle = doc.border.color;
+  if (stroke * 2 >= width || stroke * 2 >= height) {
+    // Opposite edges meet, so the stroke covers the whole Frame. Paint the
+    // raster instead of a rect with non-positive dimensions.
+    ctx.fillRect(0, 0, width, height);
+  } else {
+    const inset = stroke / 2;
+    ctx.lineWidth = stroke;
+    ctx.strokeRect(inset, inset, width - stroke, height - stroke);
+  }
   ctx.restore();
 }

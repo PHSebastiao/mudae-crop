@@ -232,6 +232,7 @@ export const ToolRail = memo(function ToolRail({
                 onCommit={(next) => onOffset(next, offset.y * 100)}
                 label="Offset horizontal"
                 precision={1}
+                step={0.5}
               />
               <span className="unit">%</span>
             </span>
@@ -244,6 +245,7 @@ export const ToolRail = memo(function ToolRail({
                 onCommit={(next) => onOffset(offset.x * 100, next)}
                 label="Offset vertical"
                 precision={1}
+                step={0.5}
               />
               <span className="unit">%</span>
             </span>

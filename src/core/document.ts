@@ -248,7 +248,6 @@ export const FIT_CROP: Crop = Object.freeze(defaultCrop());
 
 export const DEFAULT_PAD_COLOR = '#FFFFFF';
 
-export const MAX_BORDER_WIDTH = 20;
 export const MAX_SHARPNESS = 100;
 
 export interface Border {
@@ -261,9 +260,16 @@ export const DEFAULT_BORDER: Border = Object.freeze({
   width: 1,
 });
 
+/**
+ * The Border width is stored in pixels of the 1× card — the Carta 1× width for
+ * a Mudae proportion, the native Crop otherwise — so `borderStroke` can scale it
+ * with the Export. It has no upper bound: past the Frame size the Border covers
+ * everything and paints the Frame solid, so a large width can never leave a
+ * broken stroke.
+ */
 export function clampBorderWidth(width: number): number {
   if (!Number.isFinite(width)) return 0;
-  return Math.min(MAX_BORDER_WIDTH, Math.max(0, Math.round(width)));
+  return Math.max(0, Math.round(width));
 }
 
 export interface ExportResize {

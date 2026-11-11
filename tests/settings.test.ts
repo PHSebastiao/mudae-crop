@@ -56,7 +56,7 @@ describe('settings', () => {
     expect(loaded.appendPostId).toBe('');
     expect(loaded.saveFolder).toBeNull();
     expect(loaded.borderColor).toBe(DEFAULT_SETTINGS.borderColor);
-    expect(loaded.borderWidth).toBe(20);
+    expect(loaded.borderWidth).toBe(99);
     expect(loaded.exportFormat).toBe('png');
     expect(loaded.frameRatio).toBe(MUDAE_RATIO);
     expect(loaded.snapRatios).toBe(true);

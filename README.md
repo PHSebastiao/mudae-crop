@@ -26,8 +26,9 @@ Image Chest.
   rotação em 90°.
 - **Ajustar Frame** com oito alças, proporção travada, encaixe de proporção e
   centro, e guias de terços.
-- **Borda** de 1 px branca por padrão, de 0 a 20 px, com a **Palette** extraída
-  do Crop (inclusive de GIFs) e cópia do HEX.
+- **Borda** de 1 px branca por padrão, sem teto de largura e escalando com o
+  Export (1 px no card 1× vira 2 px no 2×), com a **Palette** extraída do Crop
+  (inclusive de GIFs) e cópia do HEX.
 - **Sharpness** e **waifu2x** opcional (denoise 1×, 2× ou 4×) pelo sidecar
   Vulkan.
 - **GIF tools**: trim, velocidade, grade de quadros, remover/retomar quadro e
