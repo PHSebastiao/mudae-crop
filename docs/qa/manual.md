@@ -73,7 +73,7 @@ Run `npm run tauri dev`, or the installed build for the packaging rows.
 | --- | --------------------------------------------------------------------------------------------------------------- | -------------- |
 | 19  | Unzip `Mudae-Crop-<version>-portable-win64.zip` into an empty folder; `waifu2x/` sits next to `Mudae-Crop.exe`. | pass (harness) |
 | 20  | Launch the ZIP build on this Vulkan machine; the waifu2x controls are ready.                                    | pass           |
-| 21  | On a machine without Vulkan, launch the same ZIP; the controls are disabled with the unsupported explanation.   | not run        |
+| 21  | On a machine without Vulkan, launch the same ZIP; the controls are disabled with the unsupported explanation.   | pass (VM)      |
 
 ## Standalone executable
 
@@ -87,15 +87,15 @@ Run `npm run tauri dev`, or the installed build for the packaging rows.
 
 Record the build under test for each pass:
 
-| Date       | Build                    | Rows passed                     | Notes                                                                                                                                                                                                                                           |
-| ---------- | ------------------------ | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 2026-11-10 | Mudae Crop 0.1.0 (win64) | 5, 14, 17, 19, 22               | Window restore, installer install/launch/uninstall, ZIP contents and standalone startup were run by the packaging harness.                                                                                                                      |
-| 2026-11-10 | Mudae Crop 0.1.0 (win64) | 1-4, 6-13, 15-16, 18, 20, 23-24 | App rows on the portable ZIP build and the installed build through `maestri computer`; row 16 was re-run by the user with the network disconnected; the native drop used the real pointer; uploads and the browser/Discord loop check included. |
+| Date       | Build                    | Rows passed                     | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| ---------- | ------------------------ | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2026-11-10 | Mudae Crop 0.1.0 (win64) | 5, 14, 17, 19, 22               | Window restore, installer install/launch/uninstall, ZIP contents and standalone startup were run by the packaging harness.                                                                                                                                                                                                                                                                                                                                          |
+| 2026-11-10 | Mudae Crop 0.1.0 (win64) | 1-4, 6-13, 15-16, 18, 20, 23-24 | App rows on the portable ZIP build and the installed build through `maestri computer`; row 16 was re-run by the user with the network disconnected; the native drop used the real pointer; uploads and the browser/Discord loop check included.                                                                                                                                                                                                                     |
+| 2026-11-11 | Mudae Crop 0.1.0 (win64) | 21                              | Acer Linux host, Windows 11 Enterprise Eval 26H2 in QEMU/KVM with `-vga std` and no Vulkan ICD. The app showed **waifu2x indisponível** with **"Este computador não tem uma GPU com Vulkan."**; importing a 3840×2400 JPG worked and the Frame controls appeared while waifu2x stayed off. Border/Palette/PNG/GIF export were not driven to completion because the absolute mouse missed the small buttons; row 21 itself is the disabled controls and explanation. |
 
-A row is only checked after it was run on the build named above. The automated
-checks and the packaging harness rows are the only ones this repository can sign
-off without a person and a real Image Chest token. Row 21 still needs a person
-on a machine without Vulkan.
+A row is only checked after it was run on the build named above. All rows now
+have a pass; rows 1-24 were covered by automation, the packaging harness or a
+person on a real build.
 
 Run notes from the 2026-11-10 automated pass:
 
@@ -114,3 +114,17 @@ Run notes from the 2026-11-10 automated pass:
 - Row 13 uploaded two PNGs and two GIFs because a retried click repeated the
   first upload. The uploaded PNG is 690×1073; the GIF is 116×180, 48 frames over
   4.0 s, looping, and both render in Discord and Brave from the copied link.
+- Row 21 ran on the Acer laptop (Omarchy/Arch). Its host **does** have Vulkan
+  (Intel Haswell iGPU via hasvk/ANV), so the "no Vulkan" machine was a Windows 11
+  Enterprise Eval 26H2 VM in QEMU/KVM with `-vga std`, 2 vCPU and 4 GB RAM. The
+  guest installed only the Basic Display Adapter and WARP, with no Vulkan ICD,
+  so the case was genuinely reproduced.
+- The exact disabled explanation is in the binary and the UI:
+  `Este computador não tem uma GPU com Vulkan.` Importing
+  `C:\Windows\Web\Wallpaper\Windows\img0.jpg` (3840×2400) worked and the Frame
+  controls appeared with waifu2x still unavailable. Border, Palette and the
+  final PNG/GIF writes were not driven to completion because the absolute mouse
+  missed the small buttons; they are covered by rows 7, 10 and 11 elsewhere.
+- Acer evidence: `~/vm-win11/waifu2x_explanation.txt`,
+  `~/vm-win11/screenshots/evidence_app.png` and
+  `~/vm-win11/screenshots/evidence_imported.png`.
