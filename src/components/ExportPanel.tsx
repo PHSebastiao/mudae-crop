@@ -431,9 +431,11 @@ export const ExportPanel = memo(function ExportPanel({
                 disabled={!doc.source || waifuLocked}
               >
                 <span>{explicit ? 'Personalizado' : 'Nativo'}</span>
-                <span className="dims">
-                  {explicit || !doc.source ? '—' : `${native.width}×${native.height}`}
-                </span>
+                {!explicit && doc.source && (
+                  <span className="dims">
+                    {native.width}×{native.height}
+                  </span>
+                )}
               </button>
             </div>
           )}
