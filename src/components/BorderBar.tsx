@@ -44,8 +44,8 @@ export function BorderBar({
           <NumberField value={border.width} onCommit={onWidth} label="Largura da Borda" />
           <span className="unit">px</span>
         </span>
-        <span className="muted">cores da imagem</span>
-        <div className="palette" role="group" aria-label="Palette da imagem">
+        <span className="border-sep" aria-hidden="true" />
+        <div className="palette" role="group" aria-label="Cores da imagem" title="Cores da imagem">
           {swatches.map((color) => {
             const selected = color.hex === border.color;
             return (
@@ -75,11 +75,6 @@ export function BorderBar({
         >
           recalcular
         </button>
-      </div>
-      <div className="border-hint">
-        {hasSource
-          ? 'clique numa cor para aplicar · a Borda escala junto com o Export'
-          : 'traga uma Source para extrair a Palette'}
       </div>
     </footer>
   );

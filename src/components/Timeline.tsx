@@ -154,9 +154,9 @@ export function Timeline({
         onClick={() => onTrimEnabled(!trimEnabled)}
         disabled={disabled}
         aria-pressed={trimEnabled}
-        title="Ativar limitadores de trim"
+        title="Escolher só um trecho do GIF"
       >
-        trim
+        trecho
       </button>
 
       <div
@@ -182,7 +182,7 @@ export function Timeline({
               style={{ left: `${selectionLeft}%` }}
               onPointerDown={(event) => beginDrag(event, 'start')}
               onKeyDown={(event) => onHandleKey(event, 'start')}
-              aria-label="Primeiro quadro do trim"
+              aria-label="Primeiro quadro do trecho"
               role="slider"
               aria-valuemin={0}
               aria-valuemax={trim.end}
@@ -194,7 +194,7 @@ export function Timeline({
               style={{ left: `${percent(trim.end)}%` }}
               onPointerDown={(event) => beginDrag(event, 'end')}
               onKeyDown={(event) => onHandleKey(event, 'end')}
-              aria-label="Último quadro do trim"
+              aria-label="Último quadro do trecho"
               role="slider"
               aria-valuemin={trim.start}
               aria-valuemax={last}

@@ -17,7 +17,7 @@ import { formatFps, formatPlaybackDuration } from '../core/animation';
 import { formatBytes } from '../core/download';
 import { centreSnapAxes, frameRect, rotatedBounds } from '../core/geometry';
 import { stageLayout, type Handle } from '../core/rect';
-import { ratioLabel } from '../core/ratios';
+import { presetForRatio, ratioLabel } from '../core/ratios';
 import { drawSource, paintsPadColor, renderFrame } from '../core/render';
 import { type StageMode } from '../core/stageMode';
 
@@ -677,29 +677,6 @@ export function Stage({
             ))}
           </div>
         )}
-        {!doc.source && (
-          <div
-            className="empty-frame"
-            style={{
-              left: frameLeft,
-              top: frameTop,
-              width: frameWidth,
-              height: frameHeight,
-            }}
-          >
-            <div className="empty-inner">
-              <strong>Traga uma Source</strong>
-              <p>
-                PNG, JPG, GIF, WebP, APNG, MP4, MOV ou WebM entra no Frame{' '}
-                {ratioLabel(doc.frame.ratio)}.
-              </p>
-              <button type="button" className="primary" onClick={onOpen} disabled={busy}>
-                Abrir arquivo…
-              </button>
-              <p className="hint">Arraste para a janela, cole com Ctrl+V ou use o link acima.</p>
-            </div>
-          </div>
-        )}
         {mode.kind === 'adjust' && doc.source && (
           <div
             className="snap-badge"
@@ -711,31 +688,72 @@ export function Stage({
           </div>
         )}
       </div>
+      {!doc.source && (
+        <div className="stage-empty">
+          <div className="stage-empty-card">
+            <div className="stage-empty-art" aria-hidden="true">
+              <div className="stage-empty-frame" style={{ aspectRatio: String(doc.frame.ratio) }}>
+                <svg viewBox="0 0 16 16" focusable="false">
+                  <path
+                    d="M2 11.5 5.8 7.7l2.6 2.6 2.1-2.1L14 11.6M2 2.5h12v11H2z"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.1"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </div>
+            </div>
+            <div className="stage-empty-copy">
+              <h1>Arraste sua imagem</h1>
+              <p className="stage-empty-sub">
+                {presetForRatio(doc.frame.ratio)
+                  ? `Ela vira uma carta ${ratioLabel(doc.frame.ratio)}, pronta para exportar.`
+                  : 'Ela vira uma carta na proporção escolhida, pronta para exportar.'}
+              </p>
+              <button
+                type="button"
+                className="primary stage-empty-cta"
+                onClick={onOpen}
+                disabled={busy}
+              >
+                Abrir imagem…
+              </button>
+              <p className="stage-empty-hint">
+                ou cole um link no topo · <kbd>Ctrl</kbd>+<kbd>V</kbd> · arraste um arquivo
+              </p>
+              <p className="stage-empty-formats">
+                PNG · JPG · GIF · WebP · APNG · MP4 · MOV · WebM
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
       {doc.source && (
         <>
           <div className="stage-meta">
             <span className="source-name" title={doc.source.path ?? doc.source.name}>
               {doc.source.name}
             </span>
-            <span>
-              arquivo {doc.source.format.toUpperCase()} · {doc.source.width}×{doc.source.height} ·{' '}
+            <span className="source-facts">
+              {doc.source.format.toUpperCase()} · {doc.source.width}×{doc.source.height} ·{' '}
               {formatBytes(doc.source.bytes)} ·{' '}
               {doc.source.video
                 ? `vídeo ${formatFps(doc.source.video.fps)} fps · ${formatPlaybackDuration(doc.source.video.durationMs)}`
                 : isAnimated(sourceView)
-                  ? `animado ${animationFrameCount(sourceView)}f`
+                  ? `${animationFrameCount(sourceView)} quadros`
                   : 'estático'}
             </span>
           </div>
-          <div className="stage-hint">
-            {mode.kind === 'pick-pad'
-              ? 'clique na imagem para pegar a cor · Esc cancela'
-              : mode.kind === 'adjust'
-                ? `arraste as bordas para ajustar o Frame · Shift proporção livre · ${
+          {mode.kind !== 'idle' && (
+            <div className="stage-hint">
+              {mode.kind === 'pick-pad'
+                ? 'clique na imagem para pegar a cor · Esc cancela'
+                : `arraste as bordas para ajustar o Frame · Shift proporção livre · ${
                     snapRatios ? 'Alt sem encaixe' : 'encaixe desligado'
-                  } · roda para zoom · C ou Esc conclui`
-                : 'arraste para mover · roda do mouse para zoom'}
-          </div>
+                  } · roda para zoom · C ou Esc conclui`}
+            </div>
+          )}
         </>
       )}
       {mode.kind === 'pick-pad' && magnifier && (

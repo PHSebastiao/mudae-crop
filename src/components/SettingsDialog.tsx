@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { IMAGE_CHEST_API_KEY_URL, PRIVACY_OPTIONS } from '../core/imagechest';
 import type { Settings } from '../core/settings';
+import { useDialogFocus } from '../hooks/useDialogFocus';
 import { NumberField } from './NumberField';
 
 export interface TokenTestResult {
@@ -38,6 +39,8 @@ export function SettingsDialog({
   // The token is a draft until blur, so a long token is not written once per
   // keystroke. Clearing it from another control resets the draft.
   const [tokenDraft, setTokenDraft] = useState(settings.token);
+  const modalRef = useRef<HTMLDivElement>(null);
+  useDialogFocus(modalRef);
   useEffect(() => {
     setTokenDraft(settings.token);
   }, [settings.token]);
@@ -71,6 +74,7 @@ export function SettingsDialog({
       }}
     >
       <div
+        ref={modalRef}
         className="settings-modal"
         role="dialog"
         aria-modal="true"
@@ -114,7 +118,12 @@ export function SettingsDialog({
             </a>
           </p>
           <div className="settings-actions">
-            <button type="button" onClick={commitToken} disabled={testing}>
+            <button
+              type="button"
+              className="settings-primary"
+              onClick={commitToken}
+              disabled={testing}
+            >
               Salvar token
             </button>
             <button
@@ -129,6 +138,7 @@ export function SettingsDialog({
             </button>
             <button
               type="button"
+              className="danger-ghost"
               onClick={onClearToken}
               disabled={testing || !settings.token}
               title="Apaga o token salvo neste computador"
@@ -189,11 +199,11 @@ export function SettingsDialog({
           )}
           <div className="settings-row">
             <span className="settings-key">Formato</span>
-            <span>
-              {settings.exportFormat.toUpperCase()} · escolhido no painel Export; imagem estática
-              força PNG
-            </span>
+            <span>{settings.exportFormat.toUpperCase()}</span>
           </div>
+          <p className="settings-hint">
+            Escolhido no painel Export; uma Source estática sempre sai em PNG.
+          </p>
         </section>
 
         <section>

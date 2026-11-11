@@ -23,6 +23,23 @@ import { NumberField } from './NumberField';
 /** The tooltip's fixed width, shared by its placement and its inline style. */
 const TIP_WIDTH = 248;
 
+/** The four Scale modes in one group; they are exclusive, so they share a
+ *  single 2×2 toggle group instead of reading as two unrelated controls. */
+const MODE_OPTIONS: ReadonlyArray<{ value: ScaleMode; label: string; title: string }> = [
+  { value: 'fit', label: 'Fit', title: 'Cobre o Frame, cortando o excesso da Source' },
+  { value: 'pad', label: 'Pad', title: 'Cabe inteira, preenchendo as sobras com o Pad color' },
+  { value: 'full-width', label: 'Largura', title: 'Encaixa a largura da Source no Frame' },
+  { value: 'full-height', label: 'Altura', title: 'Encaixa a altura da Source no Frame' },
+];
+
+/** What the selected Scale mode does, in one line under the toggles. */
+const MODE_HINTS: Record<ScaleMode, string> = {
+  fit: 'Cobre e corta o excesso.',
+  pad: 'Mostra a Source inteira.',
+  'full-width': 'Encaixa pela largura.',
+  'full-height': 'Encaixa pela altura.',
+};
+
 interface ToolRailProps {
   readonly doc: DocumentState;
   readonly onMode: (mode: ScaleMode) => void;
@@ -137,30 +154,7 @@ export const ToolRail = memo(function ToolRail({
   };
 
   if (!hasSource) {
-    return (
-      <aside className="rail rail-steps" aria-label="Passos para começar">
-        <div className="rail-step active" aria-current="step">
-          <b>1</b>
-          <span>Source</span>
-          <small>abrir · arrastar · colar</small>
-        </div>
-        <div className="rail-step">
-          <b>2</b>
-          <span>Frame</span>
-          <small>proporção no topo</small>
-        </div>
-        <div className="rail-step">
-          <b>3</b>
-          <span>Borda</span>
-          <small>cor e largura</small>
-        </div>
-        <div className="rail-step">
-          <b>4</b>
-          <span>Export</span>
-          <small>PNG ou GIF</small>
-        </div>
-      </aside>
-    );
+    return null;
   }
 
   return (
@@ -207,43 +201,22 @@ export const ToolRail = memo(function ToolRail({
             </span>
           )}
         </div>
-        <div className="toggle" role="group" aria-label="Modo de escala">
-          <button
-            type="button"
-            className={mode === 'fit' ? 'on' : ''}
-            onClick={() => onMode('fit')}
-            title="Cobre o Frame, cortando o excesso"
-          >
-            Fit
-          </button>
-          <button
-            type="button"
-            className={mode === 'pad' ? 'on' : ''}
-            onClick={() => onMode('pad')}
-            title="Cabe inteira, preenchendo as sobras"
-          >
-            Pad
-          </button>
+        <div className="toggle mode-toggle" role="group" aria-label="Escala">
+          {MODE_OPTIONS.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              aria-pressed={mode === option.value}
+              className={mode === option.value ? 'on' : ''}
+              onClick={() => onMode(option.value)}
+              title={option.title}
+            >
+              {option.label}
+            </button>
+          ))}
         </div>
-        <div className="toggle" role="group" aria-label="Encaixe no eixo">
-          <button
-            type="button"
-            className={mode === 'full-width' ? 'on' : ''}
-            onClick={() => onMode('full-width')}
-            title="Encaixa a largura da Source no Frame"
-          >
-            largura
-          </button>
-          <button
-            type="button"
-            className={mode === 'full-height' ? 'on' : ''}
-            onClick={() => onMode('full-height')}
-            title="Encaixa a altura da Source no Frame"
-          >
-            altura
-          </button>
-        </div>
-        <RailDisclosure label="Ajuste fino">
+        <p className="rail-hint mode-hint">{MODE_HINTS[mode]}</p>
+        <RailDisclosure label="Ajuste do Crop">
           <div className="row">
             <span className="key">zoom</span>
             <span className="field">
@@ -252,7 +225,7 @@ export const ToolRail = memo(function ToolRail({
             </span>
           </div>
           <div className="row">
-            <span className="key">offset x</span>
+            <span className="key">deslocamento H</span>
             <span className="field">
               <NumberField
                 value={offsetX}
@@ -264,7 +237,7 @@ export const ToolRail = memo(function ToolRail({
             </span>
           </div>
           <div className="row">
-            <span className="key">offset y</span>
+            <span className="key">deslocamento V</span>
             <span className="field">
               <NumberField
                 value={offsetY}
@@ -276,13 +249,13 @@ export const ToolRail = memo(function ToolRail({
             </span>
           </div>
           <div className="row">
-            <span className="key">rotate</span>
+            <span className="key">girar</span>
             <button type="button" className="pill" onClick={onRotate}>
               {doc.crop.rotation}° ↻
             </button>
           </div>
           <div className="row">
-            <span className="key">pad</span>
+            <span className="key">cor do Pad</span>
             <span className="field">
               <input
                 className="color"
@@ -317,7 +290,7 @@ export const ToolRail = memo(function ToolRail({
       <div className="group">
         <div className="label">Realce</div>
         <div className="row">
-          <span className="key">sharpness</span>
+          <span className="key">nitidez</span>
           <span className="pill">{doc.sharpness}</span>
         </div>
         <input
@@ -388,74 +361,70 @@ export const ToolRail = memo(function ToolRail({
         </div>
       </div>
 
-      <div className="group">
-        <div className="label">GIF</div>
-        {animated ? (
-          <>
-            <div className="row">
-              <span className="key">quadros</span>
-              <span>{`${trimmed} de ${frames}`}</span>
-            </div>
-            <div className="row">
-              <span className="key">duração</span>
-              <span>
-                {formatPlaybackDuration(
-                  trimDurationMs(effectiveSource(doc), effectiveTrim(doc), doc.speed),
-                )}
-              </span>
-            </div>
-            <div className="row">
-              <span className="key">trim</span>
-              <span>{`${trim.start + 1}–${trim.end + 1} · ${doc.trimEnabled ? 'on' : 'off'}`}</span>
-            </div>
-            <div className="row">
-              <span className="key">velocidade</span>
-              <span className="pill">{speedLabel}</span>
-            </div>
-            <RailDisclosure label="Ajustes do GIF">
-              <input
-                className="slider"
-                type="range"
-                min={MIN_SPEED}
-                max={MAX_SPEED}
-                step={0.05}
-                value={doc.speed}
-                onChange={(event) => onSpeed(Number(event.target.value))}
-                aria-label="Velocidade do GIF"
-              />
-              <div className="toggle" role="group" aria-label="Velocidade do GIF">
-                {[0.5, 1, 2].map((speed) => (
-                  <button
-                    key={speed}
-                    type="button"
-                    className={Math.abs(doc.speed - speed) < 0.001 ? 'on' : ''}
-                    onClick={() => onSpeed(speed)}
-                  >
-                    {speed.toString().replace('.', ',')}×
-                  </button>
-                ))}
-              </div>
-              <button type="button" className="link" onClick={() => onTrim(null)}>
-                redefinir trim
-              </button>
-              {imageAnimation && (
-                <button
-                  type="button"
-                  className={`link rail-frames${framesOpen ? ' on' : ''}`}
-                  onClick={onToggleFrames}
-                  aria-pressed={framesOpen}
-                  aria-keyshortcuts="F"
-                  title="Mostrar ou ocultar o painel de quadros (F)"
-                >
-                  {framesOpen ? 'ocultar painel de quadros' : 'ver painel de quadros'}
-                </button>
+      {animated && (
+        <div className="group">
+          <div className="label">GIF</div>
+          <div className="row">
+            <span className="key">quadros</span>
+            <span>{`${trimmed} de ${frames}`}</span>
+          </div>
+          <div className="row">
+            <span className="key">duração</span>
+            <span>
+              {formatPlaybackDuration(
+                trimDurationMs(effectiveSource(doc), effectiveTrim(doc), doc.speed),
               )}
-            </RailDisclosure>
-          </>
-        ) : (
-          <p className="panel-hint">Source estática · sem quadros</p>
-        )}
-      </div>
+            </span>
+          </div>
+          <div className="row">
+            <span className="key">trecho</span>
+            <span>{`${trim.start + 1}–${trim.end + 1} · ${doc.trimEnabled ? 'on' : 'off'}`}</span>
+          </div>
+          <div className="row">
+            <span className="key">velocidade</span>
+            <span className="pill">{speedLabel}</span>
+          </div>
+          <RailDisclosure label="Ajustes do GIF">
+            <input
+              className="slider"
+              type="range"
+              min={MIN_SPEED}
+              max={MAX_SPEED}
+              step={0.05}
+              value={doc.speed}
+              onChange={(event) => onSpeed(Number(event.target.value))}
+              aria-label="Velocidade do GIF"
+            />
+            <div className="toggle" role="group" aria-label="Velocidade do GIF">
+              {[0.5, 1, 2].map((speed) => (
+                <button
+                  key={speed}
+                  type="button"
+                  className={Math.abs(doc.speed - speed) < 0.001 ? 'on' : ''}
+                  onClick={() => onSpeed(speed)}
+                >
+                  {speed.toString().replace('.', ',')}×
+                </button>
+              ))}
+            </div>
+            <button type="button" className="link" onClick={() => onTrim(null)}>
+              redefinir trecho
+            </button>
+            {imageAnimation && (
+              <button
+                type="button"
+                className={`link rail-frames${framesOpen ? ' on' : ''}`}
+                onClick={onToggleFrames}
+                aria-pressed={framesOpen}
+                aria-keyshortcuts="F"
+                title="Mostrar ou ocultar o painel de quadros (F)"
+              >
+                {framesOpen ? 'ocultar painel de quadros' : 'ver painel de quadros'}
+              </button>
+            )}
+          </RailDisclosure>
+        </div>
+      )}
     </aside>
   );
 });

@@ -115,8 +115,23 @@ export const RatioMenu = memo(function RatioMenu({
         title="Proporção do Frame"
         onClick={() => setOpen((value) => !value)}
       >
+        <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+          <rect
+            x="3.4"
+            y="1.9"
+            width="9.2"
+            height="12.2"
+            rx="1.6"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.2"
+          />
+          <path d="M3.4 5.2h9.2" stroke="currentColor" strokeWidth="1.2" />
+        </svg>
         <span>{ratioLabel(ratio)}</span>
-        <span aria-hidden="true">▾</span>
+        <span className="ratio-caret" aria-hidden="true">
+          ▾
+        </span>
       </button>
       {open && (
         <div

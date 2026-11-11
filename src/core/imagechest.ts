@@ -12,9 +12,9 @@ import { asRecord, parseJson } from './json';
 export type Privacy = 'public' | 'hidden' | 'secret';
 
 export const PRIVACY_OPTIONS: ReadonlyArray<{ value: Privacy; label: string }> = [
-  { value: 'hidden', label: 'Oculta (hidden)' },
-  { value: 'public', label: 'Pública (public)' },
-  { value: 'secret', label: 'Secreta (secret)' },
+  { value: 'hidden', label: 'Oculta' },
+  { value: 'public', label: 'Pública' },
+  { value: 'secret', label: 'Secreta' },
 ];
 
 /** Where Image Chest hands out the personal API token. */

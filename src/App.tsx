@@ -157,6 +157,7 @@ export default function App() {
   const [palette, setPalette] = useState<readonly PaletteColor[]>([]);
   const [paletteVersion, setPaletteVersion] = useState(0);
   const [cooldownSeconds, setCooldownSeconds] = useState(0);
+  const [dragOver, setDragOver] = useState(false);
   const [renderProgress, setRenderProgress] = useState<RenderProgress | null>(null);
   const [optimizeResult, setOptimizeResult] = useState<OptimizeResult | null>(null);
   const [sizeEstimate, setSizeEstimate] = useState<SizeEstimate | null>(null);
@@ -506,7 +507,7 @@ export default function App() {
       setFrameIndex(0);
       setOptimizeResult(null);
       setDoc((current) => withSource(current, source));
-      inform(`Source carregada: ${source.name}`);
+      inform('Imagem carregada.');
     },
     [inform],
   );
@@ -1372,7 +1373,7 @@ export default function App() {
     watchFileDrops((paths) => {
       const first = paths[0];
       if (first) void importPath(first);
-    })
+    }, setDragOver)
       .then((stop) => {
         dispose = stop;
       })
@@ -1386,9 +1387,16 @@ export default function App() {
   // The desktop window receives OS drops through Tauri instead.
   useEffect(() => {
     if (isDesktop()) return;
-    const onDragOver = (event: DragEvent) => event.preventDefault();
+    const onDragOver = (event: DragEvent) => {
+      event.preventDefault();
+      setDragOver(true);
+    };
+    const onDragLeave = (event: DragEvent) => {
+      if (event.relatedTarget === null) setDragOver(false);
+    };
     const onDrop = (event: DragEvent) => {
       event.preventDefault();
+      setDragOver(false);
       const file = event.dataTransfer?.files[0];
       if (!file) return;
       void file.arrayBuffer().then((buffer) =>
@@ -1400,9 +1408,11 @@ export default function App() {
       );
     };
     window.addEventListener('dragover', onDragOver);
+    window.addEventListener('dragleave', onDragLeave);
     window.addEventListener('drop', onDrop);
     return () => {
       window.removeEventListener('dragover', onDragOver);
+      window.removeEventListener('dragleave', onDragLeave);
       window.removeEventListener('drop', onDrop);
     };
   }, [importCandidate]);
@@ -1414,48 +1424,40 @@ export default function App() {
 
   return (
     <div className="app">
+      {dragOver && (
+        <div className="drop-overlay" role="status">
+          <div className="drop-overlay-card">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path
+                d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M4 15v3.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V15"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+            <strong>Solte para abrir</strong>
+            <span>PNG · JPG · GIF · WebP · APNG · MP4 · MOV · WebM</span>
+          </div>
+        </div>
+      )}
       <div className="topbar-shell">
         <header className="topbar">
-          <div className="brand">mudae crop</div>
-          <form
-            className="link-import"
-            onSubmit={(event) => {
-              event.preventDefault();
-              submitLink();
-            }}
-          >
-            <input
-              type="text"
-              inputMode="url"
-              value={link}
-              onChange={(event) => setLink(event.target.value)}
-              placeholder="link ou caminho de arquivo"
-              aria-label="Link ou caminho da Source"
-              spellCheck={false}
-              disabled={busy}
-            />
-            <button type="submit" disabled={busy || !linkTarget}>
-              {linkTarget === 'path' ? 'Abrir arquivo' : 'Abrir link'}
-            </button>
-            <button
-              type="button"
-              className="link-import-browse"
-              onClick={() => void handleOpen()}
-              disabled={busy}
-              aria-label="Abrir arquivo do computador"
-              title="Abrir arquivo do computador (Ctrl+O)"
-            >
-              <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+          <div className="brand">
+            <span className="brand-mark" aria-hidden="true">
+              <svg viewBox="0 0 16 16" focusable="false">
                 <path
-                  d="M1.75 3.25h4l1.5 1.5h6.75v7.5a.75.75 0 0 1-.75.75H2.5a.75.75 0 0 1-.75-.75V3.25Z"
+                  d="M4.25 1.5v10.25H14.5M1.5 4.25h10.25V14.5"
                   fill="none"
                   stroke="currentColor"
                   strokeWidth="1.3"
-                  strokeLinejoin="round"
+                  strokeLinecap="round"
                 />
               </svg>
-            </button>
-          </form>
+            </span>
+            <span className="brand-name">mudae crop</span>
+          </div>
           <RatioMenu
             ratio={doc.frame.ratio}
             sourceRatio={
@@ -1471,6 +1473,56 @@ export default function App() {
             onOpenChange={setRatioOpen}
           />
           <div className="topbar-right">
+            <form
+              className="link-import"
+              onSubmit={(event) => {
+                event.preventDefault();
+                submitLink();
+              }}
+            >
+              <span className="link-import-icon" aria-hidden="true">
+                <svg viewBox="0 0 16 16" focusable="false">
+                  <path
+                    d="M6.6 9.4a2.5 2.5 0 0 0 3.54 0l2.12-2.12a2.5 2.5 0 0 0-3.54-3.54l-.7.7M9.4 6.6a2.5 2.5 0 0 0-3.54 0L3.74 8.72a2.5 2.5 0 0 0 3.54 3.54l.7-.7"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.3"
+                    strokeLinecap="round"
+                  />
+                </svg>
+              </span>
+              <input
+                type="text"
+                inputMode="url"
+                value={link}
+                onChange={(event) => setLink(event.target.value)}
+                placeholder="Cole um link ou caminho"
+                aria-label="Link ou caminho da Source"
+                spellCheck={false}
+                disabled={busy}
+              />
+              <button type="submit" disabled={busy || !linkTarget}>
+                Abrir
+              </button>
+              <button
+                type="button"
+                className="link-import-browse"
+                onClick={() => void handleOpen()}
+                disabled={busy}
+                aria-label="Abrir arquivo do computador"
+                title="Abrir arquivo do computador (Ctrl+O)"
+              >
+                <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                  <path
+                    d="M1.75 3.25h4l1.5 1.5h6.75v7.5a.75.75 0 0 1-.75.75H2.5a.75.75 0 0 1-.75-.75V3.25Z"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.3"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </button>
+            </form>
             <button
               type="button"
               className="chip chip-button shortcuts-button"
@@ -1495,7 +1547,7 @@ export default function App() {
           <div className="notice overlay" role="status">
             <span>{notice.message}</span>
             <button type="button" aria-label="Fechar aviso" onClick={clearNotice}>
-              x
+              ×
             </button>
           </div>
         )}
@@ -1543,34 +1595,36 @@ export default function App() {
             </button>
           )}
           <button type="button" aria-label="Fechar aviso" onClick={clearNotice}>
-            x
+            ×
           </button>
         </div>
       ) : null}
 
-      <main className="workspace">
-        <ToolRail
-          doc={doc}
-          onMode={changeMode}
-          onZoom={changeZoom}
-          onOffset={changeOffset}
-          onPadColor={changePadColor}
-          onRotate={rotate}
-          onResetCrop={reset}
-          onSharpness={changeSharpness}
-          waifu2x={doc.waifu2x}
-          waifu2xStatus={waifu2xAvailability.status}
-          waifu2xDetail={waifu2xAvailability.detail}
-          onWaifu2x={changeWaifu2x}
-          onPickPadColor={togglePickPad}
-          onTrim={changeTrim}
-          onSpeed={changeSpeed}
-          pickingPad={stageMode.kind === 'pick-pad'}
-          framesOpen={framesOpen}
-          onToggleFrames={toggleFrames}
-          adjustFrame={adjustFrame}
-          onToggleAdjustFrame={toggleAdjustFrame}
-        />
+      <main className={`workspace${doc.source ? '' : ' workspace-empty'}`}>
+        {doc.source && (
+          <ToolRail
+            doc={doc}
+            onMode={changeMode}
+            onZoom={changeZoom}
+            onOffset={changeOffset}
+            onPadColor={changePadColor}
+            onRotate={rotate}
+            onResetCrop={reset}
+            onSharpness={changeSharpness}
+            waifu2x={doc.waifu2x}
+            waifu2xStatus={waifu2xAvailability.status}
+            waifu2xDetail={waifu2xAvailability.detail}
+            onWaifu2x={changeWaifu2x}
+            onPickPadColor={togglePickPad}
+            onTrim={changeTrim}
+            onSpeed={changeSpeed}
+            pickingPad={stageMode.kind === 'pick-pad'}
+            framesOpen={framesOpen}
+            onToggleFrames={toggleFrames}
+            adjustFrame={adjustFrame}
+            onToggleAdjustFrame={toggleAdjustFrame}
+          />
+        )}
         <div className="stage-column">
           <Stage
             doc={doc}
@@ -1615,38 +1669,40 @@ export default function App() {
             />
           )}
         </div>
-        <ExportPanel
-          doc={doc}
-          busy={busy}
-          downloading={download.kind === 'downloading'}
-          uploading={uploading}
-          settings={settings}
-          history={history}
-          preview={historyPreview}
-          cooldownSeconds={cooldownSeconds}
-          appendPostId={appendPostId}
-          optimizeResult={optimizeResult}
-          sizeEstimate={sizeEstimate}
-          waifu2xReady={waifu2xAvailability.status === 'ready'}
-          onExport={handleExport}
-          onExportScale={changeExportScale}
-          onExportFormat={changeExportFormat}
-          onResizeWidth={changeResizeWidth}
-          onResizeHeight={changeResizeHeight}
-          onResizeLocked={changeResizeLocked}
-          onNative={useNativeSize}
-          onHalve={halveOutput}
-          onDouble={doubleOutput}
-          onOptimize={changeOptimize}
-          onAppendPostId={changeAppendPostId}
-          onCommitAppendPostId={commitAppendPostId}
-          onUpload={handleUpload}
-          onOpenSettings={openSettings}
-          onCopyText={copyExportText}
-          onOpenLink={openExportLink}
-          onRevealPath={revealExportPath}
-          onClearHistory={clearHistory}
-        />
+        {doc.source && (
+          <ExportPanel
+            doc={doc}
+            busy={busy}
+            downloading={download.kind === 'downloading'}
+            uploading={uploading}
+            settings={settings}
+            history={history}
+            preview={historyPreview}
+            cooldownSeconds={cooldownSeconds}
+            appendPostId={appendPostId}
+            optimizeResult={optimizeResult}
+            sizeEstimate={sizeEstimate}
+            waifu2xReady={waifu2xAvailability.status === 'ready'}
+            onExport={handleExport}
+            onExportScale={changeExportScale}
+            onExportFormat={changeExportFormat}
+            onResizeWidth={changeResizeWidth}
+            onResizeHeight={changeResizeHeight}
+            onResizeLocked={changeResizeLocked}
+            onNative={useNativeSize}
+            onHalve={halveOutput}
+            onDouble={doubleOutput}
+            onOptimize={changeOptimize}
+            onAppendPostId={changeAppendPostId}
+            onCommitAppendPostId={commitAppendPostId}
+            onUpload={handleUpload}
+            onOpenSettings={openSettings}
+            onCopyText={copyExportText}
+            onOpenLink={openExportLink}
+            onRevealPath={revealExportPath}
+            onClearHistory={clearHistory}
+          />
+        )}
       </main>
 
       {doc.source && (

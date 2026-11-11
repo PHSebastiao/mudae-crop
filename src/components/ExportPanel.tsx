@@ -15,7 +15,7 @@ import { exportKindFor, type SizeEstimate } from '../core/export';
 import { nativeSize } from '../core/geometry';
 import { formatHistoryDate, type ExportEntry, type HistoryEntry } from '../core/history';
 import type { HistoryPreviewLoader } from '../core/historyPreview';
-import { PRIVACY_OPTIONS, isPostId } from '../core/imagechest';
+import { isPostId } from '../core/imagechest';
 import type { OptimizeResult } from '../core/optimize';
 import {
   mudaeExportSize,
@@ -137,25 +137,24 @@ function ExportRow({ entry, preview, root, onCopyText, onRevealPath }: ExportRow
         <span className="history-link" title={entry.path}>
           {entry.fileName}
         </span>
-        <span className="history-meta" title={entry.path}>
-          {entry.path}
-        </span>
         <span className="history-meta">
           {format} · {entry.width}×{entry.height} · {formatBytes(entry.size)}
         </span>
-        <span className="history-meta">{formatHistoryDate(entry.createdAt)}</span>
-        <span className="history-actions">
-          <button type="button" onClick={() => onCopyText(entry.path)} title="Copiar caminho">
-            copiar
-          </button>
-          <button
-            type="button"
-            onClick={() => onRevealPath(entry.path)}
-            title="Abrir no Explorador"
-          >
-            explorador
-          </button>
-        </span>
+        <div className="history-foot">
+          <span className="history-meta">{formatHistoryDate(entry.createdAt)}</span>
+          <span className="history-actions">
+            <button type="button" onClick={() => onCopyText(entry.path)} title="Copiar caminho">
+              copiar
+            </button>
+            <button
+              type="button"
+              onClick={() => onRevealPath(entry.path)}
+              title="Abrir no Explorador"
+            >
+              mostrar
+            </button>
+          </span>
+        </div>
       </div>
     </li>
   );
@@ -253,9 +252,7 @@ export const ExportPanel = memo(function ExportPanel({
       ? null
       : cappedByTarget
         ? `≤ ${formatBytes(estimatedBytes)}`
-        : `${sizeEstimate?.exact ? '' : '~'}${formatBytes(estimatedBytes)}${
-            sizeEstimate?.exact ? '' : ' estimado'
-          }`;
+        : `${sizeEstimate?.exact ? '' : '~'}${formatBytes(estimatedBytes)}`;
   const estimateTitle = doc.source?.video
     ? 'Estimativa pelo frame atual; um vídeo em movimento pode ficar maior'
     : sizeEstimate?.exact
@@ -264,6 +261,11 @@ export const ExportPanel = memo(function ExportPanel({
   const overGuidance = exceedsSizeGuidance(estimatedBytes);
   const [optimizeOpen, setOptimizeOpen] = useState(false);
   const listRef = useRef<HTMLUListElement | null>(null);
+  const postPrivacy: Record<string, string> = {
+    hidden: 'Post oculto',
+    public: 'Post público',
+    secret: 'Post secreto',
+  };
 
   // Clearing the History, or the 50-entry cap evicting an old row, releases
   // that row's object URL. Rows still in the list keep their cached thumbnail.
@@ -288,51 +290,34 @@ export const ExportPanel = memo(function ExportPanel({
       </button>
       <button
         type="button"
-        className="big"
-        onClick={onUpload}
-        disabled={uploadDisabled}
+        className="big ghost"
+        onClick={hasToken ? onUpload : onOpenSettings}
+        disabled={hasToken ? uploadDisabled : busy}
         title={
           !doc.source
             ? 'Importe uma Source primeiro'
             : waifuUnavailable
               ? 'Desligue o waifu2x para subir'
               : !hasToken
-                ? 'Configure o token em Configurações'
+                ? 'Configure o token do Image Chest para enviar'
                 : badPostId
                   ? 'Confira o Post id'
                   : 'Cria um Post hidden e copia o link direto'
         }
       >
-        {uploading ? 'Subindo…' : cooling ? `Aguarde ${cooldownSeconds}s` : 'Subir e copiar link'}
+        {!hasToken
+          ? 'Configurar token para subir'
+          : uploading
+            ? 'Subindo…'
+            : cooling
+              ? `Aguarde ${cooldownSeconds}s`
+              : 'Subir e copiar link'}
       </button>
       <p className="panel-hint">
-        {hasToken
-          ? 'Ctrl+S exporta · Ctrl+Enter sobe e copia o link.'
-          : 'Ctrl+S exporta. Configure o token para subir.'}
+        {hasToken ? 'Ctrl+S exporta · Ctrl+Enter envia.' : 'Ctrl+S exporta.'}
       </p>
-      {!hasToken && (
-        <button type="button" className="link" onClick={onOpenSettings}>
-          Configurar token
-        </button>
-      )}
     </div>
   );
-
-  if (!doc.source) {
-    return (
-      <aside className="panel">
-        <div className="panel-scroll panel-empty">
-          <div className="panel-empty-inner">
-            <h4>Export</h4>
-            <p className="panel-hint">
-              Importe uma Source para abrir o Frame, a Borda e as opções de Export.
-            </p>
-          </div>
-        </div>
-        {actions}
-      </aside>
-    );
-  }
 
   return (
     <aside className="panel">
@@ -341,16 +326,25 @@ export const ExportPanel = memo(function ExportPanel({
           <h4>Export</h4>
 
           <div className="export-summary" aria-live="polite">
-            <strong>
-              {format} · {doc.source ? `${size.width}×${size.height}` : '—'}
-            </strong>
-            {doc.source && (
+            <div className="export-summary-row">
+              <strong>
+                {format}
+                <span className="export-summary-dims">
+                  {doc.source ? `${size.width}×${size.height}` : '—'}
+                </span>
+                {estimateLabel && (
+                  <span className="export-summary-size" title={estimateTitle}>
+                    {estimateLabel}
+                  </span>
+                )}
+              </strong>
+            </div>
+            <div className="export-summary-row export-summary-foot">
               <span className={ratioMatches ? '' : 'warn'}>
                 {ratioMatches ? 'proporção da carta' : 'esticada'}
               </span>
-            )}
-            {estimateLabel && <span title={estimateTitle}>{estimateLabel}</span>}
-            {optimizeResult && <span>resultado {formatBytes(optimizeResult.size)}</span>}
+              {optimizeResult && <span>otimizado · {formatBytes(optimizeResult.size)}</span>}
+            </div>
           </div>
 
           {overGuidance && (
@@ -381,7 +375,7 @@ export const ExportPanel = memo(function ExportPanel({
               GIF
             </button>
           </div>
-          {!animated && <p className="panel-hint">GIF indisponível: a Source é estática.</p>}
+          {!animated && <p className="panel-hint">GIF só para Source animada.</p>}
 
           <div className="size-label">Tamanho</div>
           {isMudae && card1 && card2 && (
@@ -446,7 +440,7 @@ export const ExportPanel = memo(function ExportPanel({
 
           {isMudae && !showCustom && (
             <button type="button" className="link size-edit" onClick={() => setCustomOpen(true)}>
-              ajustar tamanho
+              Tamanho personalizado ›
             </button>
           )}
 
@@ -736,32 +730,33 @@ export const ExportPanel = memo(function ExportPanel({
           )}
         </section>
 
-        <details className="panel-disclosure">
-          <summary>
-            <h4>Image Chest</h4>
-            <span>
-              {postId
-                ? `append ${postId}`
-                : (PRIVACY_OPTIONS.find((option) => option.value === settings.defaultPrivacy)
-                    ?.label ?? settings.defaultPrivacy)}
-            </span>
-          </summary>
-          <div className="panel-disclosure-body">
-            <input
-              className="post-id"
-              type="text"
-              value={appendPostId}
-              onChange={(event) => onAppendPostId(event.target.value)}
-              onBlur={onCommitAppendPostId}
-              placeholder="Post id (opcional)"
-              aria-label="Post id para anexar o Export"
-              aria-invalid={badPostId}
-              spellCheck={false}
-              disabled={busy}
-            />
-            {badPostId && <p className="panel-hint bad">O Post id aceita só letras e números.</p>}
-          </div>
-        </details>
+        {hasToken && (
+          <details className="panel-disclosure">
+            <summary>
+              <h4>Image Chest</h4>
+              <span title="Privacidade dos novos Posts">
+                {postId
+                  ? `Post ${postId}`
+                  : (postPrivacy[settings.defaultPrivacy] ?? 'Post oculto')}
+              </span>
+            </summary>
+            <div className="panel-disclosure-body">
+              <input
+                className="post-id"
+                type="text"
+                value={appendPostId}
+                onChange={(event) => onAppendPostId(event.target.value)}
+                onBlur={onCommitAppendPostId}
+                placeholder="Post id (opcional)"
+                aria-label="Post id para anexar o Export"
+                aria-invalid={badPostId}
+                spellCheck={false}
+                disabled={busy}
+              />
+              {badPostId && <p className="panel-hint bad">O Post id aceita só letras e números.</p>}
+            </div>
+          </details>
+        )}
 
         <details className="panel-disclosure">
           <summary>

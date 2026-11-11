@@ -46,7 +46,7 @@ async function probeOnce(): Promise<Waifu2xAvailability> {
   if (!isTauri()) {
     return {
       status: 'missing',
-      detail: 'O waifu2x só funciona no app desktop; no navegador ele fica desligado.',
+      detail: 'waifu2x indisponível no navegador.',
     };
   }
   try {

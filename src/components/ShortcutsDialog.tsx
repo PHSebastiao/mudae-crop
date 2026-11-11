@@ -1,16 +1,21 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
+import { useDialogFocus } from '../hooks/useDialogFocus';
 
 interface Shortcut {
   readonly keys: string;
   readonly label: string;
 }
 
-const KEYBOARD: readonly Shortcut[] = [
+const FILE: readonly Shortcut[] = [
   { keys: 'Ctrl+O', label: 'Abrir um arquivo' },
   { keys: 'Ctrl+V', label: 'Colar uma imagem, um link ou um caminho' },
   { keys: 'Ctrl+S', label: 'Exportar o Frame' },
   { keys: 'Ctrl+Enter', label: 'Subir e copiar o link' },
   { keys: 'Ctrl+,', label: 'Abrir Configurações' },
+  { keys: '?', label: 'Abrir esta lista' },
+];
+
+const FRAME: readonly Shortcut[] = [
   { keys: 'C', label: 'Ajustar ou concluir o Frame' },
   { keys: 'F', label: 'Mostrar ou ocultar os quadros (imagem animada)' },
   { keys: 'Espaço', label: 'Reproduzir ou pausar a animação' },
@@ -21,7 +26,6 @@ const KEYBOARD: readonly Shortcut[] = [
   { keys: '[ / ]', label: 'Diminuir ou aumentar a Borda' },
   { keys: '1 / 2', label: 'Escolher as proporções Mudae e 1:1' },
   { keys: 'Esc', label: 'Sair da ferramenta atual' },
-  { keys: '?', label: 'Abrir esta lista' },
 ];
 
 const MOUSE: readonly Shortcut[] = [
@@ -47,6 +51,8 @@ function ShortcutList({ items }: { readonly items: readonly Shortcut[] }) {
 }
 
 export function ShortcutsDialog({ onClose }: { readonly onClose: () => void }) {
+  const modalRef = useRef<HTMLDivElement>(null);
+  useDialogFocus(modalRef);
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
@@ -65,6 +71,7 @@ export function ShortcutsDialog({ onClose }: { readonly onClose: () => void }) {
       }}
     >
       <div
+        ref={modalRef}
         className="settings-modal shortcuts-modal"
         role="dialog"
         aria-modal="true"
@@ -72,26 +79,29 @@ export function ShortcutsDialog({ onClose }: { readonly onClose: () => void }) {
       >
         <header className="settings-head">
           <h2 id="shortcuts-title">Atalhos</h2>
-          <button
-            type="button"
-            className="icon"
-            onClick={onClose}
-            aria-label="Fechar atalhos"
-            autoFocus
-          >
+          <button type="button" className="icon" onClick={onClose} aria-label="Fechar atalhos">
             ×
           </button>
         </header>
 
-        <section>
-          <h3>Teclado</h3>
-          <ShortcutList items={KEYBOARD} />
-        </section>
-
-        <section>
-          <h3>Mouse e gestos</h3>
-          <ShortcutList items={MOUSE} />
-        </section>
+        <div className="shortcuts-cols">
+          <div className="shortcuts-col">
+            <section>
+              <h3>Arquivo e export</h3>
+              <ShortcutList items={FILE} />
+            </section>
+            <section>
+              <h3>Mouse e gestos</h3>
+              <ShortcutList items={MOUSE} />
+            </section>
+          </div>
+          <div className="shortcuts-col">
+            <section>
+              <h3>Frame e animação</h3>
+              <ShortcutList items={FRAME} />
+            </section>
+          </div>
+        </div>
 
         <footer className="settings-foot">
           <span className="settings-hint">Esc fecha</span>
