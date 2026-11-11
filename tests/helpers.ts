@@ -1,4 +1,4 @@
-import { createCanvas, type Canvas, type SKRSContext2D } from '@napi-rs/canvas';
+import { createCanvas, loadImage, type Canvas, type SKRSContext2D } from '@napi-rs/canvas';
 import {
   DEFAULT_BORDER,
   DEFAULT_FRAME,
@@ -14,6 +14,8 @@ import { MUDAE_RATIO } from '../src/core/ratios';
 import { baseRect } from '../src/core/rect';
 import type { ExportEntry, UploadEntry } from '../src/core/history';
 import type { EncodableCanvas, ExportAdapter } from '../src/core/export';
+import { encodeCanvasPng, type PngCanvas } from '../src/core/png';
+import { deflateZlib } from '../src/platform/deflate';
 import type { RenderContext } from '../src/core/render';
 
 export function makeSource(
@@ -107,9 +109,10 @@ export const testExportAdapter: ExportAdapter = {
   createCanvas(width: number, height: number): EncodableCanvas {
     return createCanvas(width, height) as unknown as EncodableCanvas;
   },
-  async encodePng(canvas: EncodableCanvas): Promise<Uint8Array> {
-    return new Uint8Array((canvas as unknown as Canvas).toBuffer('image/png'));
-  },
+  // The same encoder and the same deflate the window uses, so a size estimate
+  // in a test matches what the app writes.
+  encodePng: (canvas: EncodableCanvas): Promise<Uint8Array> =>
+    encodeCanvasPng(canvas as unknown as PngCanvas, deflateZlib),
 };
 
 export function makeDoc(
@@ -155,6 +158,18 @@ export function contextOf(canvas: Canvas): RenderContext {
 export function pngSize(bytes: Uint8Array): { width: number; height: number } {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   return { width: view.getUint32(16), height: view.getUint32(20) };
+}
+
+/**
+ * The RGBA pixels of an encoded PNG. Tests compare these instead of file bytes
+ * so an assertion about what was drawn cannot depend on the encoder's settings.
+ */
+export async function pngPixels(bytes: Uint8Array): Promise<Uint8ClampedArray> {
+  const image = await loadImage(Buffer.from(bytes));
+  const canvas = createCanvas(image.width, image.height);
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(image, 0, 0);
+  return ctx.getImageData(0, 0, image.width, image.height).data;
 }
 
 export function makeUploadEntry(index: number, overrides: Partial<UploadEntry> = {}): UploadEntry {

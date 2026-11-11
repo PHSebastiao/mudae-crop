@@ -87,6 +87,19 @@ describe('estimateExportSize', () => {
     expect(Math.abs(estimate.bytes - bytes.length) / bytes.length).toBeLessThan(0.25);
   });
 
+  it('matches the written GIF when the Trim repeats a frame', async () => {
+    const held = makePaintedAnimation(60, 60, 4, (ctx, frame) => {
+      ctx.fillStyle = frame < 2 ? '#335577' : '#d94f6d';
+      ctx.fillRect(0, 0, 60, 60);
+    });
+    const doc = trimmed(makeDoc(held), 0, 3);
+
+    const estimate = await estimateExportSize(doc, adapter, { format: 'gif' });
+    const bytes = await renderGif(doc, adapter);
+
+    expect(estimate).toEqual({ bytes: bytes.length, exact: true });
+  });
+
   it('grows with the Trim and with an explicit bigger Export size', async () => {
     const source = texturedAnimation(4);
     const short = trimmed(makeDoc(source), 0, 1);

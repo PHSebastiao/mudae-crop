@@ -14,7 +14,7 @@ import { renderGif, renderPng, type EncodableCanvas, type ExportAdapter } from '
 import { decodeGif } from '../src/core/gif';
 import { renderFrame } from '../src/core/render';
 import { videoPreviewRate } from '../src/core/animation';
-import { contextOf, makeDoc } from './helpers';
+import { contextOf, makeDoc, pngPixels } from './helpers';
 
 const adapter: ExportAdapter = {
   createCanvas(width: number, height: number): EncodableCanvas {
@@ -123,8 +123,8 @@ describe('video Sources', () => {
 
     const reference = createCanvas(225, 350);
     renderFrame(contextOf(reference), doc, { outputWidth: 225, outputHeight: 350, frameIndex: 1 });
-    const expected = new Uint8Array(reference.toBuffer('image/png'));
+    const expected = reference.getContext('2d').getImageData(0, 0, 225, 350).data;
 
-    expect(Buffer.from(bytes).equals(Buffer.from(expected))).toBe(true);
+    expect(Buffer.from(await pngPixels(bytes)).equals(Buffer.from(expected))).toBe(true);
   });
 });

@@ -142,18 +142,9 @@ describe('GIF Export', () => {
     });
   });
 
-  it('merges consecutive duplicate frames before encoding', async () => {
-    const duplicate = makeAnimatedSource(
-      225,
-      350,
-      ['#D94F6D', '#D94F6D', '#2B9C8F'],
-      [100, 50, 80],
-      0,
-    );
-    const doc = {
-      ...makeDoc(duplicate),
-      optimize: { ...DEFAULT_OPTIMIZE, enabled: true },
-    };
+  it('merges consecutive duplicate frames with the Optimize off', async () => {
+    const duplicate = makeAnimatedSource(225, 350, ['#D94F6D', '#D94F6D', '#2B9C8F'], [100, 50, 80], 0);
+    const doc = makeDoc(duplicate);
 
     const decoded = decodeGif(await renderGif(doc, adapter));
 

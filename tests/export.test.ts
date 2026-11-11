@@ -1,23 +1,16 @@
-import { createCanvas, type Canvas } from '@napi-rs/canvas';
+import { createCanvas } from '@napi-rs/canvas';
 import { describe, expect, it } from 'vitest';
-import {
-  ExportError,
-  renderPng,
-  type EncodableCanvas,
-  type ExportAdapter,
-} from '../src/core/export';
+import { ExportError, renderPng } from '../src/core/export';
 import { renderFrame } from '../src/core/render';
 import { emptyDocument, withResize, withResizeLocked } from '../src/core/document';
-import { contextOf, makeDoc, makeSource, pngSize } from './helpers';
-
-const adapter: ExportAdapter = {
-  createCanvas(width: number, height: number): EncodableCanvas {
-    return createCanvas(width, height) as unknown as EncodableCanvas;
-  },
-  async encodePng(canvas: EncodableCanvas): Promise<Uint8Array> {
-    return new Uint8Array((canvas as unknown as Canvas).toBuffer('image/png'));
-  },
-};
+import {
+  contextOf,
+  makeDoc,
+  makeSource,
+  pngPixels,
+  pngSize,
+  testExportAdapter as adapter,
+} from './helpers';
 
 describe('PNG Export', () => {
   it('writes a 225×350 PNG at the native crop size', async () => {
@@ -32,9 +25,9 @@ describe('PNG Export', () => {
 
     const reference = createCanvas(225, 350);
     renderFrame(contextOf(reference), doc, { outputWidth: 225, outputHeight: 350 });
-    const expected = new Uint8Array(reference.toBuffer('image/png'));
+    const expected = reference.getContext('2d').getImageData(0, 0, 225, 350).data;
 
-    expect(Buffer.from(exported).equals(Buffer.from(expected))).toBe(true);
+    expect(Buffer.from(await pngPixels(exported)).equals(Buffer.from(expected))).toBe(true);
   });
 
   it('writes the canonical Carta 2× size from an explicit resize', async () => {
@@ -55,9 +48,9 @@ describe('PNG Export', () => {
 
     const reference = createCanvas(450, 700);
     renderFrame(contextOf(reference), doc, { outputWidth: 450, outputHeight: 700 });
-    const expected = new Uint8Array(reference.toBuffer('image/png'));
+    const expected = reference.getContext('2d').getImageData(0, 0, 450, 700).data;
 
-    expect(Buffer.from(exported).equals(Buffer.from(expected))).toBe(true);
+    expect(Buffer.from(await pngPixels(exported)).equals(Buffer.from(expected))).toBe(true);
   });
 
   it('refuses to export an empty document', async () => {

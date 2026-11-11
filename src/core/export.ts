@@ -376,6 +376,7 @@ export async function estimateExportSize(
     height: sampleSize.height,
     loopCount: view.video ? 0 : (view.animation?.loopCount ?? null),
   });
+  let pendingFrame: GifEncodeFrame | null = null;
   for (const [slot, frameIndex] of indices.entries()) {
     // The tile carries the Border at the real export's proportion, not at the
     // tile's own scale, so the area scaling does not inflate it. The reference
@@ -387,10 +388,17 @@ export async function estimateExportSize(
           referenceWidth: borderReferenceWidth(measureDoc),
         }
       : undefined;
-    writer.addFrame(renderedGifFrame(ctx, estimateDoc, sampleSize, frameIndex, border));
+    // The real Export merges held frames, so the estimate folds them the same
+    // way; otherwise an animation with still frames would be overestimated.
+    pendingFrame = foldFrame(
+      writer,
+      pendingFrame,
+      renderedGifFrame(ctx, estimateDoc, sampleSize, frameIndex, border),
+    ).pending;
     // Keep the window responsive while a large GIF is measured.
     if (slot + 1 < indices.length) await yieldToUi();
   }
+  if (pendingFrame) writer.addFrame(pendingFrame);
 
   const sampled = writer.finish();
   const whole = indices.length >= total;
@@ -427,6 +435,28 @@ function yieldToUi(): Promise<void> {
 
 function cancelledError(): ExportError {
   return new ExportError('Export cancelado.', true);
+}
+
+/**
+ * Fold a rendered Frame into the animation being written. A Frame identical to
+ * the one before it is merged into that Frame and its delay is added, so a
+ * Source that holds a still image costs one image instead of one per repeat.
+ * The caller keeps only the pending Frame in memory, and the total animation
+ * time never changes.
+ */
+function foldFrame(
+  writer: GifWriter,
+  pending: GifEncodeFrame | null,
+  frame: GifEncodeFrame,
+): { pending: GifEncodeFrame; dropped: number } {
+  if (pending && sameFramePixels(pending.pixels, frame.pixels)) {
+    return {
+      pending: { pixels: pending.pixels, delayMs: pending.delayMs + frame.delayMs },
+      dropped: 1,
+    };
+  }
+  if (pending) writer.addFrame(pending);
+  return { pending: frame, dropped: 0 };
 }
 
 /** A cancelled sidecar is an ordinary cancelled Export, not a crash. */
@@ -502,19 +532,11 @@ export async function renderGif(
       frame = renderedGifFrame(ctx, doc, size, frameIndex);
     }
 
-    if (doc.optimize.enabled) {
-      // Stream the previous frame out and keep only one in memory while
-      // merging consecutive duplicates.
-      if (pending && sameFramePixels(pending.pixels, frame.pixels)) {
-        pending = { pixels: pending.pixels, delayMs: pending.delayMs + frame.delayMs };
-        dropped += 1;
-      } else {
-        if (pending) writer.addFrame(pending);
-        pending = frame;
-      }
-    } else {
-      writer.addFrame(frame);
-    }
+    // Fold the frame in: identical consecutive frames become one image with
+    // their delays added, whatever the Optimize setting is.
+    const folded = foldFrame(writer, pending, frame);
+    pending = folded.pending;
+    dropped += folded.dropped;
 
     options.onProgress?.({
       phase: usingWaifu2x ? 'waifu2x' : 'render',

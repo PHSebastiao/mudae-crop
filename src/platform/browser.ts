@@ -3,8 +3,10 @@ import { isVideoFormat } from '../core/document';
 import type { DecodedImage, Decoder } from '../core/import';
 import { mimeFor } from '../core/import';
 import { decodeGif, MIN_GIF_DELAY_MS } from '../core/gif';
-import { ExportError, type EncodableCanvas, type ExportAdapter } from '../core/export';
+import type { EncodableCanvas, ExportAdapter } from '../core/export';
+import { encodeCanvasPng } from '../core/png';
 import type { PaletteAdapter } from '../core/palette';
+import { deflateZlib } from './deflate';
 import { decodeVideoWithBrowser } from './video';
 
 /** The one place that turns image bytes into a Blob with the matching MIME. */
@@ -177,12 +179,9 @@ function canvasFrom(size: { width: number; height: number }): EncodableCanvas {
 
 export const browserExportAdapter: ExportAdapter = {
   createCanvas: (width, height) => canvasFrom({ width, height }),
-  async encodePng(canvas: EncodableCanvas): Promise<Uint8Array> {
-    const element = canvas as unknown as HTMLCanvasElement;
-    const blob = await new Promise<Blob | null>((resolve) => element.toBlob(resolve, 'image/png'));
-    if (!blob) throw new ExportError('Falha ao codificar o PNG.');
-    return new Uint8Array(await blob.arrayBuffer());
-  },
+  // Our writer instead of `canvas.toBlob`: it filters each row on its own and
+  // drops an opaque alpha plane, which is about a third of a photo Export.
+  encodePng: (canvas: EncodableCanvas): Promise<Uint8Array> => encodeCanvasPng(canvas, deflateZlib),
   async decodePng(bytes: Uint8Array): Promise<CanvasImageSource> {
     return createImageBitmap(blobOf(bytes, 'png'));
   },
