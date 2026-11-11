@@ -4,8 +4,9 @@ dist-portable
 src-tauri/target
 src-tauri/gen
 src-tauri/waifu2x/*
-!src-tauri/waifu2x/.gitkeep
-!src-tauri/waifu2x/PLACEHOLDER.md
+/docs/
+/AGENTS.md
+/GLOSSARY.md
 /settings.json
 /history.json
 /window.json

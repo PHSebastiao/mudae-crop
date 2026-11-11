@@ -1,77 +1,139 @@
-<img src="assets/icon.svg" width="64" height="64" alt="">
+<p align="center">
+  <img src="assets/icon.svg" width="88" height="88" alt="mudae crop">
+</p>
 
-# mudae-crop
+<h1 align="center">mudae crop</h1>
 
-A local Windows desktop editor that turns a Source image or animation into a card: a Frame with a chosen proportion, a Border, and an Export ready to upload to Image Chest.
+<p align="center">
+  Um editor local para transformar imagens e GIFs em cards do Mudae.<br>
+  <strong>Windows 10/11</strong> · Tauri 2 · React · TypeScript
+</p>
 
-This slice is the core loop: bring a Source in from a file dialog, a drop, the clipboard, an image link or a pasted local path, choose the Frame's proportion, and Export a PNG or a looping GIF through the native save dialog. The Frame is a crop window over the Source, not a fixed pixel size: the proportion popover offers portrait or landscape, the Mudae 9:14, 4:5, 3:4, 2:3, 1:1, 4:3, 3:2, 16:9 and 21:9 families plus the Source's own proportion as **Fonte**, and an **Encaixar proporções** switch. **Ajustar Frame** (C) turns on eight handles over a fixed Source; a locked drag anchors the opposite side or corner and keeps the proportion, **Shift** releases it into a free **Personalizado** proportion, and **Alt** bypasses the 2.5% snapping while a badge shows the native pixels and proportion; the window also shows rule-of-thirds guides, and moving it snaps its centre to the Source's centre (Alt releases). Sources can be PNG, JPG, GIF, animated WebP, APNG, a still WebP, or an MP4/MOV/WebM video; animations are composited frame by frame, and video plays natively in Preview while scrub and Export seek frame by frame at the video's own frame rate; because GIF delays are quantised to 10 ms with a 20 ms floor, a 60 fps clip exports near 50 fps and the native preview follows that resulting rate. The editor shows frame count and duration, with a play/pause bar; a **trim** toggle puts two draggable limiters on that bar, and a 0,25×–4× speed multiplier keeps Preview and Export at the same final speed with the 20 ms delay floor. Long animations render, encode and optimize with progress and can be cancelled without losing the document. The Crop runs in Fit (largest window inside the Source, excess outside), Pad (whole Source visible, bars painted), full width or full height, rotates in 90° steps, and offers numeric zoom and offsets as readouts with a reset. The Export panel leads with one output summary (format, pixels, proportion and file size). The output is the native crop size — the Source pixels the window covers — unless a Resize is set; **Nativo**, **÷2** and **×2** sit beside the custom width/height fields, and **Carta 1×**/**Carta 2×** (225×350/450×700, or 350×225/700×450 in landscape) appear only for Mudae. A lock keeps the Frame proportion and warns before a custom size stretches the card or asks the Source for more pixels than it has; the native hint is always shown, and the 4096-pixel memory cap keeps the output within the canvas bound, shrinking both sides proportionally while the lock is on. The size readout follows Trim, output size, format and Optimize - a still is encoded for real up to the pixel budget (a reduced raster above it), a GIF is estimated from evenly spaced frames or a native tile - and a non-blocking warning appears above Mudae's 10 MB guidance for stills and animations alike. GIF optimization uses real lossy compression with optional colour reduction, lossless duplicate-frame removal and an optional 10 MB target; turning the target off applies the chosen compression even below it, and the result shows the card-to-final size and percentage. The Pad color can be typed as HEX, chosen in the native picker, or sampled from the Crop with the in-app eyedropper — a 9×9 pixel magnifier follows the pointer (the native dialog's eyedropper does not work inside WebView2). The Border is a 1px white inner stroke by default, adjustable from 0 to 20 pixels of the final file and drawn last, so it is constant at every Export size while Preview scales it to stay at least one screen pixel; the Palette samples the rendered Crop into up to 10 swatches — fixed white first, then the largest image colors and a few vibrant accents — merging near duplicates and relaxing the merge rather than repeating colors when the image is flat; and Sharpness is an unsharp mask from 0 to 100. When waifu2x is on, the Palette runs the sidecar over up to six sampled frames so its swatches follow the processed pixels. Links are fetched by the Rust side, so CORS never applies; the download shows progress, can be cancelled, and refuses anything above 30 MB.
+## O que é
 
-waifu2x is an opt-in enhancement: a bundled `waifu2x-ncnn-vulkan` sidecar and its cunet models run through Vulkan over the rendered Crop. Denoise 0–3 at 1× cleans the image without changing its dimensions; an explicit 2× or 4× upscale defines the Export size and disables the Carta and custom-size controls while it is active. It is off for every new Source and no Export scale or preset turns it on. The controls stay disabled with an explanation when the sidecar is missing or the machine has no Vulkan device, and the rest of the editor keeps working. Animations run frame by frame with progress and can be cancelled; a cancelled run leaves the document exactly as it was. The Preview shows the Crop before waifu2x, so the Export is authoritative there; the Palette runs the sidecar over up to six sampled frames, so its swatches follow the processed pixels. Install the pinned sidecar with `npm run waifu2x:install` (see [`src-tauri/waifu2x/PLACEHOLDER.md`](src-tauri/waifu2x/PLACEHOLDER.md)); `npm run tauri build` runs that step before bundling.
+O mudae crop faz o caminho inteiro em uma janela: traz uma Source, enquadra no
+Frame do card, ajusta a Borda e a Palette, trata o GIF e exporta um PNG ou GIF
+pronto para o `$ai`.
 
-Settings keep the Image Chest token, the Export folder, the default privacy, the last preset proportion, the Encaixe preference and the last Export/Border choices in `%LOCALAPPDATA%\Mudae Crop` on Windows, next to a 50-entry History of uploads and local Exports. The window's size and position live in `window.json` in the same folder and are restored on the next launch, but the working document is never restored: every launch starts empty. The Image Chest upload needs a personal API token, generated at https://imgchest.com/profile/api; Configurações links to that page. With a token saved, **Subir e copiar link** (or Ctrl+Enter) renders the current Export, creates a hidden Image Chest Post - or appends to a Post id after validating it - copies the direct `cdn.imgchest.com` link and records it in the History. Every successful Export also adds a local entry with its file path, and its **explorador** action reveals the file in Explorer. The History keeps both kinds, offers copy/open actions and can be cleared. A 401 points at Configurações, a 413 explains the 30 MB limit, a 429 starts a visible backoff, and an offline failure offers a retry.
+Tudo roda no seu computador. A única coisa que usa a rede é o upload para o
+Image Chest.
 
-## Stack
+## Recursos
 
-- Tauri 2 desktop shell (Rust) with a React + TypeScript front-end built by Vite.
-- The render pipeline is one pure module: the Preview's Frame and the Export both draw through `renderFrame(ctx, doc, { outputWidth, outputHeight })` in `src/core/render.ts`. The dimmed surround reuses the same Source draw.
-- Domain vocabulary lives in [GLOSSARY.md](GLOSSARY.md); decisions in [docs/adr](docs/adr).
+- **Source** de arquivo, arrastar e soltar, Ctrl+V, link ou caminho local: PNG,
+  JPG, GIF, WebP, APNG e vídeos MP4/MOV/WebM.
+- **Frame** por proporção, com Fit, Pad, largura/altura total, zoom, pan e
+  rotação em 90°.
+- **Ajustar Frame** com oito alças, proporção travada, encaixe de proporção e
+  centro, e guias de terços.
+- **Borda** de 1 px branca por padrão, de 0 a 20 px, com a **Palette** extraída
+  do Crop (inclusive de GIFs) e cópia do HEX.
+- **Sharpness** e **waifu2x** opcional (denoise 1×, 2× ou 4×) pelo sidecar
+  Vulkan.
+- **GIF tools**: trim, velocidade, grade de quadros, remover/retomar quadro e
+  otimização com alvo de 10 MB.
+- **Export** PNG ou GIF, no tamanho nativo, Carta 1×/2× ou resize com trava de
+  proporção; aviso de 10 MB e estimativa de tamanho.
+- **Upload** para o Image Chest com link direto copiado e Histórico de 50 itens.
+- A janela lembra tamanho e posição; cada abertura começa com um documento
+  vazio.
 
-## Prerequisites
+## Instalação
 
-- Node.js 20 or newer.
-- Rust with the MSVC toolchain.
-- Visual Studio 2022 Build Tools with **Desktop development with C++** (for `link.exe`).
-- WebView2 runtime (present on Windows 11).
-- A Vulkan-capable GPU and the bundled waifu2x sidecar for the waifu2x controls. Everything else works without them; the controls are disabled with an explanation.
+As builds ficam em [Releases](https://github.com/PHSebastiao/mudae-crop/releases).
+Há três opções:
 
-## Develop
+| Arquivo                                  | O que é                                                     |
+| ---------------------------------------- | ----------------------------------------------------------- |
+| `Mudae-Crop-<versão>-win64-setup.exe`    | Instalador NSIS, atalho no Menu Iniciar e waifu2x incluído. |
+| `Mudae-Crop-<versão>-portable-win64.zip` | `Mudae-Crop.exe` + `waifu2x/`; descompacte e rode.          |
+| `Mudae-Crop-<versão>-win64.exe`          | Executável sozinho, sem waifu2x.                            |
+
+O instalador baixa o WebView2 se ele não estiver presente; o ZIP e o `.exe`
+sozinho precisam do WebView2 já instalado. As configurações e o Histórico ficam
+em `%LOCALAPPDATA%\Mudae Crop`.
+
+## Desenvolvimento
+
+### Pré-requisitos
+
+- Node.js 20+
+- Rust com toolchain MSVC
+- Visual Studio 2022 Build Tools com **Desktop development with C++**
+- WebView2 (já vem no Windows 11)
+- Uma GPU com Vulkan para os controles do waifu2x (o resto funciona sem)
+
+### Rodando
 
 ```powershell
 npm install
-npm run waifu2x:install
+npm run waifu2x:install   # opcional: baixa o sidecar e os modelos
 npm run tauri dev
 ```
 
-`npm run waifu2x:install` downloads the pinned Windows sidecar and its models into
-`src-tauri/waifu2x` (about 100 MB unpacked). It is optional: without it the app
-builds and runs, and the waifu2x controls stay disabled.
+O `npm run tauri dev` precisa de um **Developer PowerShell for VS 2022** (ou
+`vcvars64.bat`) para o `link.exe`. Para trabalhar só na UI, `npm run dev` abre no
+navegador, mas diálogos nativos, drop, clipboard e salvamento só existem na
+janela desktop.
 
-Run the desktop command from a **Developer PowerShell for VS 2022**, or call `vcvars64.bat` first, so the MSVC linker is on `PATH`.
-
-For layout-only work the front-end runs in a browser with `npm run dev`, but native file dialogs, file drops, clipboard files and saving only work in the desktop window.
-
-## Build the Windows release
-
-```powershell
-npm run waifu2x:install
-npm run tauri build -- --bundles nsis
-pwsh -NoProfile -File scripts/make-portable.ps1
-```
-
-`dist-portable/` then holds the three release assets:
-
-- `Mudae-Crop-<version>-win64-setup.exe` - NSIS installer, Start-menu shortcut and the bundled waifu2x sidecar.
-- `Mudae-Crop-<version>-portable-win64.zip` - `Mudae-Crop.exe` plus `waifu2x/`; unzip anywhere.
-- `Mudae-Crop-<version>-win64.exe` - the standalone app without the sidecar; the waifu2x controls stay disabled and everything else works.
-
-The installer can download WebView2 when it is missing; the ZIP and the standalone executable need WebView2 already installed. All three store `settings.json`, `history.json` and `window.json` in `%LOCALAPPDATA%\Mudae Crop`, and only the Image Chest upload needs the network. Pushing a `v*` tag or dispatching the `release` workflow builds all three on `windows-latest`, writes their SHA-256 checksums into the release notes and attaches them to the GitHub release; the sidecar binary and models are downloaded at build time and never committed.
-
-## Shortcuts
-
-Ctrl+O opens a file, Ctrl+V pastes, Ctrl+S exports, Ctrl+Enter uploads, Ctrl+, opens Configurações. The arrows nudge the Crop by 1 px (10 px with Shift), `+`/`-` zoom, `R` rotates 90°, `[`/`]` change the Border width and `1`/`2` choose the Mudae and 1:1 proportions. `?` lists them in the window.
-
-## Checks
+### Checks
 
 ```powershell
 npm run typecheck
 npm test
 npm run build
+npm run format:check
 cargo check --manifest-path src-tauri/Cargo.toml
 ```
 
-Vitest covers the render seam (a native-size hash snapshot, fixture colors, Pad fill, the Border in final-file pixels and its Preview floor, sharpness, 90° rotation and custom resize), Crop geometry (the rect model: per-mode rects, the 8× and Pad limits, pan, zoom, rotation, the long-side proportion change and handle resizing with 2.5% snapping, plus centre snapping when the window moves), proportion presets and labels (flip, tolerance, Carta sizes and reduced-ratio slugs), Source decoding and error messages (PNG, JPG, GIF, still WebP, APNG and video container sniffing, animated frame assembly and the video Source seam), GIF decoding/compositing (disposal 0/1, 2 and 3, transparency, interlace, the 20 ms delay floor, the Netscape loop count and a GIF written by an external encoder), export trim/speed geometry (frame counts, duration, floor, lookup and even sampling), Export dimensions and naming (the native crop size, the proportional 4096 cap, Carta 1×/2×, custom resize, ratio and source-up scale warnings), the Export size estimate (exact still encode, GIF extrapolation across Trim and output size, Optimize target cap and the 10 MB guidance), PNG and GIF Export (trimmed frame count, selected frame, delay/loop preservation, custom resize, progress and cancellation), optimize (duplicate-frame merging, lossy/colour target termination, invalid-candidate rejection and cancellation), the URL download wrapper, Settings persistence (the saved proportion, snapping and the stale `exportScale` key), the automatic Post title, Palette extraction, deterministic sharpening, the Image Chest client, and the waifu2x wrapper and Export path (arguments, progress parsing, cancellation, non-zero exit, the 1×/2×/4× sizes and per-frame GIF progress) against a fake sidecar. Native dialogs, drag-and-drop, video codecs, gifsicle in WebView2, the real download, the real upload, the real GPU sidecar and the save path are covered by the manual QA pass in [`docs/qa/manual.md`](docs/qa/manual.md) and [`docs/qa/waifu2x.md`](docs/qa/waifu2x.md).
+### Build de release
 
-## Troubleshooting
+```powershell
+npm run tauri build -- --bundles nsis
+pwsh -NoProfile -File scripts/make-portable.ps1
+```
 
-- `link.exe not found` means the MSVC environment is not loaded: open a Developer PowerShell for VS 2022.
-- If Vite fails with an `esbuild` install-script error, run `npm install-scripts approve esbuild` and `npm rebuild esbuild`.
+Os três arquivos saem em `dist-portable/`. O workflow
+`.github/workflows/release.yml` faz o mesmo em `windows-latest` quando você
+empurra uma tag `v*` ou dispara manualmente.
+
+## Atalhos
+
+| Teclas                  | Ação                          |
+| ----------------------- | ----------------------------- |
+| `Ctrl+O`                | Abrir arquivo                 |
+| `Ctrl+V`                | Colar imagem, link ou caminho |
+| `Ctrl+S`                | Exportar                      |
+| `Ctrl+Enter`            | Subir e copiar o link         |
+| `Ctrl+,`                | Configurações                 |
+| `C`                     | Ajustar/Concluir Frame        |
+| `F`                     | Quadros do GIF                |
+| `Espaço`                | Reproduzir/pausar             |
+| `Setas` / `Shift+Setas` | Mover o Crop 1 px / 10 px     |
+| `+` / `-`               | Zoom                          |
+| `R`                     | Girar 90°                     |
+| `[` / `]`               | Borda -1 / +1 px              |
+| `1` / `2`               | Proporção Mudae / 1:1         |
+| `?`                     | Lista de atalhos              |
+| `Esc`                   | Sair da ferramenta atual      |
+
+## Estrutura
+
+```text
+src/core/       lógica pura: Crop, Frame, render, Palette, GIF, Export
+src/platform/   adaptadores Tauri e navegador
+src/components/ UI React
+src-tauri/      shell Rust, comandos nativos e sidecar waifu2x
+scripts/        instalação do waifu2x e empacotamento portátil
+tests/          Vitest sobre src/core
+```
+
+O `renderFrame()` em `src/core/render.ts` é o único caminho de renderização:
+Preview, Export e Palette passam por ele.
+
+## Notas
+
+- Windows é a plataforma validada.
+- O app funciona offline; só o upload para o Image Chest precisa de rede.
+- O token do Image Chest fica em texto puro no arquivo local de configurações,
+  por ser um app de um único usuário.
