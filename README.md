@@ -97,26 +97,6 @@ Os três arquivos saem em `dist-portable/`. O workflow
 `.github/workflows/release.yml` faz o mesmo em `windows-latest` quando você
 empurra uma tag `v*` ou dispara manualmente.
 
-## Atalhos
-
-| Teclas                  | Ação                          |
-| ----------------------- | ----------------------------- |
-| `Ctrl+O`                | Abrir arquivo                 |
-| `Ctrl+V`                | Colar imagem, link ou caminho |
-| `Ctrl+S`                | Exportar                      |
-| `Ctrl+Enter`            | Subir e copiar o link         |
-| `Ctrl+,`                | Configurações                 |
-| `C`                     | Ajustar/Concluir Frame        |
-| `F`                     | Quadros do GIF                |
-| `Espaço`                | Reproduzir/pausar             |
-| `Setas` / `Shift+Setas` | Mover o Crop 1 px / 10 px     |
-| `+` / `-`               | Zoom                          |
-| `R`                     | Girar 90°                     |
-| `[` / `]`               | Borda -1 / +1 px              |
-| `1` / `2`               | Proporção Mudae / 1:1         |
-| `?`                     | Lista de atalhos              |
-| `Esc`                   | Sair da ferramenta atual      |
-
 ## Estrutura
 
 ```text

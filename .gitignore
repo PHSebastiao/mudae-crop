@@ -4,6 +4,7 @@ dist-portable
 src-tauri/target
 src-tauri/gen
 src-tauri/waifu2x/*
+!src-tauri/waifu2x/.gitkeep
 /docs/
 /AGENTS.md
 /GLOSSARY.md
