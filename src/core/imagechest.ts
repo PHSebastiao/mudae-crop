@@ -30,10 +30,10 @@ export interface UploadFile {
 }
 
 export interface ImageChestRequest {
-  readonly method: 'GET' | 'POST';
+  readonly method: 'GET' | 'POST' | 'PUT';
   readonly path: string;
   readonly token: string;
-  /** Scalar multipart fields; only used by POSTs. */
+  /** Scalar fields: multipart on a POST, form-urlencoded on a PUT. */
   readonly form?: Readonly<Record<string, string>>;
   /** The single file part; only used by POSTs. */
   readonly file?: {
@@ -92,6 +92,8 @@ export interface UploadOutcome {
   readonly link: string;
   readonly postId: string;
   readonly imageId: string;
+  /** False when the image went up but its description did not. */
+  readonly described: boolean;
 }
 
 export interface UploadInput {
@@ -100,11 +102,18 @@ export interface UploadInput {
   readonly file: UploadFile;
   readonly title: string;
   readonly privacy: Privacy;
+  /** Written into the uploaded image's description, best effort. */
+  readonly description?: string;
   /** When set, the Export is appended to this Post after validating it. */
   readonly postId?: string | null;
 }
 
 export function isPostId(value: string): boolean {
+  return /^[A-Za-z0-9]{1,32}$/.test(value);
+}
+
+/** An uploaded image id; the same alphabet as a Post id, naming a file. */
+function isImageId(value: string): boolean {
   return /^[A-Za-z0-9]{1,32}$/.test(value);
 }
 
@@ -317,6 +326,32 @@ async function requirePost(
 }
 
 /**
+ * A Post has no description field, so the credit line goes on the uploaded
+ * image, the only place Image Chest stores one. The Post already exists by
+ * now: a rejected description must never lose the link, so this reports
+ * failure instead of throwing.
+ */
+async function describeImage(
+  transport: ImageChestTransport,
+  token: string,
+  imageId: string,
+  description: string,
+): Promise<boolean> {
+  if (!isImageId(imageId)) return false;
+  try {
+    const response = await send(transport, {
+      method: 'PUT',
+      path: `/v1/file/${encodeURIComponent(imageId)}`,
+      token,
+      form: { description },
+    });
+    return response.status >= 200 && response.status < 300;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Create a Post (or append to one) and return the direct cdn link. The caller
  * decides where the link goes; nothing is copied or stored here.
  */
@@ -366,5 +401,14 @@ export async function uploadStill(input: UploadInput): Promise<UploadOutcome> {
 
   const parsed = parsePost(response.body, known);
   if (!parsed) throw malformed();
-  return { link: parsed.link, postId: parsed.postId, imageId: parsed.imageId };
+  const description = (input.description ?? '').trim();
+  const described = description
+    ? await describeImage(input.transport, token, parsed.imageId, description)
+    : false;
+  return {
+    link: parsed.link,
+    postId: parsed.postId,
+    imageId: parsed.imageId,
+    described,
+  };
 }

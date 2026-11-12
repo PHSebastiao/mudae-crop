@@ -72,7 +72,7 @@ import {
   uploadErrorMessage,
   uploadStill,
 } from './core/imagechest';
-import { exportFileName, postTitle } from './core/naming';
+import { UPLOAD_DESCRIPTION, exportFileName, postTitle } from './core/naming';
 import { mudaeExportSize, ratioSlug, type CartaScale } from './core/ratios';
 import { resolveShortcut } from './core/shortcuts';
 import { loadHistory, loadSettings, saveHistory, saveSettings } from './core/config';
@@ -873,6 +873,7 @@ export default function App() {
         transport: tauriImageChestTransport,
         token: saved.token,
         title,
+        description: UPLOAD_DESCRIPTION,
         privacy: saved.defaultPrivacy,
         postId: requestedPost || null,
         file: {
@@ -905,10 +906,11 @@ export default function App() {
         createdAt: new Date().toISOString(),
       };
       persistHistory(appendHistory(historyRef.current, record));
+      const noDescription = outcome.described ? '' : ' A descrição não foi aplicada.';
       inform(
         copied
-          ? `Link copiado: ${outcome.link}`
-          : `Export no Post ${outcome.postId}. Não foi possível copiar; use o Histórico.`,
+          ? `Link copiado: ${outcome.link}${noDescription}`
+          : `Export no Post ${outcome.postId}. Não foi possível copiar; use o Histórico.${noDescription}`,
       );
     } catch (reason) {
       if (reason instanceof ExportError && reason.cancelled) {

@@ -55,12 +55,16 @@ const base = {
   token: 'secret-token',
   file,
   title: 'cat · 225×350',
+  description: 'Cropped with [Mudae Crop](https://github.com/PHSebastiao/mudae-crop/)',
   privacy: 'hidden' as const,
 };
 
 describe('uploadStill', () => {
   it('creates a hidden post and returns the direct cdn link', async () => {
-    const { transport, requests } = script([ok(post('post123', [image('img1', 1)]), 201)]);
+    const { transport, requests } = script([
+      ok(post('post123', [image('img1', 1)]), 201),
+      ok({ success: 'true' }),
+    ]);
 
     const outcome = await uploadStill({ ...base, transport });
 
@@ -68,11 +72,14 @@ describe('uploadStill', () => {
       link: 'https://cdn.imgchest.com/files/img1.png',
       postId: 'post123',
       imageId: 'img1',
+      described: true,
     });
-    expect(requests).toHaveLength(1);
+    // The create, then the image description: a Post has no description field.
+    expect(requests.map((request) => [request.method, request.path])).toEqual([
+      ['POST', '/v1/post'],
+      ['PUT', '/v1/file/img1'],
+    ]);
     const [request] = requests;
-    expect(request.method).toBe('POST');
-    expect(request.path).toBe('/v1/post');
     expect(request.token).toBe('secret-token');
     expect(request.form).toEqual({
       title: 'cat · 225×350',
@@ -85,11 +92,36 @@ describe('uploadStill', () => {
       contentType: 'image/png',
     });
     expect(Array.from(request.file?.bytes ?? [])).toEqual([1, 2, 3, 4]);
+    expect(requests[1].form).toEqual({ description: base.description });
+    expect(requests[1].file).toBeUndefined();
+  });
+
+  it('keeps the link when the description is rejected', async () => {
+    const { transport, requests } = script([
+      ok(post('post123', [image('img1', 1)]), 201),
+      ok({ message: 'Nope' }, 403),
+    ]);
+
+    const outcome = await uploadStill({ ...base, transport });
+
+    expect(outcome.link).toBe('https://cdn.imgchest.com/files/img1.png');
+    expect(outcome.described).toBe(false);
+    expect(requests).toHaveLength(2);
+  });
+
+  it('skips the description request when there is no text', async () => {
+    const { transport, requests } = script([ok(post('post123', [image('img1', 1)]), 201)]);
+
+    const outcome = await uploadStill({ ...base, description: '   ', transport });
+
+    expect(outcome.described).toBe(false);
+    expect(requests).toHaveLength(1);
   });
 
   it('uploads an animated GIF as image/gif under its own file name', async () => {
     const { transport, requests } = script([
       ok(post('post123', [image('img1', 1, 'https://cdn.imgchest.com/files/img1.gif')]), 201),
+      ok({ success: 'true' }),
     ]);
     const gif: UploadFile = {
       name: 'card.gif',
@@ -100,19 +132,22 @@ describe('uploadStill', () => {
     const outcome = await uploadStill({ ...base, file: gif, transport });
 
     expect(outcome.link).toBe('https://cdn.imgchest.com/files/img1.gif');
-    expect(requests).toHaveLength(1);
+    expect(outcome.described).toBe(true);
+    expect(requests).toHaveLength(2);
     expect(requests[0].file).toMatchObject({
       field: 'images[]',
       name: 'card.gif',
       contentType: 'image/gif',
     });
     expect(Array.from(requests[0].file?.bytes ?? [])).toEqual([0x47, 0x49, 0x46, 0x38, 0x39, 0x61]);
+    expect(requests[1].path).toBe('/v1/file/img1');
   });
 
   it('appends to an existing Post only after validating it', async () => {
     const { transport, requests } = script([
       ok(post('post123', [image('old', 1)])),
       ok(post('post123', [image('old', 1), image('new', 2)])),
+      ok({ success: 'true' }),
     ]);
 
     const outcome = await uploadStill({ ...base, transport, postId: 'post123' });
@@ -121,10 +156,13 @@ describe('uploadStill', () => {
     expect(requests.map((request) => [request.method, request.path])).toEqual([
       ['GET', '/v1/post/post123'],
       ['POST', '/v1/post/post123/add'],
+      ['PUT', '/v1/file/new'],
     ]);
     // Appending never renames the Post or changes its privacy.
     expect(requests[1].form).toBeUndefined();
     expect(requests[1].file?.field).toBe('images[]');
+    // The credit line goes on the image that was just added.
+    expect(requests[2].form).toEqual({ description: base.description });
   });
 
   it('picks the newest image when the response lists the whole Post', async () => {

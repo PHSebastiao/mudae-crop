@@ -35,7 +35,8 @@ Image Chest.
   otimização com alvo de 10 MB.
 - **Export** PNG ou GIF, no tamanho nativo, Carta 1×/2× ou resize com trava de
   proporção; aviso de 10 MB e estimativa de tamanho.
-- **Upload** para o Image Chest com link direto copiado e Histórico de 50 itens.
+- **Upload** para o Image Chest com link direto copiado, crédito na descrição da
+  imagem e Histórico de 50 itens.
 - A janela lembra tamanho e posição; cada abertura começa com um documento
   vazio.
 

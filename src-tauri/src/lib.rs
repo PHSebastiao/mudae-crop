@@ -578,7 +578,8 @@ struct ImageChestReply {
 
 /// One Image Chest API request on the native side, where CORS does not apply.
 /// The front-end still owns the request shape and the response interpretation;
-/// this command only carries the multipart body and reports the status.
+/// this command only carries the multipart upload or the form fields and
+/// reports the status.
 #[tauri::command(rename_all = "snake_case")]
 async fn imagechest_request(
     method: String,
@@ -608,6 +609,7 @@ async fn imagechest_request(
     let mut request = match method.as_str() {
         "GET" => client.get(url),
         "POST" => client.post(url),
+        "PUT" => client.put(url),
         _ => return Err("Método HTTP inválido.".into()),
     }
     .bearer_auth(token.trim());
@@ -625,6 +627,10 @@ async fn imagechest_request(
             multipart = multipart.part(field, part);
         }
         request = request.multipart(multipart);
+    } else if let Some(fields) = form {
+        // A PUT edits a scalar field; PHP only parses that body when it is
+        // form-urlencoded, never as multipart.
+        request = request.form(&fields);
     }
 
     let response = request.send().await.map_err(|error| error.to_string())?;
