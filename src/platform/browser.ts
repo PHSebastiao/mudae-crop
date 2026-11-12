@@ -3,7 +3,7 @@ import { isVideoFormat } from '../core/document';
 import type { DecodedImage, Decoder } from '../core/import';
 import { mimeFor } from '../core/import';
 import { decodeGif, MIN_GIF_DELAY_MS } from '../core/gif';
-import type { EncodableCanvas, ExportAdapter } from '../core/export';
+import { ExportError, type EncodableCanvas, type ExportAdapter } from '../core/export';
 import { encodeCanvasPng } from '../core/png';
 import type { PaletteAdapter } from '../core/palette';
 import { deflateZlib } from './deflate';
@@ -181,7 +181,15 @@ export const browserExportAdapter: ExportAdapter = {
   createCanvas: (width, height) => canvasFrom({ width, height }),
   // Our writer instead of `canvas.toBlob`: it filters each row on its own and
   // drops an opaque alpha plane, which is about a third of a photo Export.
-  encodePng: (canvas: EncodableCanvas): Promise<Uint8Array> => encodeCanvasPng(canvas, deflateZlib),
+  // Any failure becomes the same ExportError the old encoder threw.
+  encodePng: async (canvas: EncodableCanvas): Promise<Uint8Array> => {
+    try {
+      return await encodeCanvasPng(canvas, deflateZlib);
+    } catch (reason) {
+      if (reason instanceof ExportError) throw reason;
+      throw new ExportError('Falha ao codificar o PNG.');
+    }
+  },
   async decodePng(bytes: Uint8Array): Promise<CanvasImageSource> {
     return createImageBitmap(blobOf(bytes, 'png'));
   },

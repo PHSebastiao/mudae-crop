@@ -162,7 +162,9 @@ export function clampSpeed(speed: number): number {
 export function scaledDelayMs(delayMs: number, speed = 1): number {
   const scaled = delayMs / clampSpeed(speed);
   const rounded = Math.round(scaled / 10) * 10;
-  return Math.max(MIN_FRAME_DELAY_MS, rounded);
+  // Slowing a frame down can push its delay past what the GIF format stores;
+  // clamping here keeps Preview, Trim and the written file agreeing.
+  return Math.min(MAX_FRAME_DELAY_MS, Math.max(MIN_FRAME_DELAY_MS, rounded));
 }
 
 /** The delay the Preview and Export actually use at a given speed. */

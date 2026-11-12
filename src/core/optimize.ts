@@ -1,5 +1,4 @@
 import type { OptimizeSettings } from './document';
-import type { GifEncodeFrame } from './gif';
 import { decodeGif } from './gif';
 
 /** One lossy/colour setting handed to the compressor. */
@@ -55,33 +54,6 @@ export function sameFramePixels(a: Uint8ClampedArray, b: Uint8ClampedArray): boo
     if (a[index] !== b[index]) return false;
   }
   return true;
-}
-
-/**
- * Merge consecutive identical frames, adding the dropped frame's delay to the
- * one that remains so the total animation time never changes.
- */
-export function dropDuplicateFrames(frames: readonly GifEncodeFrame[]): {
-  frames: GifEncodeFrame[];
-  dropped: number;
-} {
-  if (frames.length === 0) return { frames: [], dropped: 0 };
-  const merged: GifEncodeFrame[] = [{ ...frames[0] }];
-  let dropped = 0;
-  for (let index = 1; index < frames.length; index += 1) {
-    const previous = merged[merged.length - 1];
-    const current = frames[index];
-    if (sameFramePixels(previous.pixels, current.pixels)) {
-      merged[merged.length - 1] = {
-        pixels: previous.pixels,
-        delayMs: previous.delayMs + current.delayMs,
-      };
-      dropped += 1;
-    } else {
-      merged.push({ ...current });
-    }
-  }
-  return { frames: merged, dropped };
 }
 
 function uniqueAscending(values: readonly number[], max: number): number[] {

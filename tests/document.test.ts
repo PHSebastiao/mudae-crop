@@ -5,9 +5,11 @@ import {
   DEFAULT_WAIFU2X,
   FIT_CROP,
   MAX_EXPORT_SIDE,
+  MAX_FRAME_DELAY_MS,
   baseOutputSize,
   emptyDocument,
   outputSize,
+  scaledDelayMs,
   withBorder,
   withCrop,
   withOptimize,
@@ -227,6 +229,14 @@ describe('animation editing settings', () => {
     expect(withSpeed(doc, 0.1).speed).toBe(0.25);
     expect(withSpeed(doc, 1.234).speed).toBe(1.23);
     expect(withSpeed(doc, Number.NaN).speed).toBe(1);
+  });
+
+  it('keeps a slowed frame inside the largest delay a GIF can store', () => {
+    // 655 s at 0,25× would be 2,6 M ms; the writer can only store 655,35 s, so
+    // the readouts clamp with it instead of promising time the file loses.
+    expect(scaledDelayMs(MAX_FRAME_DELAY_MS, 0.25)).toBe(MAX_FRAME_DELAY_MS);
+    expect(scaledDelayMs(120, 4)).toBe(30);
+    expect(scaledDelayMs(5, 1)).toBe(20);
   });
 
   it('keeps a custom size proportional to the Frame ratio while the lock is on', () => {

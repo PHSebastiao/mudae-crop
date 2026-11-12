@@ -159,6 +159,25 @@ describe('GIF Export', () => {
     expect(decoded.loopCount).toBe(0);
   });
 
+  it('sums the delays of the frames it folds', async () => {
+    const held = makeAnimatedSource(60, 60, ['#D94F6D', '#D94F6D', '#D94F6D'], [33, 33, 33], 0);
+
+    const decoded = decodeGif(await renderGif(makeDoc(held), adapter));
+
+    expect(decoded.frames).toHaveLength(1);
+    // Each 33 ms frame lands on the 10 ms grid as 30 ms.
+    expect(decoded.frames[0].delayMs).toBe(90);
+  });
+
+  it('keeps frames that repeat without being consecutive', async () => {
+    const apart = makeAnimatedSource(60, 60, ['#D94F6D', '#2B9C8F', '#D94F6D'], [40, 60, 40], 0);
+
+    const decoded = decodeGif(await renderGif(makeDoc(apart), adapter));
+
+    expect(decoded.frames).toHaveLength(3);
+    expect(decoded.frames.reduce((total, frame) => total + frame.delayMs, 0)).toBe(140);
+  });
+
   it('reports progress across rendering and streaming encoding', async () => {
     const onProgress = vi.fn();
     const doc = withTrimEnabled(withTrim(makeDoc(source), { start: 0, end: 2 }), true);
@@ -219,6 +238,22 @@ describe('GIF Export', () => {
 
     expect(decoded.frames).toHaveLength(2);
     expect(decoded.frames.map((frame) => frame.delayMs)).toEqual([100, 130]);
+  });
+
+  it('starts a new image instead of clamping a hold past the delay cap', async () => {
+    const held = makeAnimatedSource(
+      60,
+      60,
+      ['#D94F6D', '#D94F6D', '#D94F6D'],
+      [600_000, 60_000, 60_000],
+      0,
+    );
+
+    const decoded = decodeGif(await renderGif(makeDoc(held), adapter));
+
+    // The first hold already fills the 16-bit centisecond field, so the repeat
+    // that would overflow it becomes its own image; the total time is kept.
+    expect(decoded.frames.map((frame) => frame.delayMs)).toEqual([600_000, 120_000]);
   });
 
   it('cancels between rendering and finishing after the pending flush', async () => {
@@ -284,6 +319,27 @@ describe('GIF Export', () => {
     // The base already fits the default target, so the chosen pass runs once.
     expect(progress[4]).toEqual({ phase: 'optimize', done: 1, total: 1 });
     expect(progress).toHaveLength(5);
+  });
+
+  it('reports the frames it folded to the optimizer', async () => {
+    const duplicate = makeAnimatedSource(
+      225,
+      350,
+      ['#D94F6D', '#D94F6D', '#2B9C8F', '#2B9C8F'],
+      [100, 50, 80, 40],
+      0,
+    );
+    const onOptimized = vi.fn();
+    const optimizer: GifOptimizer = { compress: async (bytes) => bytes };
+    const doc = {
+      ...makeDoc(duplicate),
+      optimize: { ...DEFAULT_OPTIMIZE, enabled: true, targetEnabled: true },
+    };
+
+    await renderGif(doc, adapter, { optimizer, onOptimized });
+
+    expect(onOptimized).toHaveBeenCalledTimes(1);
+    expect(onOptimized.mock.calls[0][0]).toMatchObject({ droppedFrames: 2 });
   });
 
   it('refuses a still Source and an empty document', async () => {

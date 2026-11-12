@@ -7,14 +7,12 @@ import {
   isAnimated,
   withTrim,
   withTrimEnabled,
-  type Source,
-  type VideoSource,
 } from '../src/core/document';
 import { renderGif, renderPng, type EncodableCanvas, type ExportAdapter } from '../src/core/export';
 import { decodeGif } from '../src/core/gif';
 import { renderFrame } from '../src/core/render';
 import { videoPreviewRate } from '../src/core/animation';
-import { contextOf, makeDoc, pngPixels } from './helpers';
+import { contextOf, makeDoc, makeVideoFixture, pngPixels } from './helpers';
 
 const adapter: ExportAdapter = {
   createCanvas(width: number, height: number): EncodableCanvas {
@@ -24,59 +22,6 @@ const adapter: ExportAdapter = {
     return new Uint8Array((canvas as unknown as Canvas).toBuffer('image/png'));
   },
 };
-
-function makeVideoFixture(
-  width: number,
-  height: number,
-  colors: readonly string[],
-  fps = 10,
-): { source: Source; seeks: number[] } {
-  const frames = colors.map((color) => {
-    const canvas = createCanvas(width, height);
-    const ctx = canvas.getContext('2d');
-    ctx.fillStyle = color;
-    ctx.fillRect(0, 0, width, height);
-    return canvas as unknown as CanvasImageSource;
-  });
-  let index = 0;
-  const seeks: number[] = [];
-  const video: VideoSource = {
-    frameCount: frames.length,
-    fps,
-    durationMs: (frames.length / fps) * 1000,
-    get image() {
-      return frames[index];
-    },
-    get currentTimeMs() {
-      return (index / fps) * 1000;
-    },
-    async seekToFrame(next) {
-      index = Math.min(frames.length - 1, Math.max(0, next));
-      seeks.push(index);
-    },
-    async seekToMs(ms) {
-      index = Math.min(frames.length - 1, Math.max(0, Math.round((ms / 1000) * fps)));
-      seeks.push(index);
-    },
-    play() {},
-    pause() {},
-    dispose() {},
-  };
-
-  return {
-    source: {
-      name: 'fixture.mp4',
-      path: null,
-      width,
-      height,
-      format: 'mp4',
-      bytes: 4096,
-      image: frames[0],
-      video,
-    },
-    seeks,
-  };
-}
 
 describe('video Sources', () => {
   it('count as animations with their frame rate as the delay', () => {
@@ -110,6 +55,16 @@ describe('video Sources', () => {
     expect(decoded.frames.map((frame) => frame.delayMs)).toEqual([50, 50]);
     expect(decoded.loopCount).toBe(0);
     expect(seeks).toEqual([1, 2]);
+  });
+
+  it('folds identical adjacent video frames into one image', async () => {
+    const { source } = makeVideoFixture(60, 60, ['#FF0000', '#FF0000', '#00FF00'], 10);
+    const doc = makeDoc(source);
+
+    const decoded = decodeGif(await renderGif(doc, adapter));
+
+    expect(decoded.frames).toHaveLength(2);
+    expect(decoded.frames.map((frame) => frame.delayMs)).toEqual([200, 100]);
   });
 
   it('exports the selected frame as PNG', async () => {

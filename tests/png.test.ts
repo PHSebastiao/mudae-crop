@@ -26,10 +26,27 @@ function chunksOf(bytes: Uint8Array): Chunk[] {
   return chunks;
 }
 
-function ihdrOf(bytes: Uint8Array): { width: number; height: number; colorType: number } {
+function ihdrOf(bytes: Uint8Array): {
+  width: number;
+  height: number;
+  colorType: number;
+  bitDepth: number;
+  compression: number;
+  filter: number;
+  interlace: number;
+} {
   const [header] = chunksOf(bytes);
-  const view = new DataView(header.data.buffer, header.data.byteOffset, header.data.byteLength);
-  return { width: view.getUint32(0), height: view.getUint32(4), colorType: header.data[9] };
+  const data = header.data;
+  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  return {
+    width: view.getUint32(0),
+    height: view.getUint32(4),
+    bitDepth: data[8],
+    colorType: data[9],
+    compression: data[10],
+    filter: data[11],
+    interlace: data[12],
+  };
 }
 
 /** A photographic raster: gradients under noise, so every filter has work. */
@@ -83,6 +100,15 @@ describe('encodePng', () => {
     const chunks = chunksOf(bytes);
     expect(chunks.map((chunk) => chunk.type)).toEqual(['IHDR', 'IDAT', 'IEND']);
 
+    const header = ihdrOf(bytes);
+    expect(header).toMatchObject({
+      bitDepth: 8,
+      colorType: 2,
+      compression: 0,
+      filter: 0,
+      interlace: 0,
+    });
+
     for (const chunk of chunks) {
       const covered = new Uint8Array(4 + chunk.data.length);
       for (let index = 0; index < 4; index += 1) covered[index] = chunk.type.charCodeAt(index);
@@ -93,6 +119,55 @@ describe('encodePng', () => {
     // 32 rows of 32 RGB pixels, each row prefixed with its filter byte.
     const raw = inflateSync(Buffer.from(chunks[1].data));
     expect(raw.length).toBe((32 * 3 + 1) * 32);
+  });
+
+  it('keeps every alpha byte of a translucent image', async () => {
+    const pixels = new Uint8Array(8 * 4 * 4);
+    for (let pixel = 0; pixel < 32; pixel += 1) {
+      pixels[pixel * 4] = Math.min(255, 40 + pixel * 7);
+      pixels[pixel * 4 + 1] = Math.max(0, 255 - pixel * 5);
+      pixels[pixel * 4 + 2] = 128;
+      pixels[pixel * 4 + 3] = 8 + pixel * 8;
+    }
+
+    const bytes = await encodePng({ data: pixels, width: 8, height: 4 }, deflateZlib);
+
+    expect(ihdrOf(bytes).colorType).toBe(6);
+    // The canvas this test decodes through premultiplies and unpremultiplies,
+    // so colour survives exactly only where alpha is opaque; the alpha plane
+    // itself is exact everywhere, which is what the encoder has to preserve.
+    const decoded = await pngPixels(bytes);
+    for (let pixel = 0; pixel < 32; pixel += 1) {
+      const offset = pixel * 4;
+      expect(decoded[offset + 3]).toBe(pixels[offset + 3]);
+      if (pixels[offset + 3] === 255) {
+        expect(Array.from(decoded.subarray(offset, offset + 3))).toEqual(
+          Array.from(pixels.subarray(offset, offset + 3)),
+        );
+      }
+    }
+  });
+
+  it('encodes a one-pixel image', async () => {
+    const pixels = new Uint8Array([12, 34, 56, 255]);
+    const bytes = await encodePng({ data: pixels, width: 1, height: 1 }, deflateZlib);
+
+    expect(pngSize(bytes)).toEqual({ width: 1, height: 1 });
+    expect(Array.from(await pngPixels(bytes))).toEqual([12, 34, 56, 255]);
+  });
+
+  it('encodes a single column and a single row', async () => {
+    // A single column has no left neighbour at all; a single row has no row
+    // above. Both are the edges of the filter predictors.
+    const column = new Uint8Array([
+      10, 20, 30, 255, 40, 50, 60, 255, 70, 80, 90, 255, 1, 2, 3, 255,
+    ]);
+    const columnBytes = await encodePng({ data: column, width: 1, height: 4 }, deflateZlib);
+    expect(Array.from(await pngPixels(columnBytes))).toEqual(Array.from(column));
+
+    const row = new Uint8Array([9, 8, 7, 255, 1, 2, 3, 255, 4, 5, 6, 255]);
+    const rowBytes = await encodePng({ data: row, width: 3, height: 1 }, deflateZlib);
+    expect(Array.from(await pngPixels(rowBytes))).toEqual(Array.from(row));
   });
 
   it('picks the filter per row instead of one fixed filter', async () => {
@@ -118,6 +193,22 @@ describe('encodePng', () => {
     await expect(
       encodePng({ data: new Uint8Array(10), width: 3, height: 3 }, identity),
     ).rejects.toThrow();
+  });
+
+  it('rejects a raster without positive dimensions', async () => {
+    await expect(
+      encodePng({ data: new Uint8Array(3), width: 0, height: 1 }, identity),
+    ).rejects.toThrow();
+  });
+
+  it('encodes a 3-channel buffer as RGB', async () => {
+    const pixels = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+    const bytes = await encodePng({ data: pixels, width: 2, height: 2 }, deflateZlib);
+
+    expect(ihdrOf(bytes).colorType).toBe(2);
+    expect(Array.from(await pngPixels(bytes))).toEqual([
+      1, 2, 3, 255, 4, 5, 6, 255, 7, 8, 9, 255, 10, 11, 12, 255,
+    ]);
   });
 
   it('detects an opaque alpha plane', () => {

@@ -197,8 +197,12 @@ function dropAlpha(source: Uint8Array, pixelCount: number): Uint8Array {
   return rgb;
 }
 
-/** Read a canvas back as pixels and encode it. */
-export function encodeCanvasPng(canvas: PngCanvas, deflate: PngDeflate): Promise<Uint8Array> {
+/**
+ * Read a canvas back as pixels and encode it. Async so a readback failure (a
+ * tainted canvas throws) rejects instead of throwing out of a promise-returning
+ * call.
+ */
+export async function encodeCanvasPng(canvas: PngCanvas, deflate: PngDeflate): Promise<Uint8Array> {
   const image = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
   return encodePng({ data: image.data, width: canvas.width, height: canvas.height }, deflate);
 }

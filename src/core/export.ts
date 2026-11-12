@@ -4,6 +4,7 @@ import {
   effectiveSource,
   effectiveTrim,
   isAnimated,
+  MAX_FRAME_DELAY_MS,
   outputSize,
   trimFrameCount,
   type DocumentState,
@@ -268,7 +269,8 @@ export async function renderPng(
  * shows it as "≤"), because the optimizer can miss the goal; the estimate is
  * never called exact then. A video Source
  * samples the frame currently on screen, since seeking every sample would
- * flicker Preview.
+ * flicker Preview; its estimate is never exact and is never folded. An
+ * animation is folded like the Export only when the sample is the whole Trim.
  */
 export async function estimateExportSize(
   doc: DocumentState,
@@ -380,7 +382,13 @@ export async function estimateExportSize(
   // from a folded sample would divide merged bytes over unmerged frames and
   // underestimate the file. A sampled estimate stays deliberately moored to
   // one image per frame, so it errs high instead of low.
-  const whole = indices.length >= total;
+  //
+  // A video Source is never seeked while estimating, so every sampled render is
+  // the frame on screen and they all compare equal; folding them would collapse
+  // a whole animation into one image and still call the result exact. A tile
+  // sample of a big Export is excluded for the same reason: the centre tile can
+  // hold still while the rest of the Frame moves.
+  const whole = !view.video && !sampling && indices.length >= total;
   let pendingFrame: GifEncodeFrame | null = null;
   for (const [slot, frameIndex] of indices.entries()) {
     // The tile carries the Border at the real export's proportion, not at the
@@ -445,14 +453,16 @@ function cancelledError(): ExportError {
  * the one before it is merged into that Frame and its delay is added, so a
  * Source that holds a still image costs one image instead of one per repeat.
  * The caller keeps only the pending Frame in memory, and the total animation
- * time never changes.
+ * time never changes: a hold longer than the largest delay a GIF can store
+ * starts a new image instead of being clamped short.
  */
 function foldFrame(
   writer: GifWriter,
   pending: GifEncodeFrame | null,
   frame: GifEncodeFrame,
 ): { pending: GifEncodeFrame; dropped: number } {
-  if (pending && sameFramePixels(pending.pixels, frame.pixels)) {
+  const fits = pending !== null && pending.delayMs + frame.delayMs <= MAX_FRAME_DELAY_MS;
+  if (pending && fits && sameFramePixels(pending.pixels, frame.pixels)) {
     return {
       pending: { pixels: pending.pixels, delayMs: pending.delayMs + frame.delayMs },
       dropped: 1,
@@ -473,8 +483,10 @@ function waifu2xExportError(reason: unknown): unknown {
 /**
  * Render the active Trim of an animated Source through renderFrame, encode it
  * as a GIF at the document's output size, and optionally run the lossy
- * optimizer. Video frames are seeked before each render. Progress covers
- * rendering, encoding and optimization; AbortSignal stops any of them.
+ * optimizer. Video frames are seeked before each render. A frame identical to
+ * the one before it is folded into it, so the previous frame is held in memory
+ * until the next one has been rendered. Progress covers rendering, encoding and
+ * optimization; AbortSignal stops any of them.
  */
 export async function renderGif(
   doc: DocumentState,

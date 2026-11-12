@@ -9,6 +9,7 @@ import {
   type Rotation,
   type ScaleMode,
   type Source,
+  type VideoSource,
 } from '../src/core/document';
 import { MUDAE_RATIO } from '../src/core/ratios';
 import { baseRect } from '../src/core/rect';
@@ -72,6 +73,63 @@ export function makeAnimatedSource(
     bytes: 2048,
     image: frames[0].image,
     animation: { frames, loopCount },
+  };
+}
+
+/**
+ * A video-backed Source whose seek moves the drawable, so an Export can walk
+ * the Trim frame by frame without a decoder.
+ */
+export function makeVideoFixture(
+  width: number,
+  height: number,
+  colors: readonly string[],
+  fps = 10,
+): { source: Source; seeks: number[] } {
+  const frames = colors.map((color) => {
+    const canvas = createCanvas(width, height);
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = color;
+    ctx.fillRect(0, 0, width, height);
+    return canvas as unknown as CanvasImageSource;
+  });
+  let index = 0;
+  const seeks: number[] = [];
+  const video: VideoSource = {
+    frameCount: frames.length,
+    fps,
+    durationMs: (frames.length / fps) * 1000,
+    get image() {
+      return frames[index];
+    },
+    get currentTimeMs() {
+      return (index / fps) * 1000;
+    },
+    async seekToFrame(next) {
+      index = Math.min(frames.length - 1, Math.max(0, next));
+      seeks.push(index);
+    },
+    async seekToMs(ms) {
+      index = Math.min(frames.length - 1, Math.max(0, Math.round((ms / 1000) * fps)));
+      seeks.push(index);
+    },
+    play() {},
+    pause() {},
+    dispose() {},
+  };
+
+  return {
+    source: {
+      name: 'fixture.mp4',
+      path: null,
+      width,
+      height,
+      format: 'mp4',
+      bytes: 4096,
+      image: frames[0],
+      video,
+    },
+    seeks,
   };
 }
 

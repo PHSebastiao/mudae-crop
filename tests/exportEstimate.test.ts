@@ -8,7 +8,13 @@ import {
   type Source,
 } from '../src/core/document';
 import { estimateExportSize, renderGif, renderPng } from '../src/core/export';
-import { makeDoc, makePaintedAnimation, makeSource, testExportAdapter as adapter } from './helpers';
+import {
+  makeDoc,
+  makePaintedAnimation,
+  makeSource,
+  makeVideoFixture,
+  testExportAdapter as adapter,
+} from './helpers';
 
 const CELL_COLORS = Array.from({ length: 64 }, (_, index) => {
   const r = (index * 40) % 256;
@@ -98,6 +104,36 @@ describe('estimateExportSize', () => {
     const bytes = await renderGif(doc, adapter);
 
     expect(estimate).toEqual({ bytes: bytes.length, exact: true });
+  });
+
+  it('errs high instead of low when a sampled Trim repeats frames', async () => {
+    const held = makePaintedAnimation(60, 60, 12, (ctx, frame) => {
+      ctx.fillStyle = frame < 6 ? '#335577' : '#d94f6d';
+      ctx.fillRect(0, 0, 60, 60);
+    });
+    const doc = trimmed(makeDoc(held), 0, 11);
+
+    const estimate = await estimateExportSize(doc, adapter, { format: 'gif' });
+    const bytes = await renderGif(doc, adapter);
+
+    // 12 frames exceed the 8-frame sample cap, so the holds are invisible to
+    // it; the estimate must stay above the folded file, never below it.
+    expect(estimate.exact).toBe(false);
+    expect(estimate.bytes).toBeGreaterThanOrEqual(bytes.length);
+  });
+
+  it('does not fold a video Trim the estimate cannot seek', async () => {
+    const { source } = makeVideoFixture(60, 60, ['#335577', '#d94f6d', '#2B9C8F'], 10);
+    const doc = trimmed(makeDoc(source), 0, 2);
+
+    const estimate = await estimateExportSize(doc, adapter, { format: 'gif' });
+    const bytes = await renderGif(doc, adapter);
+
+    // Every sampled render is the frame on screen, so folding would collapse
+    // the clip into one image; three renders are still three images.
+    expect(estimate.exact).toBe(false);
+    expect(estimate.bytes / bytes.length).toBeGreaterThan(0.5);
+    expect(estimate.bytes / bytes.length).toBeLessThan(1.5);
   });
 
   it('grows with the Trim and with an explicit bigger Export size', async () => {

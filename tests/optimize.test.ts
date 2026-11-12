@@ -1,11 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { encodeGif } from '../src/core/gif';
-import {
-  OptimizeCancelledError,
-  dropDuplicateFrames,
-  optimizeGif,
-  type GifOptimizer,
-} from '../src/core/optimize';
+import { OptimizeCancelledError, optimizeGif, type GifOptimizer } from '../src/core/optimize';
 import type { OptimizeSettings } from '../src/core/document';
 import { DEFAULT_OPTIMIZE } from '../src/core/document';
 import { buildGif } from './gifFixtures';
@@ -49,29 +44,6 @@ function tinyGif(width = 2, height = 2): Uint8Array {
 function settings(patch: Partial<OptimizeSettings> = {}): OptimizeSettings {
   return { ...DEFAULT_OPTIMIZE, ...patch };
 }
-
-describe('dropDuplicateFrames', () => {
-  it('merges consecutive identical frames and sums their delays', () => {
-    const first = { pixels: pixelsOf(2, 1, [255, 0, 0]), delayMs: 100 };
-    const second = { pixels: pixelsOf(2, 1, [255, 0, 0]), delayMs: 50 };
-    const third = { pixels: pixelsOf(2, 1, [0, 255, 0]), delayMs: 80 };
-
-    const { frames, dropped } = dropDuplicateFrames([first, second, third]);
-
-    expect(dropped).toBe(1);
-    expect(frames).toHaveLength(2);
-    expect(frames[0].delayMs).toBe(150);
-    expect(frames[1].delayMs).toBe(80);
-  });
-
-  it('leaves a sequence without duplicates alone', () => {
-    const frames = [
-      { pixels: pixelsOf(1, 1, [255, 0, 0]), delayMs: 100 },
-      { pixels: pixelsOf(1, 1, [0, 255, 0]), delayMs: 100 },
-    ];
-    expect(dropDuplicateFrames(frames)).toMatchObject({ dropped: 0 });
-  });
-});
 
 describe('optimizeGif', () => {
   it('does nothing when lossy compression is off and the target is already met', async () => {
