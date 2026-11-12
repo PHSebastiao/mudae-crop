@@ -77,6 +77,10 @@ O `npm run tauri dev` precisa de um **Developer PowerShell for VS 2022** (ou
 navegador, mas diálogos nativos, drop, clipboard e salvamento só existem na
 janela desktop.
 
+O ícone do app sai de `assets/icon.svg`; `npm run icon` regenera os arquivos de
+`src-tauri/icons` para todas as plataformas. Ele renderiza um master de 1024 px
+antes de reduzir, para a borda fina não quebrar nos tamanhos pequenos.
+
 ### Checks
 
 ```powershell

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { downloadDir, join } from '@tauri-apps/api/path';
+import brandIcon from '../assets/icon.svg';
 import {
   animationFrameCount,
   baseOutputSize,
@@ -1445,17 +1446,7 @@ export default function App() {
       <div className="topbar-shell">
         <header className="topbar">
           <div className="brand">
-            <span className="brand-mark" aria-hidden="true">
-              <svg viewBox="0 0 16 16" focusable="false">
-                <path
-                  d="M4.25 1.5v10.25H14.5M1.5 4.25h10.25V14.5"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.3"
-                  strokeLinecap="round"
-                />
-              </svg>
-            </span>
+            <img className="brand-mark" src={brandIcon} alt="" />
             <span className="brand-name">mudae crop</span>
           </div>
           <RatioMenu

@@ -13,6 +13,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "waifu2x:install": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-waifu2x.ps1",
+    "icon": "node scripts/make-icons.mjs",
     "tauri": "tauri"
   },
   "dependencies": {

@@ -158,20 +158,10 @@ button {
 }
 
 .brand-mark {
-  display: grid;
-  place-items: center;
+  display: block;
   width: 24px;
   height: 24px;
-  border: 1px solid var(--line-strong);
-  border-radius: 7px;
-  background: linear-gradient(160deg, #353141 0%, #211f28 100%);
-  color: #f1edfa;
-}
-
-.brand-mark svg {
-  display: block;
-  width: 14px;
-  height: 14px;
+  border-radius: 6px;
 }
 
 .brand-name {

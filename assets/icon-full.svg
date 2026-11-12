@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1577" height="997" viewBox="0 0 1577 997">
+  <defs>
+    <radialGradient id="radial-gradient-1" cx="780" cy="450" r="600" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#452468"/>
+      <stop offset="0.2" stop-color="#452468" stop-opacity="0.64"/>
+      <stop offset="0.4" stop-color="#452468" stop-opacity="0.36"/>
+      <stop offset="0.6" stop-color="#452468" stop-opacity="0.16"/>
+      <stop offset="0.8" stop-color="#452468" stop-opacity="0.04"/>
+      <stop offset="1" stop-color="#452468" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="linear-gradient-1" x1="575.945" y1="254.671" x2="988.754" y2="678.926" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#7c61a9"/>
+      <stop offset="0.125" stop-color="#5d4b7b"/>
+      <stop offset="0.25" stop-color="#302640"/>
+      <stop offset="0.35" stop-color="#1e1826"/>
+      <stop offset="0.5" stop-color="#1a1521"/>
+      <stop offset="0.75" stop-color="#131019"/>
+      <stop offset="1" stop-color="#0e0c13"/>
+    </linearGradient>
+    <linearGradient id="linear-gradient-2" x1="578.092" y1="256.818" x2="986.605" y2="676.777" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#cdabf8"/>
+      <stop offset="0.25" stop-color="#b089f0"/>
+      <stop offset="0.45" stop-color="#8064bb"/>
+      <stop offset="0.75" stop-color="#4c3577"/>
+      <stop offset="1" stop-color="#3d2b63"/>
+    </linearGradient>
+    <linearGradient id="linear-gradient-3" x1="703.699" y1="331.251" x2="904.192" y2="556.273" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f5effd"/>
+      <stop offset="1" stop-color="#d8cbfc"/>
+    </linearGradient>
+    <linearGradient id="linear-gradient-4" x1="649.663" y1="383.498" x2="853.106" y2="610.771" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f5effd"/>
+      <stop offset="1" stop-color="#d8cbfc"/>
+    </linearGradient>
+  </defs>
+  <title>icone-recorte-elegante.svg</title>
+  <g id="Layer_1" data-name="Layer 1">
+    <rect x="0" y="0" width="1577" height="997" fill="#110f17"/>
+    <rect x="0" y="0" width="1577" height="997" fill="url(#radial-gradient-1)"/>
+    <g>
+      <path d="M665.408 254.671 L910.896 254.671 C960.305 254.671 1000.36 294.725 1000.36 344.134 L1000.36 578.171 C1000.36 627.579 960.305 667.634 910.896 667.634 L665.408 667.634 C615.999 667.634 575.945 627.579 575.945 578.171 L575.945 344.134 C575.945 294.725 615.999 254.671 665.408 254.671 Z" fill="url(#linear-gradient-1)"/>
+      <path d="M665.408 256.818 L910.896 256.818 C959.12 256.818 998.213 295.91 998.213 344.134 L998.213 578.171 C998.213 626.394 959.12 665.487 910.896 665.487 L665.408 665.487 C617.185 665.487 578.092 626.394 578.092 578.171 L578.092 344.134 C578.092 295.91 617.185 256.818 665.408 256.818 Z" fill="none" stroke="url(#linear-gradient-2)" stroke-width="5.973"/>
+      <polyline points="703.699,331.251 703.699,533.081 930.22,533.081" fill="none" stroke="url(#linear-gradient-3)" stroke-width="37.829" stroke-linecap="round" stroke-linejoin="round"/>
+      <polyline points="878.331,588.191 878.331,383.498 649.663,383.498" fill="none" stroke="url(#linear-gradient-4)" stroke-width="37.829" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
+  </g>
+</svg>

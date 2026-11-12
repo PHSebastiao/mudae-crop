@@ -1,4 +1,36 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <rect width="64" height="64" rx="14" fill="#9333ea"/>
-  <text x="32" y="32" dy="0.35em" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, sans-serif" font-size="26" font-weight="600" fill="#ffffff">MC</text>
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="600" height="600" viewBox="0 0 600 600">
+  <defs>
+    <linearGradient id="linear-gradient-1" x1="0" y1="0" x2="600" y2="600" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#7c61a9"/>
+      <stop offset="0.125" stop-color="#5d4b7b"/>
+      <stop offset="0.25" stop-color="#302640"/>
+      <stop offset="0.35" stop-color="#1e1826"/>
+      <stop offset="0.5" stop-color="#1a1521"/>
+      <stop offset="0.75" stop-color="#131019"/>
+      <stop offset="1" stop-color="#0e0c13"/>
+    </linearGradient>
+    <linearGradient id="linear-gradient-2" x1="3" y1="3" x2="597" y2="597" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#cdabf8"/>
+      <stop offset="0.25" stop-color="#b089f0"/>
+      <stop offset="0.45" stop-color="#8064bb"/>
+      <stop offset="0.75" stop-color="#4c3577"/>
+      <stop offset="1" stop-color="#3d2b63"/>
+    </linearGradient>
+    <linearGradient id="linear-gradient-3" x1="178" y1="122.5" x2="458.132" y2="436.904" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f5effd"/>
+      <stop offset="1" stop-color="#d8cbfc"/>
+    </linearGradient>
+    <linearGradient id="linear-gradient-4" x1="102.5" y1="195.5" x2="386.754" y2="513.05" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f5effd"/>
+      <stop offset="1" stop-color="#d8cbfc"/>
+    </linearGradient>
+  </defs>
+  <title>icone-recorte.svg</title>
+  <g id="Layer_1" data-name="Layer 1">
+    <path d="M126 0 L474 0 C543.588 0 600 56.412 600 126 L600 474 C600 543.588 543.588 600 474 600 L126 600 C56.412 600 0 543.588 0 474 L0 126 C0 56.412 56.412 0 126 0 Z" fill="url(#linear-gradient-1)"/>
+    <path d="M126 3 L474 3 C541.931 3 597 58.069 597 126 L597 474 C597 541.931 541.931 597 474 597 L126 597 C58.069 597 3 541.931 3 474 L3 126 C3 58.069 58.069 3 126 3 Z" fill="none" stroke="url(#linear-gradient-2)" stroke-width="6"/>
+    <polyline points="178,122.5 178,404.5 494.5,404.5" fill="none" stroke="url(#linear-gradient-3)" stroke-width="38" stroke-linecap="round" stroke-linejoin="round"/>
+    <polyline points="422,481.5 422,195.5 102.5,195.5" fill="none" stroke="url(#linear-gradient-4)" stroke-width="38" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
 </svg>
