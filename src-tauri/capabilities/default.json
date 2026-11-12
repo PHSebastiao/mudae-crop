@@ -3,5 +3,14 @@
   "identifier": "default",
   "description": "Capabilities for the main mudae crop window",
   "windows": ["main"],
-  "permissions": ["core:default", "dialog:default", "clipboard-manager:default", "opener:default"]
+  "permissions": [
+    "core:default",
+    "core:window:allow-minimize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-close",
+    "core:window:allow-start-dragging",
+    "dialog:default",
+    "clipboard-manager:default",
+    "opener:default"
+  ]
 }

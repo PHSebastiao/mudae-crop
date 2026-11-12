@@ -176,14 +176,17 @@ export const ToolRail = memo(function ToolRail({
             aria-keyshortcuts="C"
             aria-describedby={tip ? 'frame-adjust-tip' : undefined}
           >
-            <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-              <path
-                d="M3.5 1v11.5H15M1 3.5h11.5V15"
+            <svg viewBox="77.5 97.5 442 409" aria-hidden="true" focusable="false">
+              <g
                 fill="none"
                 stroke="currentColor"
-                strokeWidth="1.2"
+                strokeWidth="38"
                 strokeLinecap="round"
-              />
+                strokeLinejoin="round"
+              >
+                <polyline points="178,122.5 178,404.5 494.5,404.5" />
+                <polyline points="422,481.5 422,195.5 102.5,195.5" />
+              </g>
             </svg>
             <span>{adjustFrame ? 'Concluir' : 'Ajustar Frame'}</span>
             <span className="rail-adjust-key">C</span>

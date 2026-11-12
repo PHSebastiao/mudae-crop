@@ -106,6 +106,7 @@ import { Timeline } from './components/Timeline';
 import { FrameGrid } from './components/FrameGrid';
 import { SettingsDialog, type TokenTestResult } from './components/SettingsDialog';
 import { ShortcutsDialog } from './components/ShortcutsDialog';
+import { WindowControls } from './components/WindowControls';
 import { useAppShell } from './hooks/useAppShell';
 import { useFrameCrop } from './hooks/useFrameCrop';
 
@@ -1444,7 +1445,7 @@ export default function App() {
         </div>
       )}
       <div className="topbar-shell">
-        <header className="topbar">
+        <header className="topbar" data-tauri-drag-region="deep">
           <div className="brand">
             <img className="brand-mark" src={brandIcon} alt="" />
             <span className="brand-name">mudae crop</span>
@@ -1466,6 +1467,7 @@ export default function App() {
           <div className="topbar-right">
             <form
               className="link-import"
+              data-tauri-drag-region="false"
               onSubmit={(event) => {
                 event.preventDefault();
                 submitLink();
@@ -1532,6 +1534,7 @@ export default function App() {
               Configurações
             </button>
           </div>
+          <WindowControls />
         </header>
 
         {notice.kind === 'info' && (

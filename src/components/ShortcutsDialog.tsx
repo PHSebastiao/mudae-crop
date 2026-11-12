@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useDialogFocus } from '../hooks/useDialogFocus';
+import { DialogClose } from './DialogClose';
 
 interface Shortcut {
   readonly keys: string;
@@ -79,9 +80,7 @@ export function ShortcutsDialog({ onClose }: { readonly onClose: () => void }) {
       >
         <header className="settings-head">
           <h2 id="shortcuts-title">Atalhos</h2>
-          <button type="button" className="icon" onClick={onClose} aria-label="Fechar atalhos">
-            ×
-          </button>
+          <DialogClose label="Fechar atalhos" onClick={onClose} />
         </header>
 
         <div className="shortcuts-cols">

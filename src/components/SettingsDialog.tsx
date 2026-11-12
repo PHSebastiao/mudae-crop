@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { IMAGE_CHEST_API_KEY_URL, PRIVACY_OPTIONS } from '../core/imagechest';
 import type { Settings } from '../core/settings';
 import { useDialogFocus } from '../hooks/useDialogFocus';
+import { DialogClose } from './DialogClose';
 import { NumberField } from './NumberField';
 
 export interface TokenTestResult {
@@ -82,9 +83,7 @@ export function SettingsDialog({
       >
         <header className="settings-head">
           <h2 id="settings-title">Configurações</h2>
-          <button type="button" className="icon" onClick={close} aria-label="Fechar Configurações">
-            ×
-          </button>
+          <DialogClose label="Fechar Configurações" onClick={close} />
         </header>
 
         <section>

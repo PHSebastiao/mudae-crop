@@ -1,6 +1,7 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import {
   DownloadTransportError,
@@ -16,6 +17,47 @@ const MEDIA_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'apng', 'mp4', 'm
 
 export function isDesktop(): boolean {
   return isTauri();
+}
+
+/**
+ * The window ships without native decorations, so the top bar is also the title
+ * bar. Window handles throw outside Tauri, which is why every call is guarded:
+ * the browser build keeps the bar and simply has no controls to show.
+ */
+export function hasWindowControls(): boolean {
+  return isTauri();
+}
+
+export async function minimizeWindow(): Promise<void> {
+  if (!isTauri()) return;
+  await getCurrentWindow().minimize();
+}
+
+export async function toggleMaximizeWindow(): Promise<void> {
+  if (!isTauri()) return;
+  await getCurrentWindow().toggleMaximize();
+}
+
+export async function closeWindow(): Promise<void> {
+  if (!isTauri()) return;
+  await getCurrentWindow().close();
+}
+
+/** Report the maximize state now and on every resize, which covers snap layouts. */
+export async function watchWindowMaximized(
+  onChange: (maximized: boolean) => void,
+): Promise<() => void> {
+  if (!isTauri()) return () => undefined;
+  const current = getCurrentWindow();
+  const sync = () => {
+    void current
+      .isMaximized()
+      .then(onChange)
+      .catch(() => undefined);
+  };
+  sync();
+  const unlisten = await current.onResized(sync);
+  return unlisten;
 }
 
 export function fileNameOf(path: string): string {

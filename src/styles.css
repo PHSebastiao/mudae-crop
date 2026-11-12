@@ -54,29 +54,26 @@ button {
 }
 
 /* Scrollbars have to belong to the surface they sit on; the default light
-   track inside a dark dialog is the one piece that reads as unfinished. */
-.ratio-popover,
-.rail,
-.panel-scroll,
-.history,
-.settings-modal {
-  scrollbar-color: var(--line-strong) transparent;
-  scrollbar-width: thin;
-}
-
+   track inside a dark dialog is the one piece that reads as unfinished.
+   `scrollbar-width` and `scrollbar-color` stay off these elements on purpose:
+   Chromium ignores every ::-webkit-scrollbar rule as soon as one of them is set,
+   and its native thin bar draws the thumb inside a wider track, which leaves an
+   empty band at the edge. The thumb fills the full 8px here instead. */
 .ratio-popover::-webkit-scrollbar,
 .rail::-webkit-scrollbar,
 .panel-scroll::-webkit-scrollbar,
 .history::-webkit-scrollbar,
+.frame-grid-strip::-webkit-scrollbar,
 .settings-modal::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: 8px;
+  height: 8px;
 }
 
 .ratio-popover::-webkit-scrollbar-track,
 .rail::-webkit-scrollbar-track,
 .panel-scroll::-webkit-scrollbar-track,
 .history::-webkit-scrollbar-track,
+.frame-grid-strip::-webkit-scrollbar-track,
 .settings-modal::-webkit-scrollbar-track {
   background: transparent;
 }
@@ -85,20 +82,19 @@ button {
 .rail::-webkit-scrollbar-thumb,
 .panel-scroll::-webkit-scrollbar-thumb,
 .history::-webkit-scrollbar-thumb,
+.frame-grid-strip::-webkit-scrollbar-thumb,
 .settings-modal::-webkit-scrollbar-thumb {
-  border: 2px solid transparent;
   border-radius: 999px;
   background: var(--line-strong);
-  background-clip: padding-box;
 }
 
 .ratio-popover::-webkit-scrollbar-thumb:hover,
 .rail::-webkit-scrollbar-thumb:hover,
 .panel-scroll::-webkit-scrollbar-thumb:hover,
 .history::-webkit-scrollbar-thumb:hover,
+.frame-grid-strip::-webkit-scrollbar-thumb:hover,
 .settings-modal::-webkit-scrollbar-thumb:hover {
   background: #55505f;
-  background-clip: padding-box;
 }
 
 /* One visible focus ring for every control, including the ones without a
@@ -166,6 +162,52 @@ button {
 
 .brand-name {
   white-space: nowrap;
+}
+
+/* The window has no native decorations, so this bar is the title bar and these
+   are its caption buttons: a 46px hit area, square corners and no gap so they
+   reach the window's top-right corner exactly like the Windows caption. */
+.window-controls {
+  display: flex;
+  align-self: stretch;
+  flex: none;
+  margin: -10px -14px -10px 0;
+}
+
+.window-controls button {
+  width: 46px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: default;
+}
+
+.window-controls button:hover {
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--text);
+}
+
+.window-controls button:active {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.window-controls .window-close:hover {
+  background: #c42b1c;
+  color: #fff;
+}
+
+.window-controls .window-close:active {
+  background: #b02a1c;
+  color: #fff;
+}
+
+.window-controls svg {
+  display: block;
+  width: 10px;
+  height: 10px;
 }
 
 /* Source link import */
@@ -382,7 +424,6 @@ button {
   border: 1px solid #35323f;
   border-radius: 10px;
   box-shadow: var(--shadow-pop);
-  scrollbar-width: thin;
 }
 
 .ratio-popover.flip {
@@ -649,13 +690,14 @@ button {
   grid-template-columns: minmax(0, 1fr);
 }
 
+/* Only a real scroller reserves a gutter, and only while it overflows: the dead
+   strip a permanent `scrollbar-gutter: stable` keeps on `.panel` (which never
+   scrolls itself) is exactly the empty band beside the rail and panel bars. */
 .rail,
 .panel {
   background: var(--bg);
   overflow-y: auto;
   min-height: 0;
-  scrollbar-gutter: stable;
-  scrollbar-width: thin;
 }
 
 .rail {
@@ -1831,7 +1873,6 @@ button {
   max-height: 164px;
   overflow-y: auto;
   padding-bottom: 2px;
-  scrollbar-width: thin;
 }
 
 .frame-cell {
@@ -1899,7 +1940,6 @@ button {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  scrollbar-width: thin;
 }
 
 .panel-actions {
@@ -2524,7 +2564,6 @@ button {
   gap: 2px;
   max-height: 280px;
   overflow-y: auto;
-  scrollbar-width: thin;
 }
 
 .history li {
@@ -2642,7 +2681,6 @@ button {
   flex-direction: column;
   gap: 12px;
   user-select: text;
-  scrollbar-width: thin;
 }
 
 .shortcuts-modal {
@@ -2739,13 +2777,17 @@ button {
   place-items: center;
   width: 28px;
   height: 28px;
+  padding: 0;
   background: none;
   border: 0;
   border-radius: var(--r-sm);
   color: var(--text-faint);
-  font-size: 19px;
-  line-height: 1;
   cursor: pointer;
+}
+
+.settings-head .icon svg {
+  width: 14px;
+  height: 14px;
 }
 
 .settings-head .icon:hover {

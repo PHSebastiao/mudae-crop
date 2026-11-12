@@ -139,6 +139,7 @@ export const RatioMenu = memo(function RatioMenu({
           className={`ratio-popover${placement.flip ? ' flip' : ''}`}
           role="dialog"
           aria-label="Proporção do Frame"
+          data-tauri-drag-region="false"
           style={{ left: placement.left }}
         >
           <div className="toggle" role="group" aria-label="Orientação">
