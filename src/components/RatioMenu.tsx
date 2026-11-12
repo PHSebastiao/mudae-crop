@@ -2,6 +2,7 @@ import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 
 import { flipRatio, matchesRatio, presetsFor, ratioLabel, ratioOrientation } from '../core/ratios';
 
 import { formatAspect } from '../core/size';
+import { ToggleGroup } from './ToggleGroup';
 
 interface RatioMenuProps {
   readonly ratio: number;
@@ -161,30 +162,16 @@ export const RatioMenu = memo(function RatioMenu({
           data-tauri-drag-region="false"
           style={{ left: placement.left }}
         >
-          <div className="toggle" role="group" aria-label="Orientação">
-            <button
-              type="button"
-              className={orientation === 'portrait' ? 'on' : ''}
-              aria-pressed={orientation === 'portrait'}
-              disabled={orientation === 'square'}
-              onClick={() => {
-                if (orientation !== 'portrait') onRatio(flipRatio(ratio));
-              }}
-            >
-              Retrato
-            </button>
-            <button
-              type="button"
-              className={orientation === 'landscape' ? 'on' : ''}
-              aria-pressed={orientation === 'landscape'}
-              disabled={orientation === 'square'}
-              onClick={() => {
-                if (orientation !== 'landscape') onRatio(flipRatio(ratio));
-              }}
-            >
-              Paisagem
-            </button>
-          </div>
+          <ToggleGroup
+            label="Orientação"
+            value={orientation}
+            onChange={() => onRatio(flipRatio(ratio))}
+            disabled={orientation === 'square'}
+            options={[
+              { value: 'portrait', label: 'Retrato' },
+              { value: 'landscape', label: 'Paisagem' },
+            ]}
+          />
 
           <div className="ratio-list" role="group" aria-label="Proporções">
             {sourceRatio !== null && (

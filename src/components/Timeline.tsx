@@ -145,7 +145,22 @@ export function Timeline({
         aria-label={playing ? 'Pausar' : 'Reproduzir'}
         title={playing ? 'Pausar (espaço)' : 'Reproduzir (espaço)'}
       >
-        {playing ? '❚❚' : '▶'}
+        {playing ? (
+          <svg viewBox="0 0 12 12" fill="currentColor" aria-hidden="true" focusable="false">
+            <rect x="3" y="2.5" width="2.2" height="7" rx="1.1" />
+            <rect x="6.8" y="2.5" width="2.2" height="7" rx="1.1" />
+          </svg>
+        ) : (
+          <svg viewBox="0 0 12 12" fill="currentColor" aria-hidden="true" focusable="false">
+            {/* Sits a hair right of centre: a triangle's mass is on its base. */}
+            <path
+              d="M3.7 3.1 8.9 6 3.7 8.9Z"
+              stroke="currentColor"
+              strokeWidth="1.4"
+              strokeLinejoin="round"
+            />
+          </svg>
+        )}
       </button>
 
       <button

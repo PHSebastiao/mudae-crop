@@ -19,6 +19,7 @@ import { formatPlaybackDuration, trimDurationMs } from '../core/animation';
 import { offsetPct, zoomOf } from '../core/geometry';
 import { HexInput } from './HexInput';
 import { NumberField } from './NumberField';
+import { ToggleGroup, type ToggleOption } from './ToggleGroup';
 
 /** The tooltip's fixed width, shared by its placement and its inline style. */
 const TIP_WIDTH = 248;
@@ -39,6 +40,25 @@ const MODE_HINTS: Record<ScaleMode, string> = {
   'full-width': 'Encaixa pela largura.',
   'full-height': 'Encaixa pela altura.',
 };
+
+/** The sidecar's own denoise levels, 0 (least) to 3 (most). */
+const DENOISE_OPTIONS: ReadonlyArray<ToggleOption<Waifu2xSettings['denoise']>> = (
+  [0, 1, 2, 3] as const
+).map((level) => ({ value: level, label: String(level), title: `Denoise ${level}` }));
+
+const WAIFU2X_SCALE_OPTIONS: ReadonlyArray<ToggleOption<Waifu2xSettings['scale']>> = (
+  [1, 2, 4] as const
+).map((scale) => ({
+  value: scale,
+  label: `${scale}×`,
+  title:
+    scale === 1 ? 'Mantém o tamanho do Export' : `Amplia ${scale}× e define o tamanho do Export`,
+}));
+
+const SPEED_OPTIONS: ReadonlyArray<ToggleOption<number>> = [0.5, 1, 2].map((speed) => ({
+  value: speed,
+  label: `${speed.toString().replace('.', ',')}×`,
+}));
 
 interface ToolRailProps {
   readonly doc: DocumentState;
@@ -204,20 +224,14 @@ export const ToolRail = memo(function ToolRail({
             </span>
           )}
         </div>
-        <div className="toggle mode-toggle" role="group" aria-label="Escala">
-          {MODE_OPTIONS.map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              aria-pressed={mode === option.value}
-              className={mode === option.value ? 'on' : ''}
-              onClick={() => onMode(option.value)}
-              title={option.title}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
+        <ToggleGroup
+          className="mode-toggle"
+          label="Escala"
+          value={mode}
+          onChange={onMode}
+          options={MODE_OPTIONS}
+          columns={2}
+        />
         <p className="rail-hint mode-hint">{MODE_HINTS[mode]}</p>
         <RailDisclosure label="Ajuste do Crop">
           <div className="row">
@@ -327,40 +341,20 @@ export const ToolRail = memo(function ToolRail({
               <span className="key">denoise</span>
               <span className="pill">{waifu2x.denoise}</span>
             </div>
-            <div className="toggle" role="group" aria-label="Denoise do waifu2x">
-              {[0, 1, 2, 3].map((level) => (
-                <button
-                  key={level}
-                  type="button"
-                  className={waifu2x.denoise === level ? 'on' : ''}
-                  onClick={() => onWaifu2x({ denoise: level as Waifu2xSettings['denoise'] })}
-                  aria-pressed={waifu2x.denoise === level}
-                  disabled={waifu2xControlsDisabled}
-                  title={`Denoise ${level}`}
-                >
-                  {level}
-                </button>
-              ))}
-            </div>
-            <div className="toggle" role="group" aria-label="Escala do waifu2x">
-              {[1, 2, 4].map((scale) => (
-                <button
-                  key={scale}
-                  type="button"
-                  className={waifu2x.scale === scale ? 'on' : ''}
-                  onClick={() => onWaifu2x({ scale: scale as Waifu2xSettings['scale'] })}
-                  aria-pressed={waifu2x.scale === scale}
-                  disabled={waifu2xControlsDisabled}
-                  title={
-                    scale === 1
-                      ? 'Mantém o tamanho do Export'
-                      : `Amplia ${scale}× e define o tamanho do Export`
-                  }
-                >
-                  {scale}×
-                </button>
-              ))}
-            </div>
+            <ToggleGroup
+              label="Denoise do waifu2x"
+              value={waifu2x.denoise}
+              onChange={(denoise) => onWaifu2x({ denoise })}
+              disabled={waifu2xControlsDisabled}
+              options={DENOISE_OPTIONS}
+            />
+            <ToggleGroup
+              label="Escala do waifu2x"
+              value={waifu2x.scale}
+              onChange={(scale) => onWaifu2x({ scale })}
+              disabled={waifu2xControlsDisabled}
+              options={WAIFU2X_SCALE_OPTIONS}
+            />
           </RailDisclosure>
           <p className="panel-hint">{waifu2xHint}</p>
         </div>
@@ -400,18 +394,12 @@ export const ToolRail = memo(function ToolRail({
               onChange={(event) => onSpeed(Number(event.target.value))}
               aria-label="Velocidade do GIF"
             />
-            <div className="toggle" role="group" aria-label="Velocidade do GIF">
-              {[0.5, 1, 2].map((speed) => (
-                <button
-                  key={speed}
-                  type="button"
-                  className={Math.abs(doc.speed - speed) < 0.001 ? 'on' : ''}
-                  onClick={() => onSpeed(speed)}
-                >
-                  {speed.toString().replace('.', ',')}×
-                </button>
-              ))}
-            </div>
+            <ToggleGroup
+              label="Velocidade do GIF"
+              value={doc.speed}
+              onChange={onSpeed}
+              options={SPEED_OPTIONS}
+            />
             <button type="button" className="link" onClick={() => onTrim(null)}>
               redefinir trecho
             </button>

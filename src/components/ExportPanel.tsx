@@ -33,6 +33,7 @@ import {
   formatAspect,
 } from '../core/size';
 import { NumberField } from './NumberField';
+import { ToggleGroup } from './ToggleGroup';
 
 interface ExportPanelProps {
   readonly doc: DocumentState;
@@ -359,24 +360,20 @@ export const ExportPanel = memo(function ExportPanel({
             </p>
           )}
 
-          <div className="toggle" role="group" aria-label="Formato do Export">
-            <button
-              type="button"
-              className={kind.format === 'png' ? 'on' : ''}
-              onClick={() => onExportFormat('png')}
-            >
-              PNG
-            </button>
-            <button
-              type="button"
-              className={kind.format === 'gif' ? 'on' : ''}
-              onClick={() => onExportFormat('gif')}
-              disabled={!animated}
-              title={animated ? 'GIF animado' : 'A Source é estática'}
-            >
-              GIF
-            </button>
-          </div>
+          <ToggleGroup
+            label="Formato do Export"
+            value={kind.format}
+            onChange={onExportFormat}
+            options={[
+              { value: 'png', label: 'PNG', title: 'Imagem estática' },
+              {
+                value: 'gif',
+                label: 'GIF',
+                title: animated ? 'GIF animado' : 'A Source é estática',
+                disabled: !animated,
+              },
+            ]}
+          />
           {!animated && <p className="panel-hint">GIF só para Source animada.</p>}
 
           <div className="size-label">Tamanho</div>
@@ -619,15 +616,15 @@ export const ExportPanel = memo(function ExportPanel({
               </button>
               {optimizeOpen && (
                 <>
-                  <div className="toggle" role="group" aria-label="Otimizar GIF">
-                    <button
-                      type="button"
-                      className={optimize.enabled ? 'on' : ''}
-                      onClick={() => onOptimize({ enabled: !optimize.enabled })}
-                    >
-                      {optimize.enabled ? 'otimizar ligado' : 'otimizar desligado'}
-                    </button>
-                  </div>
+                  <ToggleGroup
+                    label="Otimizar GIF"
+                    value={optimize.enabled ? 'on' : 'off'}
+                    onChange={(next) => onOptimize({ enabled: next === 'on' })}
+                    options={[
+                      { value: 'off', label: 'desligado' },
+                      { value: 'on', label: 'ligado' },
+                    ]}
+                  />
                   {optimize.enabled && (
                     <>
                       <label className="row">
@@ -668,18 +665,16 @@ export const ExportPanel = memo(function ExportPanel({
                         onChange={(event) => onOptimize({ lossy: Number(event.target.value) })}
                         aria-label="Compressão com lossy"
                       />
-                      <div className="toggle" role="group" aria-label="Intensidade da compressão">
-                        {[30, 100, 200].map((lossy) => (
-                          <button
-                            key={lossy}
-                            type="button"
-                            className={optimize.lossy === lossy ? 'on' : ''}
-                            onClick={() => onOptimize({ lossy })}
-                          >
-                            {lossy === 30 ? 'leve' : lossy === 100 ? 'média' : 'máxima'}
-                          </button>
-                        ))}
-                      </div>
+                      <ToggleGroup
+                        label="Intensidade da compressão"
+                        value={optimize.lossy}
+                        onChange={(lossy) => onOptimize({ lossy })}
+                        options={[
+                          { value: 30, label: 'leve' },
+                          { value: 100, label: 'média' },
+                          { value: 200, label: 'máxima' },
+                        ]}
+                      />
                       <label className="row">
                         <span className="key">reduzir cores</span>
                         <input

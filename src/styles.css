@@ -323,17 +323,51 @@ button {
   color: #e9e6ef;
 }
 
+/* A segmented group is one surface holding a single pill, so the selected
+   segment travels to its new place instead of popping in on its own. The pill
+   is placed from --toggle-cols/rows/col/row, which ToggleGroup.tsx writes. */
 .toggle {
+  position: relative;
   display: flex;
+  gap: 2px;
   background: #121118;
   border: 1px solid #2f2c38;
   border-radius: var(--r-md);
-  padding: 2px;
+  padding: 3px;
 }
 
-.toggle span,
-.toggle button {
+.toggle-thumb {
+  position: absolute;
+  z-index: 0;
+  top: 3px;
+  left: 3px;
+  width: calc((100% - 6px - (var(--toggle-cols, 1) - 1) * 2px) / var(--toggle-cols, 1));
+  height: calc((100% - 6px - (var(--toggle-rows, 1) - 1) * 2px) / var(--toggle-rows, 1));
+  border-radius: var(--r-sm);
+  background: #302d3a;
+  box-shadow:
+    inset 0 0 0 1px #4a4557,
+    0 1px 2px rgba(0, 0, 0, 0.35);
+  transform: translate3d(
+    calc(var(--toggle-col, 0) * (100% + 2px)),
+    calc(var(--toggle-row, 0) * (100% + 2px)),
+    0
+  );
+  transition:
+    transform 260ms cubic-bezier(0.32, 0.72, 0, 1),
+    opacity 120ms ease;
+}
+
+.toggle[data-active='false'] .toggle-thumb {
+  opacity: 0;
+}
+
+.toggle > span:not(.toggle-thumb),
+.toggle > button {
+  position: relative;
+  z-index: 1;
   flex: 1;
+  min-width: 0;
   display: grid;
   place-items: center;
   min-height: 24px;
@@ -344,22 +378,37 @@ button {
   color: var(--text-faint);
   font-size: 12px;
   font-family: inherit;
+  white-space: nowrap;
   cursor: pointer;
   transition:
-    background 120ms ease,
-    color 120ms ease;
+    color 200ms ease,
+    transform 120ms ease;
 }
 
-.toggle span:not(.on):hover,
-.toggle button:not(.on):hover:not(:disabled) {
+.toggle > span:not(.toggle-thumb):not(.on):hover,
+.toggle > button:not(.on):hover:not(:disabled) {
   color: var(--text);
 }
 
-.toggle span.on,
-.toggle button.on {
-  background: #302d3a;
+.toggle > span.on,
+.toggle > button.on {
   color: #fff;
-  box-shadow: inset 0 0 0 1px #4a4557;
+}
+
+.toggle > button:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toggle-thumb,
+  .toggle > span,
+  .toggle > button {
+    transition-duration: 0ms;
+  }
+
+  .toggle > button:active:not(:disabled) {
+    transform: none;
+  }
 }
 
 /* Frame proportion chip and popover */
@@ -725,10 +774,6 @@ button {
   cursor: default;
 }
 
-.toggle button + button {
-  margin-left: 2px;
-}
-
 /* Numeric fields in the tool rail */
 
 .field {
@@ -1009,10 +1054,7 @@ button {
 .mode-toggle {
   display: grid;
   grid-template-columns: 1fr 1fr;
-}
-
-.mode-toggle button + button {
-  margin-left: 0;
+  grid-auto-rows: 1fr;
 }
 
 .rail-adjust.on .rail-adjust-key {
@@ -1709,15 +1751,47 @@ button {
 
 .timeline-play {
   flex: none;
+  display: grid;
+  place-items: center;
   width: 30px;
   height: 24px;
+  padding: 0;
   border: 1px solid var(--line);
   border-radius: var(--r-sm);
   background: var(--panel);
   color: var(--text);
-  font-size: 11px;
-  line-height: 1;
   cursor: pointer;
+  transition:
+    border-color 120ms ease,
+    background 120ms ease,
+    color 120ms ease,
+    transform 120ms ease;
+}
+
+.timeline-play svg {
+  display: block;
+  width: 12px;
+  height: 12px;
+}
+
+.timeline-play:hover:not(:disabled) {
+  border-color: #55505f;
+  background: #22202a;
+  color: #fff;
+}
+
+.timeline-play:active:not(:disabled) {
+  transform: scale(0.94);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .timeline-play {
+    transition-duration: 0ms;
+  }
+
+  .timeline-play:active:not(:disabled) {
+    transform: none;
+  }
 }
 
 .timeline-trim {
@@ -2451,11 +2525,36 @@ button {
 }
 
 .palette {
+  position: relative;
   display: flex;
   gap: 7px;
   align-items: center;
   margin-left: 2px;
   flex-wrap: wrap;
+}
+
+/* One ring for the whole Palette: it slides to the selected swatch instead of
+   each swatch drawing its own outline. The ring is the selection, so a swatch
+   does not also grow — it only lifts under the pointer before you pick it. */
+.palette-ring {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 34px;
+  height: 34px;
+  margin: -17px 0 0 -17px;
+  border: 1.5px solid var(--accent-state);
+  border-radius: 11px;
+  box-shadow: 0 0 0 2px rgba(169, 155, 245, 0.14);
+  pointer-events: none;
+  opacity: 0;
+  transition:
+    transform 280ms cubic-bezier(0.32, 0.72, 0, 1),
+    opacity 140ms ease;
+}
+
+.palette-ring[data-visible='true'] {
+  opacity: 1;
 }
 
 .palette-swatch {
@@ -2467,13 +2566,17 @@ button {
   background: linear-gradient(135deg, #e8607a, #8e2740);
   cursor: pointer;
   transition:
-    transform 120ms ease,
-    box-shadow 120ms ease;
+    transform 200ms cubic-bezier(0.23, 1, 0.32, 1),
+    box-shadow 200ms ease;
 }
 
-.palette-swatch:hover:not(:disabled) {
-  transform: translateY(-1px);
+.palette-swatch:hover:not(:disabled):not(.selected) {
+  transform: translateY(-1px) scale(1.06);
   box-shadow: 0 3px 10px rgba(0, 0, 0, 0.4);
+}
+
+.palette-swatch:focus-visible {
+  outline-offset: 2px;
 }
 
 .palette-swatch:disabled {
@@ -2481,10 +2584,17 @@ button {
   cursor: default;
 }
 
+/* The ring already frames the selection, and clicking a picked swatch changes
+   nothing, so the pointer stops advertising it. */
 .palette-swatch.selected {
-  box-shadow:
-    0 0 0 2px var(--panel),
-    0 0 0 3.5px var(--accent-state);
+  cursor: default;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .palette-ring,
+  .palette-swatch {
+    transition-duration: 0ms;
+  }
 }
 
 .recalc {

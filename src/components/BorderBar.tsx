@@ -1,3 +1,4 @@
+import { useLayoutEffect, useRef, useState } from 'react';
 import type { Border } from '../core/document';
 import { withWhiteFirst, type PaletteColor } from '../core/palette';
 import { HexInput } from './HexInput';
@@ -23,6 +24,34 @@ export function BorderBar({
   onRecalc,
 }: BorderBarProps) {
   const swatches = hasSource ? withWhiteFirst(palette) : [];
+  const listRef = useRef<HTMLDivElement | null>(null);
+  // The selection ring is one element that travels, so it needs the centre of
+  // the selected swatch in the palette's own coordinates. Swatches wrap, so
+  // the position is re-measured whenever the palette resizes.
+  const [ring, setRing] = useState<{ x: number; y: number } | null>(null);
+
+  useLayoutEffect(() => {
+    const list = listRef.current;
+    if (!list) return;
+
+    const measure = () => {
+      const selected = list.querySelector<HTMLElement>('.palette-swatch.selected');
+      setRing(
+        selected
+          ? {
+              x: selected.offsetLeft + selected.offsetWidth / 2,
+              y: selected.offsetTop + selected.offsetHeight / 2,
+            }
+          : null,
+      );
+    };
+
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(list);
+    return () => observer.disconnect();
+  }, [border.color, hasSource, palette]);
 
   return (
     <footer className="border-bar">
@@ -45,7 +74,19 @@ export function BorderBar({
           <span className="unit">px</span>
         </span>
         <span className="border-sep" aria-hidden="true" />
-        <div className="palette" role="group" aria-label="Cores da imagem" title="Cores da imagem">
+        <div
+          className="palette"
+          ref={listRef}
+          role="group"
+          aria-label="Cores da imagem"
+          title="Cores da imagem"
+        >
+          <span
+            className="palette-ring"
+            aria-hidden="true"
+            data-visible={ring ? 'true' : 'false'}
+            style={ring ? { transform: `translate3d(${ring.x}px, ${ring.y}px, 0)` } : undefined}
+          />
           {swatches.map((color) => {
             const selected = color.hex === border.color;
             return (
