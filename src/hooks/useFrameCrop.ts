@@ -1,19 +1,19 @@
 import { useCallback, useEffect, useRef, type Dispatch, type SetStateAction } from 'react';
-import { withCrop, type DocumentState, type ScaleMode } from '../core/document';
+import { withCrop, type DocumentState, type Rect, type ScaleMode } from '../core/document';
 import {
+  applyFrameRect,
   applyRatio,
   applyScaleMode,
+  clampCrop,
   offsetPct,
   panBy,
   resetCrop,
-  resizeFrame as resizeFrameDocument,
   rotate90,
   zoomAt,
   zoomOf,
   zoomTo,
 } from '../core/geometry';
 import { presetForRatio } from '../core/ratios';
-import type { Handle } from '../core/rect';
 import type { Settings } from '../core/settings';
 import { closeAdjust, enterAdjust, leavePick, type StageMode } from '../core/stageMode';
 
@@ -33,14 +33,10 @@ export interface FrameCrop {
   /** Multiply the current zoom, keeping the Crop centred. */
   readonly zoomBy: (factor: number) => void;
   readonly changeOffset: (offsetX: number, offsetY: number) => void;
-  readonly resizeFrame: (
-    handle: Handle,
-    dx: number,
-    dy: number,
-    locked: boolean,
-    snap: boolean,
-    startRatio?: number,
-  ) => void;
+  /** Write the Crop rect a pointer pan settled on. */
+  readonly panTo: (rect: Rect) => void;
+  /** Write the Frame proportion and Crop rect a pointer resize settled on. */
+  readonly resizeTo: (rect: Rect, ratio: number) => void;
   readonly zoomAtPoint: (point: { x: number; y: number }, factor: number) => void;
   readonly pan: (dx: number, dy: number, snapCenter: boolean, threshold: number) => void;
   readonly rotate: () => void;
@@ -122,17 +118,17 @@ export function useFrameCrop({
     [setDoc],
   );
 
-  const resizeFrame = useCallback(
-    (
-      handle: Handle,
-      dx: number,
-      dy: number,
-      locked: boolean,
-      snap: boolean,
-      startRatio?: number,
-    ) => {
+  const resizeTo = useCallback(
+    (rect: Rect, ratio: number) => {
+      setDoc((current) => (current.source ? applyFrameRect(current, ratio, rect) : current));
+    },
+    [setDoc],
+  );
+
+  const panTo = useCallback(
+    (rect: Rect) => {
       setDoc((current) =>
-        resizeFrameDocument(current, handle, dx, dy, { locked, snap, startRatio }),
+        current.source ? withCrop(current, clampCrop(current, { ...current.crop, rect })) : current,
       );
     },
     [setDoc],
@@ -190,7 +186,8 @@ export function useFrameCrop({
     changeZoom,
     zoomBy,
     changeOffset,
-    resizeFrame,
+    panTo,
+    resizeTo,
     zoomAtPoint,
     pan,
     rotate,

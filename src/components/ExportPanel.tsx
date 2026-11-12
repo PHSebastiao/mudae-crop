@@ -37,6 +37,7 @@ import { NumberField } from './NumberField';
 interface ExportPanelProps {
   readonly doc: DocumentState;
   readonly busy: boolean;
+  readonly exporting: boolean;
   readonly downloading: boolean;
   readonly uploading: boolean;
   readonly settings: Settings;
@@ -163,6 +164,7 @@ function ExportRow({ entry, preview, root, onCopyText, onRevealPath }: ExportRow
 export const ExportPanel = memo(function ExportPanel({
   doc,
   busy,
+  exporting,
   downloading,
   uploading,
   settings,
@@ -229,7 +231,7 @@ export const ExportPanel = memo(function ExportPanel({
   const aspectLabel = formatAspect(size);
   const exportLabel = downloading
     ? 'Aguarde o link…'
-    : busy && !uploading
+    : exporting
       ? 'Exportando…'
       : `Exportar ${format}`;
   const optimize = doc.optimize;

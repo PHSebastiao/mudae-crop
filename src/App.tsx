@@ -132,6 +132,7 @@ export default function App() {
   const [doc, setDoc] = useState<DocumentState>(emptyDocument);
   const {
     busy,
+    activity,
     notice,
     download,
     begin: beginRun,
@@ -249,7 +250,8 @@ export default function App() {
     changeZoom,
     zoomBy,
     changeOffset,
-    resizeFrame,
+    panTo,
+    resizeTo,
     zoomAtPoint,
     pan,
     rotate,
@@ -1561,6 +1563,11 @@ export default function App() {
             cancelar
           </button>
         </div>
+      ) : activity === 'import' || download.kind === 'finishing' ? (
+        <div className="notice download" role="status">
+          <span>Importando…</span>
+          <progress />
+        </div>
       ) : renderProgress ? (
         <div className="notice download render" role="status">
           <span>
@@ -1624,9 +1631,9 @@ export default function App() {
             doc={doc}
             frameIndex={frameIndex}
             frameVersion={frameVersion}
-            onPan={pan}
+            onPanTo={panTo}
             onZoomAt={zoomAtPoint}
-            onResize={resizeFrame}
+            onResizeTo={resizeTo}
             mode={stageMode}
             snapRatios={snapRatios}
             onOpen={handleOpen}
@@ -1667,6 +1674,7 @@ export default function App() {
           <ExportPanel
             doc={doc}
             busy={busy}
+            exporting={activity === 'export'}
             downloading={download.kind === 'downloading'}
             uploading={uploading}
             settings={settings}

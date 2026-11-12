@@ -84,6 +84,102 @@ export function centreSnapAxes(
   };
 }
 
+const NO_SNAP: CentreSnap = { x: false, y: false };
+
+/**
+ * The raw geometry a pointer drag works from: the rect at the drag's last
+ * applied position plus the pointer travel accumulated since it.
+ *
+ * Snapping reads this raw state rather than the snapped document. A step's size
+ * therefore never decides whether a snap holds: the snap lets go exactly when
+ * the accumulated travel passes the threshold, whether it arrived in one event
+ * or a hundred.
+ */
+export interface DragAnchor {
+  /** The rect the accumulated travel is measured from: the drag's raw position. */
+  readonly rect: Rect;
+  readonly ratio: number;
+  readonly dx: number;
+  readonly dy: number;
+  /**
+   * The rect and proportion the drag last wrote to the document. A locked drag
+   * (Shift released mid-gesture) starts from these, never from the raw values:
+   * the raw ratio drifts under a held proportion snap, and locking onto it would
+   * turn the visible preset into a Personalizado.
+   */
+  readonly applied: { readonly rect: Rect; readonly ratio: number };
+}
+
+/** Begin a drag from the document's current Frame. */
+export function startDrag(doc: DocumentState): DragAnchor {
+  const rect = doc.crop.rect;
+  const ratio = doc.frame.ratio;
+  return { rect, ratio, dx: 0, dy: 0, applied: { rect, ratio } };
+}
+
+export interface DragPanOptions {
+  /** Hold the window's centre on the Source's centre. */
+  readonly snapCentre: boolean;
+  /** Distance in rotated Source px the pointer may travel before the snap lets go. */
+  readonly threshold: number;
+}
+
+export interface DragPan {
+  readonly crop: Crop;
+  /** Carry into the next step of the same drag. */
+  readonly anchor: DragAnchor;
+}
+
+/**
+ * One pointer step of a pan. The centre snap reads the anchor plus every step of
+ * this drag, so it releases after the pointer has travelled `threshold` from the
+ * centre however fast it got there.
+ */
+export function dragPan(
+  doc: DocumentState,
+  anchor: DragAnchor,
+  dx: number,
+  dy: number,
+  options: DragPanOptions,
+): DragPan {
+  if (!doc.source) return { crop: doc.crop, anchor };
+  const bounds = boundsFor(doc, doc.crop.rotation);
+  const travelX = anchor.dx + dx;
+  const travelY = anchor.dy + dy;
+  // The snap is decided from the unclamped rect: one pressed against the Source
+  // edge must not look closer to the centre than the pointer really is.
+  const raw: Rect = {
+    ...anchor.rect,
+    x: anchor.rect.x + travelX,
+    y: anchor.rect.y + travelY,
+  };
+  const snapped = options.snapCentre
+    ? centreSnapAxes(bounds, raw, 0, 0, Math.max(0, options.threshold))
+    : NO_SNAP;
+  // An axis the window fills exactly cannot pan, so holding it is not a snap.
+  // Counting it as one would stop the drag from ever rebasing on the applied
+  // rect, and a clamped drag would then have to unwind its overshoot first.
+  const holdX = snapped.x && bounds.width - raw.width > 1e-6;
+  const holdY = snapped.y && bounds.height - raw.height > 1e-6;
+  const target: Rect = {
+    ...raw,
+    x: holdX ? (bounds.width - raw.width) / 2 : raw.x,
+    y: holdY ? (bounds.height - raw.height) / 2 : raw.y,
+  };
+  const rect = clampRect(bounds, doc.frame.ratio, doc.crop.mode, target);
+  const applied = { rect, ratio: doc.frame.ratio };
+  return {
+    crop: { ...doc.crop, rect },
+    // While the snap holds the pointer keeps moving away from it. Once it lets
+    // go the drag rebases on where the rect landed, so reversing moves the Frame
+    // at once instead of unwinding the travel first.
+    anchor:
+      holdX || holdY
+        ? { ...anchor, dx: travelX, dy: travelY, applied }
+        : { ...applied, dx: 0, dy: 0, applied },
+  };
+}
+
 /** Pan by a delta expressed in rotated Source pixels. */
 export function panBy(
   doc: DocumentState,
@@ -122,9 +218,58 @@ export interface ResizeOptions {
 }
 
 /**
+ * The raw rect a handle drag produces, then the preset it snaps to. The caller
+ * decides whether the drag keeps its raw travel (a held snap) or rebases on the
+ * result (a free drag).
+ */
+function resizeStep(
+  doc: DocumentState,
+  crop: Crop,
+  handle: Handle,
+  anchor: DragAnchor,
+  dx: number,
+  dy: number,
+  options: ResizeOptions,
+): { rect: Rect; ratio: number; snapped: boolean } {
+  const bounds = boundsFor(doc, crop.rotation);
+  // A locked drag holds whatever proportion is on screen, so it starts from the
+  // applied rect and drops any raw travel a held proportion snap had piled up.
+  const base = options.locked ? anchor.applied : anchor;
+  const resized = resizeRect(
+    bounds,
+    base.ratio,
+    base.rect,
+    handle,
+    options.locked ? dx : anchor.dx + dx,
+    options.locked ? dy : anchor.dy + dy,
+    options.locked,
+    crop.mode,
+  );
+  let ratio = resized.ratio;
+  let rect = resized.rect;
+
+  // Exclude only the proportion the drag started on. Every other preset stays a
+  // target, so once the drag snaps it keeps holding until the raw ratio leaves it.
+  const preset =
+    !options.locked && options.snap
+      ? snapRatio(ratio, SNAP_TOLERANCE, options.startRatio ?? anchor.ratio)
+      : null;
+  if (preset) {
+    ratio = preset.ratio;
+    const horizontal = handle.includes('e') || handle.includes('w');
+    // Edge drags keep their manipulated axis; corners keep the width.
+    const width = horizontal ? rect.width : rect.height * ratio;
+    const height = horizontal ? width / ratio : rect.height;
+    rect = clampRect(bounds, ratio, crop.mode, anchoredRect(rect, handle, width, height));
+  }
+
+  return { rect, ratio, snapped: preset !== null };
+}
+
+/**
  * Resize the Frame window from a handle drag. Locked keeps the Frame proportion;
- * a free drag returns the new ratio. With snapping on, a free ratio within 2%
- * of a preset lands exactly on it while preserving the dragged axis.
+ * a free drag returns the new ratio. With snapping on, a free ratio within the
+ * tolerance of a preset lands exactly on it while preserving the dragged axis.
  */
 export function resizeCrop(
   doc: DocumentState,
@@ -134,35 +279,47 @@ export function resizeCrop(
   dy: number,
   options: ResizeOptions,
 ): { crop: Crop; ratio: number } {
-  const bounds = boundsFor(doc, crop.rotation);
-  const resized = resizeRect(
-    bounds,
-    doc.frame.ratio,
-    crop.rect,
-    handle,
-    dx,
-    dy,
-    options.locked,
-    crop.mode,
-  );
-  let ratio = resized.ratio;
-  let rect = resized.rect;
+  const anchor: DragAnchor = {
+    rect: crop.rect,
+    ratio: doc.frame.ratio,
+    dx: 0,
+    dy: 0,
+    applied: { rect: crop.rect, ratio: doc.frame.ratio },
+  };
+  const step = resizeStep(doc, crop, handle, anchor, dx, dy, options);
+  return { crop: { ...crop, rect: step.rect }, ratio: step.ratio };
+}
 
-  // Exclude only the proportion the drag started on. Every other preset stays a
-  // target, so once the drag snaps it keeps holding for the rest of the drag.
-  if (!options.locked && options.snap) {
-    const preset = snapRatio(ratio, SNAP_TOLERANCE, options.startRatio ?? doc.frame.ratio);
-    if (preset) {
-      ratio = preset.ratio;
-      const horizontal = handle.includes('e') || handle.includes('w');
-      // Edge drags keep their manipulated axis; corners keep the width.
-      const width = horizontal ? rect.width : rect.height * ratio;
-      const height = horizontal ? width / ratio : rect.height;
-      rect = clampRect(bounds, ratio, crop.mode, anchoredRect(crop.rect, handle, width, height));
-    }
-  }
+export interface DragResize {
+  readonly crop: Crop;
+  readonly ratio: number;
+  /** Carry into the next step of the same drag. */
+  readonly anchor: DragAnchor;
+}
 
-  return { crop: { ...crop, rect }, ratio };
+/**
+ * One pointer step of a handle drag. The proportion snap reads the anchor plus
+ * every step of this drag, so a fast event cannot leave the snap and a slow one
+ * cannot stay glued to it past the tolerance.
+ */
+export function dragResize(
+  doc: DocumentState,
+  anchor: DragAnchor,
+  handle: Handle,
+  dx: number,
+  dy: number,
+  options: ResizeOptions,
+): DragResize {
+  if (!doc.source) return { crop: doc.crop, ratio: doc.frame.ratio, anchor };
+  const step = resizeStep(doc, doc.crop, handle, anchor, dx, dy, options);
+  const applied = { rect: step.rect, ratio: step.ratio };
+  return {
+    crop: { ...doc.crop, rect: step.rect },
+    ratio: step.ratio,
+    anchor: step.snapped
+      ? { ...anchor, dx: anchor.dx + dx, dy: anchor.dy + dy, applied }
+      : { ...applied, dx: 0, dy: 0, applied },
+  };
 }
 
 /**
@@ -170,8 +327,9 @@ export function resizeCrop(
  * proportion and the Crop rect always change together, and a locked Export size
  * follows the new proportion.
  */
-function withFrameRect(doc: DocumentState, ratio: number, rect: Rect): DocumentState {
-  const next: DocumentState = { ...doc, frame: { ratio }, crop: { ...doc.crop, rect } };
+export function applyFrameRect(doc: DocumentState, ratio: number, rect: Rect): DocumentState {
+  const framed: DocumentState = { ...doc, frame: { ratio }, crop: { ...doc.crop, rect } };
+  const next: DocumentState = { ...framed, crop: clampCrop(framed, framed.crop) };
   return doc.resize && doc.resizeLocked ? withResize(next, doc.resize) : next;
 }
 
@@ -185,7 +343,7 @@ export function resizeFrame(
 ): DocumentState {
   if (!doc.source) return doc;
   const result = resizeCrop(doc, doc.crop, handle, dx, dy, options);
-  return withFrameRect(doc, result.ratio, result.crop.rect);
+  return applyFrameRect(doc, result.ratio, result.crop.rect);
 }
 
 /**
@@ -204,7 +362,7 @@ export function zoomTo(doc: DocumentState, zoom: number): DocumentState {
     ...doc.crop,
     rect: { x: centreX - width / 2, y: centreY - height / 2, width, height },
   });
-  return withFrameRect(doc, doc.frame.ratio, clamped.rect);
+  return applyFrameRect(doc, doc.frame.ratio, clamped.rect);
 }
 
 function clampWidth(bounds: Size, doc: DocumentState, crop: Crop, width: number): number {
@@ -324,7 +482,7 @@ export function applyRatio(doc: DocumentState, ratio: number): DocumentState {
       height,
     },
   });
-  const next = withFrameRect(doc, target, clamped.rect);
+  const next = applyFrameRect(doc, target, clamped.rect);
   if (!next.resize) return next;
   // Flipping between the Mudae orientations keeps the chosen Carta, instead of
   // re-deriving its height from the new proportion (which would not be a Carta).

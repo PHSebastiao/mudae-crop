@@ -22,6 +22,8 @@ export type ActivityStart =
  */
 export interface AppShell {
   readonly busy: boolean;
+  /** The operation that owns the app, or null when idle. */
+  readonly activity: ActivityLabel | null;
   readonly notice: Notice;
   readonly download: DownloadPhase;
   readonly begin: (label: ActivityLabel) => ActivityStart;
@@ -69,6 +71,7 @@ export function useAppShell(): AppShell {
 
   return {
     busy: state.activity.kind === 'running',
+    activity: state.activity.kind === 'running' ? state.activity.label : null,
     notice: state.notice,
     download: state.download,
     begin,

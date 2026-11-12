@@ -69,12 +69,12 @@ describe('ratio presets', () => {
     expect(presetsFor('square')).toEqual(RATIO_PRESETS);
   });
 
-  it('snaps a ratio within two and a half percent to the nearest preset', () => {
+  it('snaps a ratio within three percent to the nearest preset', () => {
     expect(snapRatio((16 / 9) * 1.015)?.label).toBe('16:9');
     expect(snapRatio((9 / 16) * 0.985)?.label).toBe('9:16');
     expect(snapRatio(1.02)?.label).toBe('1:1');
     expect(snapRatio(1.04)).toBeNull();
-    expect(snapRatio((16 / 9) * 1.03)).toBeNull();
+    expect(snapRatio((16 / 9) * 1.04)).toBeNull();
   });
 
   it('excludes the proportion a drag started on', () => {

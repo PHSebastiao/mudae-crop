@@ -15,6 +15,25 @@ interface RatioMenuProps {
 
 const VIEWPORT_MARGIN = 8;
 
+/**
+ * The chip icon's Frame: a rounded rectangle at the current proportion, centred
+ * in the 16×16 viewBox. An extreme free proportion clamps to 3:1 so the shape
+ * never collapses into an unreadable sliver.
+ */
+function ratioIcon(ratio: number) {
+  const shaped = Number.isFinite(ratio) && ratio > 0 ? Math.min(3, Math.max(1 / 3, ratio)) : 1;
+  const long = 12.2;
+  const width = shaped >= 1 ? long : long * shaped;
+  const height = shaped >= 1 ? long / shaped : long;
+  return {
+    x: (16 - width) / 2,
+    y: (16 - height) / 2,
+    width,
+    height,
+    radius: Math.max(0.9, Math.min(1.6, Math.min(width, height) / 2 - 0.6)),
+  };
+}
+
 export const RatioMenu = memo(function RatioMenu({
   ratio,
   sourceRatio,
@@ -29,6 +48,7 @@ export const RatioMenu = memo(function RatioMenu({
   const chipRef = useRef<HTMLButtonElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
   const orientation = ratioOrientation(ratio);
+  const icon = ratioIcon(ratio);
 
   useEffect(() => {
     onOpenChange?.(open);
@@ -117,16 +137,15 @@ export const RatioMenu = memo(function RatioMenu({
       >
         <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
           <rect
-            x="3.4"
-            y="1.9"
-            width="9.2"
-            height="12.2"
-            rx="1.6"
+            x={icon.x}
+            y={icon.y}
+            width={icon.width}
+            height={icon.height}
+            rx={icon.radius}
             fill="none"
             stroke="currentColor"
             strokeWidth="1.2"
           />
-          <path d="M3.4 5.2h9.2" stroke="currentColor" strokeWidth="1.2" />
         </svg>
         <span>{ratioLabel(ratio)}</span>
         <span className="ratio-caret" aria-hidden="true">

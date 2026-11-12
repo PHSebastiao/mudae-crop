@@ -37,12 +37,16 @@ export const RATIO_PRESETS: readonly RatioPreset[] = Object.freeze([
 
 /**
  * How close a ratio must be to a preset to *be* that preset (labels, Carta,
- * persistence). Snapping to a preset while dragging uses a wider 2.5%.
+ * persistence). Snapping to a preset while dragging uses a wider 3%.
  */
 export const RATIO_MATCH_TOLERANCE = 0.001;
 
-/** How close a free drag must be to a preset before it snaps. */
-export const SNAP_TOLERANCE = 0.025;
+/**
+ * How close a free drag's raw ratio must be to a preset before it snaps. The
+ * drag reads the ratio from its accumulated travel, never from the snapped
+ * document, so leaving the band takes the same travel at any pointer speed.
+ */
+export const SNAP_TOLERANCE = 0.03;
 
 export function matchesRatio(a: number, b: number): boolean {
   if (!Number.isFinite(a) || !Number.isFinite(b) || a <= 0 || b <= 0) return false;

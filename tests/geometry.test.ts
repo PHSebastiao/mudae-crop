@@ -14,6 +14,8 @@ import {
   baseRectFor,
   centreSnapAxes,
   clampCrop,
+  dragPan,
+  dragResize,
   frameRect,
   nativeSize,
   offsetPct,
@@ -23,6 +25,7 @@ import {
   resizeFrame,
   rotate90,
   rotatedBounds,
+  startDrag,
   zoomAt,
   zoomOf,
   zoomTo,
@@ -276,6 +279,145 @@ describe('pan', () => {
     expect(centreSnapAxes(bounds, off.rect, 0, 0, 6)).toEqual({ x: false, y: true });
     expect(centreSnapAxes(bounds, off.rect, 36, 0, 6)).toEqual({ x: true, y: true });
     expect(centreSnapAxes(bounds, off.rect, 10, 0, 6)).toEqual({ x: false, y: true });
+  });
+});
+
+describe('pan drag snap', () => {
+  const doc = makeDoc(makeSource(800, 400));
+  const bounds = rotatedBounds(doc);
+  const centreX = (crop: typeof doc.crop) => crop.rect.x + crop.rect.width / 2;
+  const centre = bounds.width / 2;
+
+  // One continuous drag from the document's Frame, one entry per pointer event.
+  function pan(steps: readonly number[], threshold = 6) {
+    let anchor = startDrag(doc);
+    let crop = doc.crop;
+    for (const step of steps) {
+      const result = dragPan(doc, anchor, step, 0, { snapCentre: true, threshold });
+      anchor = result.anchor;
+      crop = result.crop;
+    }
+    return crop;
+  }
+
+  it('holds the centre until the pointer has travelled the threshold', () => {
+    // Six 1 px events stay inside a 6 px threshold: the Frame does not move.
+    expect(centreX(pan([1, 1, 1, 1, 1, 1]))).toBeCloseTo(centre);
+    // The seventh crosses it, so the Frame follows the whole travel at once.
+    expect(centreX(pan([1, 1, 1, 1, 1, 1, 1]))).toBeCloseTo(centre + 7);
+  });
+
+  it('escapes by travel, not by event size', () => {
+    // A fast 5 px flick stays snapped, exactly as five slow 1 px events do.
+    expect(centreX(pan([5]))).toBeCloseTo(centre);
+    expect(centreX(pan([1, 1, 1, 1, 1]))).toBeCloseTo(centre);
+    // The same 9 px of travel escapes once, whichever way it arrives.
+    const fast = pan([9]);
+    const slow = pan([1, 1, 1, 1, 1, 1, 1, 1, 1]);
+    const chunks = pan([4, 4, 1]);
+    expect(centreX(fast)).toBeCloseTo(centre + 9);
+    expect(centreX(slow)).toBeCloseTo(centre + 9);
+    expect(centreX(chunks)).toBeCloseTo(centre + 9);
+  });
+
+  it('snaps back to the centre when a drag comes within the threshold', () => {
+    const off = panBy(doc, doc.crop, -20, 0);
+    const result = dragPan({ ...doc, crop: off }, startDrag({ ...doc, crop: off }), 16, 0, {
+      snapCentre: true,
+      threshold: 6,
+    });
+    expect(centreX(result.crop)).toBeCloseTo(centre);
+  });
+
+  it('follows the pointer back at once after being clamped at the edge', () => {
+    // Pushed far past the Source's left edge, then 5 px back: the Frame moves
+    // at once instead of first unwinding the overshoot.
+    const far = dragPan(doc, startDrag(doc), -10_000, 0, {
+      snapCentre: true,
+      threshold: 6,
+    });
+    expect(far.crop.rect.x).toBeCloseTo(0);
+    const back = dragPan(doc, far.anchor, 5, 0, { snapCentre: true, threshold: 6 });
+    expect(back.crop.rect.x).toBeCloseTo(5);
+  });
+
+  it('does not pull to the centre when the snap is off', () => {
+    const off = panBy(doc, doc.crop, -40, 0);
+    const result = dragPan({ ...doc, crop: off }, startDrag({ ...doc, crop: off }), 16, 0, {
+      snapCentre: false,
+      threshold: 6,
+    });
+    expect(centreX(result.crop)).toBeCloseTo(centre - 24);
+  });
+});
+
+describe('resize drag snap', () => {
+  const doc = makeDoc(makeSource(2000, 1000));
+  const startRatio = doc.frame.ratio;
+  const options = { locked: false, snap: true, startRatio };
+
+  // One continuous 3:2 drag of the east edge, one entry per pointer event.
+  function resize(steps: readonly number[]) {
+    let anchor = startDrag(doc);
+    let crop = doc.crop;
+    let ratio = doc.frame.ratio;
+    for (const step of steps) {
+      const result = dragResize(doc, anchor, 'e', step, 0, options);
+      anchor = result.anchor;
+      crop = result.crop;
+      ratio = result.ratio;
+    }
+    return { crop, ratio, anchor };
+  }
+
+  it('lands on a preset from one fast event or many slow ones', () => {
+    const wide = 3 / 2;
+    // The 3:2 width, in one event and in a hundred.
+    const travel = 1000 * wide - doc.crop.rect.width;
+    const fast = resize([travel]);
+    const slow = resize(Array.from({ length: 100 }, () => travel / 100));
+    expect(fast.ratio).toBeCloseTo(wide);
+    expect(slow.ratio).toBeCloseTo(wide);
+    expect(fast.crop.rect.width).toBeCloseTo(1000 * wide);
+    expect(slow.crop.rect.width).toBeCloseTo(1000 * wide);
+  });
+
+  it('lets a slow drag leave a preset after the tolerance', () => {
+    // Straight from Mudae to a free 1.4499: the drag passes 4:3 and must let go
+    // of it, which a per-event snap never did.
+    const travel = 807;
+    const slow = resize(Array.from({ length: travel }, () => 1));
+    expect(slow.ratio).toBeCloseTo((doc.crop.rect.width + travel) / 1000);
+    // The same travel in one event reaches the same raw ratio.
+    const fast = resize([travel]);
+    expect(fast.ratio).toBeCloseTo(slow.ratio);
+    expect(fast.crop.rect.width).toBeCloseTo(slow.crop.rect.width);
+  });
+
+  it('holds one fast event that lands inside the tolerance', () => {
+    // 20 px past the 3:2 width is a 1.52 ratio, still within 3%.
+    const travel = 1000 * 1.5 - doc.crop.rect.width + 20;
+    const fast = resize([travel]);
+    const slow = resize(Array.from({ length: 100 }, () => travel / 100));
+    expect(fast.ratio).toBeCloseTo(3 / 2);
+    expect(fast.crop.rect.width).toBeCloseTo(1500);
+    expect(slow.ratio).toBeCloseTo(3 / 2);
+    expect(slow.crop.rect.width).toBeCloseTo(1500);
+  });
+
+  it('keeps the snapped preset when a free drag locks', () => {
+    // Shift held to a 3:2 capture, then released without moving: the locked drag
+    // holds what is on screen, not the raw ratio the snap was measuring from.
+    const travel = 1000 * 1.5 - doc.crop.rect.width;
+    const free = resize(Array.from({ length: 100 }, () => travel / 100));
+    expect(free.ratio).toBeCloseTo(3 / 2);
+    const locked = dragResize(doc, free.anchor, 'e', 0, 0, {
+      locked: true,
+      snap: false,
+      startRatio,
+    });
+    expect(locked.ratio).toBeCloseTo(3 / 2);
+    expect(locked.crop.rect.width).toBeCloseTo(1500);
   });
 });
 

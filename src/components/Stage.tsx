@@ -12,10 +12,19 @@ import {
   isAnimated,
   outputSize,
   type DocumentState,
+  type Rect,
 } from '../core/document';
 import { formatFps, formatPlaybackDuration } from '../core/animation';
 import { formatBytes } from '../core/download';
-import { centreSnapAxes, frameRect, rotatedBounds } from '../core/geometry';
+import {
+  centreSnapAxes,
+  dragPan,
+  dragResize,
+  frameRect,
+  rotatedBounds,
+  startDrag,
+  type DragAnchor,
+} from '../core/geometry';
 import { stageLayout, type Handle } from '../core/rect';
 import { presetForRatio, ratioLabel } from '../core/ratios';
 import { borderReferenceWidth, drawSource, paintsPadColor, renderFrame } from '../core/render';
@@ -24,8 +33,13 @@ import { type StageMode } from '../core/stageMode';
 /** Screen pixels of drag before a free resize starts snapping. */
 const SNAP_START_PX = 6;
 
-/** Screen pixels within which a pan holds the Frame at the Source centre. */
-const CENTRE_SNAP_PX = 6;
+/**
+ * Screen pixels the pointer may travel from the Source centre before the
+ * centre snap lets go. Snapping reads the drag's accumulated travel, so this is
+ * a distance, never a speed: a fast event and a hundred slow ones escape at the
+ * same point.
+ */
+const CENTRE_SNAP_PX = 10;
 
 /** How close the rect centre must be to count as snapped, in Source pixels. */
 const CENTRE_SNAP_EPSILON = 0.01;
@@ -66,22 +80,14 @@ interface StageProps {
   /** Bumped after an async video seek so the canvas is redrawn. */
   readonly frameVersion?: number;
   /**
-   * Delta in rotated Source pixels plus the centre-snap state; the caller
-   * applies it to its latest Crop.
+   * The Crop rect a pan step settled on, in rotated Source pixels; the caller
+   * writes it to its latest Crop.
    */
-  readonly onPan: (dx: number, dy: number, snapCenter: boolean, threshold: number) => void;
+  readonly onPanTo: (rect: Rect) => void;
   /** Zoom multiplier around a rotated Source point; the caller applies its latest Crop. */
   readonly onZoomAt: (point: { x: number; y: number }, factor: number) => void;
-  /** Delta in rotated Source pixels and the ratio-lock state of a handle drag. */
-  readonly onResize: (
-    handle: Handle,
-    dx: number,
-    dy: number,
-    locked: boolean,
-    snap: boolean,
-    /** The proportion the drag started on; excluded from snapping. */
-    startRatio?: number,
-  ) => void;
+  /** The Frame proportion and Crop rect a handle drag settled on. */
+  readonly onResizeTo: (rect: Rect, ratio: number) => void;
   /** The one interaction that owns the Stage. */
   readonly mode: StageMode;
   /** Whether free resizes snap to a nearby ratio preset. */
@@ -96,9 +102,9 @@ export function Stage({
   doc,
   frameIndex,
   frameVersion = 0,
-  onPan,
+  onPanTo,
   onZoomAt,
-  onResize,
+  onResizeTo,
   mode,
   snapRatios,
   onOpen,
@@ -111,7 +117,13 @@ export function Stage({
   const frameRef = useRef<HTMLCanvasElement>(null);
   const pickRef = useRef<HTMLCanvasElement | null>(null);
   const magnifierRef = useRef<HTMLCanvasElement>(null);
-  const dragRef = useRef<{ id: number; x: number; y: number } | null>(null);
+  const dragRef = useRef<{
+    id: number;
+    x: number;
+    y: number;
+    anchor: DragAnchor;
+    rebase: boolean;
+  } | null>(null);
   const resizeRef = useRef<{
     id: number;
     handle: Handle;
@@ -121,6 +133,8 @@ export function Stage({
     startY: number;
     startRatio: number;
     scale: number;
+    anchor: DragAnchor;
+    rebase: boolean;
   } | null>(null);
   const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
   const [dragging, setDragging] = useState(false);
@@ -346,6 +360,10 @@ export function Stage({
         y: rect.y + (event.clientY - bounds.top) / scale,
       };
       const factor = Math.exp(-event.deltaY * 0.0015);
+      // Zooming changes the Crop under the pointer, so the next pointer step
+      // must start from the zoomed Frame instead of the drag's old anchor.
+      if (dragRef.current) dragRef.current.rebase = true;
+      if (resizeRef.current) resizeRef.current.rebase = true;
       onZoomAt(point, factor);
     };
     element.addEventListener('wheel', onWheel, { passive: false });
@@ -403,7 +421,13 @@ export function Stage({
     }
 
     event.currentTarget.setPointerCapture(event.pointerId);
-    dragRef.current = { id: event.pointerId, x: event.clientX, y: event.clientY };
+    dragRef.current = {
+      id: event.pointerId,
+      x: event.clientX,
+      y: event.clientY,
+      anchor: startDrag(doc),
+      rebase: false,
+    };
     setDragging(true);
     setPanned(false);
     setAltDown(event.altKey);
@@ -459,14 +483,24 @@ export function Stage({
     }
     const drag = dragRef.current;
     if (!drag || drag.id !== event.pointerId) return;
+    if (!(scale > 0)) return;
     const dx = (event.clientX - drag.x) / scale;
     const dy = (event.clientY - drag.y) / scale;
-    dragRef.current = { id: drag.id, x: event.clientX, y: event.clientY };
     setPanned((value) => value || dx !== 0 || dy !== 0);
     setAltDown(event.altKey);
     // Alt releases the centre snap, the same key that releases the ratio snap.
-    const snapThreshold = scale > 0 ? CENTRE_SNAP_PX / scale : 0;
-    onPan(dx, dy, !event.altKey && snapThreshold > 0, snapThreshold);
+    const result = dragPan(doc, drag.rebase ? startDrag(doc) : drag.anchor, dx, dy, {
+      snapCentre: !event.altKey,
+      threshold: CENTRE_SNAP_PX / scale,
+    });
+    dragRef.current = {
+      id: drag.id,
+      x: event.clientX,
+      y: event.clientY,
+      anchor: result.anchor,
+      rebase: false,
+    };
+    onPanTo(result.crop.rect);
   }
 
   function endDrag(event: ReactPointerEvent<HTMLDivElement>) {
@@ -494,6 +528,8 @@ export function Stage({
       startY: event.clientY,
       startRatio: doc.frame.ratio,
       scale,
+      anchor: startDrag(doc),
+      rebase: false,
     };
   }
 
@@ -508,20 +544,27 @@ export function Stage({
     // neighbouring preset before the user has actually dragged.
     const moved =
       Math.hypot(event.clientX - resize.startX, event.clientY - resize.startY) > SNAP_START_PX;
+    const result = dragResize(
+      doc,
+      resize.rebase ? startDrag(doc) : resize.anchor,
+      resize.handle,
+      dx,
+      dy,
+      {
+        locked: !event.shiftKey,
+        snap: snapRatios && !event.altKey && moved,
+        startRatio: resize.startRatio,
+      },
+    );
     resizeRef.current = {
       ...resize,
       x: event.clientX,
       y: event.clientY,
       scale,
+      anchor: result.anchor,
+      rebase: false,
     };
-    onResize(
-      resize.handle,
-      dx,
-      dy,
-      !event.shiftKey,
-      snapRatios && !event.altKey && moved,
-      resize.startRatio,
-    );
+    onResizeTo(result.crop.rect, result.ratio);
   }
 
   function endResize(event: ReactPointerEvent<HTMLButtonElement>) {
@@ -667,15 +710,13 @@ export function Stage({
                     event.key === 'ArrowDown' ? step : event.key === 'ArrowUp' ? -step : 0;
                   if (horizontal === 0 && vertical === 0) return;
                   event.preventDefault();
-                  onResize(
-                    handle,
-                    horizontal,
-                    vertical,
-                    !event.shiftKey,
+                  const result = dragResize(doc, startDrag(doc), handle, horizontal, vertical, {
+                    locked: !event.shiftKey,
                     // A keyboard nudge has no drag session to exclude its own
                     // proportion, so it does not snap at all.
-                    false,
-                  );
+                    snap: false,
+                  });
+                  onResizeTo(result.crop.rect, result.ratio);
                 }}
               />
             ))}
