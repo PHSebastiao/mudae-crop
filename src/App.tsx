@@ -72,7 +72,7 @@ import {
   uploadErrorMessage,
   uploadStill,
 } from './core/imagechest';
-import { UPLOAD_DESCRIPTION, exportFileName, postTitle } from './core/naming';
+import { UPLOAD_CREDIT, exportFileName, postTitle } from './core/naming';
 import { mudaeExportSize, ratioSlug, type CartaScale } from './core/ratios';
 import { resolveShortcut } from './core/shortcuts';
 import { loadHistory, loadSettings, saveHistory, saveSettings } from './core/config';
@@ -869,11 +869,13 @@ export default function App() {
       const bytes = await renderWithProgress(current, frameIndexRef.current);
       const size = outputSize(current);
       const title = postTitle(current.source.name, size.width, size.height);
+      // The credit line is opt-in; custom descriptions may replace it later.
+      const description = saved.uploadCredit ? UPLOAD_CREDIT : '';
       const outcome = await uploadStill({
         transport: tauriImageChestTransport,
         token: saved.token,
         title,
-        description: UPLOAD_DESCRIPTION,
+        description,
         privacy: saved.defaultPrivacy,
         postId: requestedPost || null,
         file: {
@@ -906,7 +908,8 @@ export default function App() {
         createdAt: new Date().toISOString(),
       };
       persistHistory(appendHistory(historyRef.current, record));
-      const noDescription = outcome.described ? '' : ' A descrição não foi aplicada.';
+      const noDescription =
+        description && !outcome.described ? ' A descrição não foi aplicada.' : '';
       inform(
         copied
           ? `Link copiado: ${outcome.link}${noDescription}`

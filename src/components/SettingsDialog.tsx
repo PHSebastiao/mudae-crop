@@ -170,6 +170,19 @@ export function SettingsDialog({
               ))}
             </select>
           </label>
+
+          <label className="settings-check">
+            <input
+              type="checkbox"
+              checked={settings.uploadCredit}
+              onChange={(event) => onChange({ uploadCredit: event.target.checked })}
+            />
+            <span>Crédito na descrição</span>
+          </label>
+          <p className="settings-hint">
+            Escreve o crédito do Mudae Crop na descrição da imagem enviada. Desligado, a imagem sobe
+            sem descrição.
+          </p>
         </section>
 
         <section>

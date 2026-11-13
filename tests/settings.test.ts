@@ -18,6 +18,11 @@ describe('settings', () => {
     expect(parseSettings('42')).toEqual(DEFAULT_SETTINGS);
   });
 
+  it('keeps the upload credit off by default', () => {
+    expect(DEFAULT_SETTINGS.uploadCredit).toBe(false);
+    expect(parseSettings('{}').uploadCredit).toBe(false);
+  });
+
   it('round-trips the token, folder and defaults it was given', () => {
     const settings: Settings = {
       token: 'secret-token',
@@ -29,6 +34,7 @@ describe('settings', () => {
       exportFormat: 'png',
       frameRatio: 16 / 9,
       snapRatios: false,
+      uploadCredit: true,
     };
 
     const loaded = parseSettings(serializeSettings(settings));
@@ -48,6 +54,7 @@ describe('settings', () => {
         exportFormat: 'bmp',
         frameRatio: 0,
         snapRatios: 'yes',
+        uploadCredit: 'yes',
       }),
     );
 
@@ -60,6 +67,7 @@ describe('settings', () => {
     expect(loaded.exportFormat).toBe('png');
     expect(loaded.frameRatio).toBe(MUDAE_RATIO);
     expect(loaded.snapRatios).toBe(true);
+    expect(loaded.uploadCredit).toBe(false);
   });
 
   it('ignores a stale exportScale key from an older settings file', () => {

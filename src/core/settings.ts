@@ -23,6 +23,8 @@ export interface Settings {
   readonly frameRatio: number;
   /** Whether a free Frame resize snaps to a nearby ratio preset. */
   readonly snapRatios: boolean;
+  /** Whether an upload writes the Mudae Crop credit line into the image description. */
+  readonly uploadCredit: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = Object.freeze({
@@ -35,6 +37,7 @@ export const DEFAULT_SETTINGS: Settings = Object.freeze({
   exportFormat: 'gif',
   frameRatio: MUDAE_RATIO,
   snapRatios: true,
+  uploadCredit: false,
 });
 
 const PRIVACY: ReadonlyArray<Privacy> = ['public', 'hidden', 'secret'];
@@ -103,6 +106,7 @@ export function parseSettings(raw: string | null | undefined): Settings {
     exportFormat: readFormat(data.exportFormat),
     frameRatio: readFrameRatio(data.frameRatio),
     snapRatios: readBoolean(data.snapRatios, DEFAULT_SETTINGS.snapRatios),
+    uploadCredit: readBoolean(data.uploadCredit, DEFAULT_SETTINGS.uploadCredit),
   };
 }
 

@@ -25,8 +25,8 @@ export function exportFileName(
   return `${stem}-${slug}-${stamp}.${extension}`;
 }
 
-/** The credit line written into every uploaded image's description. */
-export const UPLOAD_DESCRIPTION =
+/** The credit line written into an uploaded image's description when enabled. */
+export const UPLOAD_CREDIT =
   'Cropped with [Mudae Crop](https://github.com/PHSebastiao/mudae-crop/)';
 
 /**
