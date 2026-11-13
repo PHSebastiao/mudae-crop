@@ -55,6 +55,13 @@ O instalador baixa o WebView2 se ele não estiver presente; o ZIP e o `.exe`
 sozinho precisam do WebView2 já instalado. As configurações e o Histórico ficam
 em `%LOCALAPPDATA%\Mudae Crop`.
 
+As três builds se atualizam sozinhas: o app consulta o `latest.json` da última
+release três segundos depois de abrir, e quando há uma versão nova oferece
+instalar. O instalador roda o setup assinado e reabre o app; o ZIP portátil e o
+`.exe` sozinho baixam o executável assinado e trocam o arquivo no lugar. A
+versão aparece em **Configurações → Sobre**, com um botão para verificar na
+hora. Uma versão pulada só volta a aparecer quando a próxima sair, ou pelo botão de verificar.
+
 ## Desenvolvimento
 
 ### Pré-requisitos
@@ -95,13 +102,35 @@ cargo check --manifest-path src-tauri/Cargo.toml
 ### Build de release
 
 ```powershell
-npm run tauri build -- --bundles nsis
+npm run version:set -- 0.2.0
+$env:TAURI_SIGNING_PRIVATE_KEY = Get-Content -Raw "$env:USERPROFILE\.tauri\mudae-crop-updater.key"
+$env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = 'a senha da chave'
+npm run tauri build -- --bundles nsis --config src-tauri/tauri.release.conf.json
 pwsh -NoProfile -File scripts/make-portable.ps1
+npm run tauri signer sign -- --app-version 0.2.0 "dist-portable/Mudae-Crop-0.2.0-win64.exe"
 ```
+
+Sem as duas variáveis o build falha, porque `tauri.release.conf.json` liga
+`createUpdaterArtifacts`. O `--app-version` é obrigatório: o updater tem
+`requireSignedVersion` ligado e recusa uma assinatura que não declare a versão.
 
 Os três arquivos saem em `dist-portable/`. O workflow
 `.github/workflows/release.yml` faz o mesmo em `windows-latest` quando você
-empurra uma tag `v*` ou dispara manualmente.
+empurra uma tag `v*` ou dispara manualmente, e ainda escreve o `latest.json` que
+o updater consulta.
+
+A assinatura das atualizações usa um par de chaves gerado uma única vez:
+
+```powershell
+npx tauri signer generate -w "$env:USERPROFILE\.tauri\mudae-crop-updater.key"
+Get-Content -Raw "$env:USERPROFILE\.tauri\mudae-crop-updater.key" |
+  gh secret set TAURI_SIGNING_PRIVATE_KEY
+gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+```
+
+A chave pública já está em `src-tauri/tauri.conf.json`. **Perder a chave ou a
+senha impede qualquer atualização futura**: quem já instalou teria que baixar
+uma build nova à mão.
 
 ## Estrutura
 

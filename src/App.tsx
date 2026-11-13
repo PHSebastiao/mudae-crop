@@ -106,9 +106,11 @@ import { Timeline } from './components/Timeline';
 import { FrameGrid } from './components/FrameGrid';
 import { SettingsDialog, type TokenTestResult } from './components/SettingsDialog';
 import { ShortcutsDialog } from './components/ShortcutsDialog';
+import { UpdateDialog } from './components/UpdateDialog';
 import { WindowControls } from './components/WindowControls';
 import { useAppShell } from './hooks/useAppShell';
 import { useFrameCrop } from './hooks/useFrameCrop';
+import { REPO_URL, RELEASES_URL, useUpdater } from './hooks/useUpdater';
 
 function messageOf(error: unknown): string {
   if (typeof error === 'string') return error;
@@ -150,6 +152,7 @@ export default function App() {
   const [uploading, setUploading] = useState(false);
   const [link, setLink] = useState('');
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [history, setHistory] = useState<readonly HistoryEntry[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
@@ -267,6 +270,33 @@ export default function App() {
     setStageMode,
   });
 
+  // The launch check runs once, three seconds after the first paint. The prompt
+  // is held back while an Export or an upload owns the app, so an update never
+  // closes the window over unfinished work.
+  const updater = useUpdater({
+    desktop: isDesktop(),
+    ready: settingsLoaded,
+    skipped: settings.skippedUpdateVersion,
+    onSkip: (version) => persistSettings({ skippedUpdateVersion: version }),
+  });
+
+  // The update prompt is the topmost modal: an open Settings, Atalhos or
+  // proportion popover would keep its own Escape handler and focus trap, so
+  // they give way instead of stacking. It is hidden while an Export or an
+  // upload owns the app, and that hidden state is not a dialog for shortcuts.
+  const updatePromptVisible =
+    updater.prompt && (updater.status.phase !== 'available' || (!busy && !uploading));
+
+  useEffect(() => {
+    if (!updatePromptVisible) return;
+    setSettingsOpen(false);
+    setShortcutsOpen(false);
+    setRatioOpen(false);
+    // A notice bar sits above the backdrop, so its "abrir Configurações"
+    // action could open a dialog over the prompt; closing on every attempt
+    // keeps the update modal the only one.
+  }, [updatePromptVisible, settingsOpen, shortcutsOpen, ratioOpen]);
+
   useEffect(() => {
     let alive = true;
     void (async () => {
@@ -277,6 +307,7 @@ export default function App() {
       if (!alive) return;
       settingsRef.current = savedSettings;
       setSettings(savedSettings);
+      setSettingsLoaded(true);
       historyRef.current = savedHistory;
       setHistory(savedHistory);
       appendPostIdRef.current = savedSettings.appendPostId;
@@ -294,6 +325,9 @@ export default function App() {
       markRatioPersisted(savedSettings.frameRatio);
     })().catch((reason) => {
       if (!alive) return;
+      // The defaults are what the app runs on, so the launch check may proceed:
+      // a broken settings file must not disable updates for the session.
+      setSettingsLoaded(true);
       fail(`Não foi possível ler as Configurações; usando os padrões. ${messageOf(reason)}`);
     });
     return () => {
@@ -1227,7 +1261,7 @@ export default function App() {
       // A dialog (the proportion popover) already handled this key.
       if (event.defaultPrevented) return;
       // An open dialog owns the keyboard; global shortcuts must not fire.
-      if (settingsOpen || shortcutsOpen || ratioOpen) return;
+      if (settingsOpen || shortcutsOpen || ratioOpen || updatePromptVisible) return;
       if (event.key === 'Escape') {
         if (isTextEntry(event.target)) return;
         if (stageMode.kind !== 'idle') {
@@ -1326,6 +1360,7 @@ export default function App() {
     toggleAdjustFrame,
     toggleFrames,
     togglePlay,
+    updatePromptVisible,
     zoomBy,
   ]);
 
@@ -1730,6 +1765,8 @@ export default function App() {
           desktop={isDesktop()}
           testing={testingToken}
           testResult={tokenResult}
+          version={updater.version}
+          updateStatus={updater.status}
           onChange={persistSettings}
           onClose={() => setSettingsOpen(false)}
           onTestConnection={() => void testToken()}
@@ -1737,6 +1774,26 @@ export default function App() {
           onOpenApiKeyPage={() => void openLink(IMAGE_CHEST_API_KEY_URL)}
           onChooseFolder={() => void chooseFolder()}
           onClearFolder={() => persistSettings({ saveFolder: null })}
+          onCheckUpdate={updater.check}
+          onOpenRepository={() => void openLink(REPO_URL)}
+        />
+      )}
+
+      {updatePromptVisible && (
+        <UpdateDialog
+          phase={updater.status.phase}
+          version={updater.status.version}
+          current={updater.version}
+          detail={updater.status.detail}
+          progressLabel={updater.progressLabel}
+          percent={updater.percent}
+          canCancel={!updater.portable}
+          onInstall={updater.install}
+          onLater={updater.later}
+          onSkip={updater.skip}
+          onCancel={updater.cancel}
+          onCloseFailure={updater.closeFailure}
+          onOpenReleases={() => void openLink(RELEASES_URL)}
         />
       )}
 

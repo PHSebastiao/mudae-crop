@@ -35,6 +35,7 @@ describe('settings', () => {
       frameRatio: 16 / 9,
       snapRatios: false,
       uploadCredit: true,
+      skippedUpdateVersion: '0.2.0',
     };
 
     const loaded = parseSettings(serializeSettings(settings));
@@ -98,5 +99,15 @@ describe('settings', () => {
 
   it('clamps a negative Border width to zero', () => {
     expect(parseSettings(JSON.stringify({ borderWidth: -4 })).borderWidth).toBe(0);
+  });
+
+  it('keeps a skipped update version without its leading v', () => {
+    expect(
+      parseSettings(JSON.stringify({ skippedUpdateVersion: ' v0.2.0 ' })).skippedUpdateVersion,
+    ).toBe('0.2.0');
+    expect(parseSettings(JSON.stringify({ skippedUpdateVersion: 7 })).skippedUpdateVersion).toBe(
+      '',
+    );
+    expect(DEFAULT_SETTINGS.skippedUpdateVersion).toBe('');
   });
 });

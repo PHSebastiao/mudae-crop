@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { IMAGE_CHEST_API_KEY_URL, PRIVACY_OPTIONS } from '../core/imagechest';
 import type { Settings } from '../core/settings';
+import { describeUpdate, type UpdateStatus } from '../core/update';
 import { useDialogFocus } from '../hooks/useDialogFocus';
 import { DialogClose } from './DialogClose';
 import { NumberField } from './NumberField';
@@ -15,6 +16,9 @@ interface SettingsDialogProps {
   readonly desktop: boolean;
   readonly testing: boolean;
   readonly testResult: TokenTestResult | null;
+  /** This build's version, or null until it is read. */
+  readonly version: string | null;
+  readonly updateStatus: UpdateStatus;
   readonly onChange: (patch: Partial<Settings>) => void;
   readonly onClose: () => void;
   readonly onTestConnection: () => void;
@@ -22,6 +26,8 @@ interface SettingsDialogProps {
   readonly onOpenApiKeyPage: () => void;
   readonly onChooseFolder: () => void;
   readonly onClearFolder: () => void;
+  readonly onCheckUpdate: () => void;
+  readonly onOpenRepository: () => void;
 }
 
 export function SettingsDialog({
@@ -29,6 +35,8 @@ export function SettingsDialog({
   desktop,
   testing,
   testResult,
+  version,
+  updateStatus,
   onChange,
   onClose,
   onTestConnection,
@@ -36,6 +44,8 @@ export function SettingsDialog({
   onOpenApiKeyPage,
   onChooseFolder,
   onClearFolder,
+  onCheckUpdate,
+  onOpenRepository,
 }: SettingsDialogProps) {
   // The token is a draft until blur, so a long token is not written once per
   // keystroke. Clearing it from another control resets the draft.
@@ -247,6 +257,70 @@ export function SettingsDialog({
           <p className="settings-hint">
             A Borda é desenhada em pixels do card 1× e cresce junto com o Export; estes valores
             também são guardados para a próxima sessão.
+          </p>
+        </section>
+
+        <section>
+          <h3>Sobre</h3>
+          <div className="settings-row">
+            <span className="settings-key">Versão</span>
+            <span>{version ?? '—'}</span>
+          </div>
+          <div className="settings-row">
+            <span className="settings-key">Repositório</span>
+            <a
+              className="inline-link"
+              href="https://github.com/PHSebastiao/mudae-crop"
+              onClick={(event) => {
+                event.preventDefault();
+                onOpenRepository();
+              }}
+            >
+              github.com/PHSebastiao/mudae-crop
+            </a>
+          </div>
+          <div className="settings-row">
+            <span className="settings-key">Atualizações</span>
+            <span className="settings-color">
+              <span className="update-status" title={updateStatus.detail ?? undefined}>
+                {describeUpdate(updateStatus)}
+              </span>
+              <button
+                type="button"
+                className="update-check"
+                onClick={onCheckUpdate}
+                disabled={
+                  !desktop ||
+                  updateStatus.phase === 'checking' ||
+                  updateStatus.phase === 'downloading' ||
+                  updateStatus.phase === 'installing'
+                }
+                aria-label="Verificar atualizações"
+                title="Verificar atualizações"
+              >
+                <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                  <path
+                    d="M13 8a5 5 0 1 1-1.6-3.7"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                  />
+                  <path
+                    d="M13 2.6v2.6h-2.6"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </button>
+            </span>
+          </div>
+          <p className="settings-hint">
+            A checagem roda ao abrir o app; uma versão pulada só volta a aparecer pelo botão ao
+            lado.
           </p>
         </section>
 

@@ -3,6 +3,7 @@ import { MUDAE_RATIO } from './ratios';
 import { isPostId, type Privacy } from './imagechest';
 import { normalizeHexColor } from './color';
 import { asRecord, parseJson } from './json';
+import { normalizeVersion } from './update';
 
 /** The Export formats this slice can write. */
 export type ExportFormat = 'png' | 'gif';
@@ -25,6 +26,8 @@ export interface Settings {
   readonly snapRatios: boolean;
   /** Whether an upload writes the Mudae Crop credit line into the image description. */
   readonly uploadCredit: boolean;
+  /** The version the user asked not to be offered again; empty when none. */
+  readonly skippedUpdateVersion: string;
 }
 
 export const DEFAULT_SETTINGS: Settings = Object.freeze({
@@ -38,6 +41,7 @@ export const DEFAULT_SETTINGS: Settings = Object.freeze({
   frameRatio: MUDAE_RATIO,
   snapRatios: true,
   uploadCredit: false,
+  skippedUpdateVersion: '',
 });
 
 const PRIVACY: ReadonlyArray<Privacy> = ['public', 'hidden', 'secret'];
@@ -79,6 +83,11 @@ function readFolder(value: unknown): string | null {
   return folder || null;
 }
 
+function readVersion(value: unknown): string {
+  const version = readString(value)?.trim() ?? '';
+  return version ? normalizeVersion(version) : DEFAULT_SETTINGS.skippedUpdateVersion;
+}
+
 function readPostId(value: unknown): string {
   const postId = readString(value)?.trim() ?? '';
   return isPostId(postId) ? postId : '';
@@ -107,6 +116,7 @@ export function parseSettings(raw: string | null | undefined): Settings {
     frameRatio: readFrameRatio(data.frameRatio),
     snapRatios: readBoolean(data.snapRatios, DEFAULT_SETTINGS.snapRatios),
     uploadCredit: readBoolean(data.uploadCredit, DEFAULT_SETTINGS.uploadCredit),
+    skippedUpdateVersion: readVersion(data.skippedUpdateVersion),
   };
 }
 

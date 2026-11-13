@@ -85,6 +85,15 @@ Copy-Item $exe $standalone
 $setup = Join-Path $output "Mudae-Crop-$Version-win64-setup.exe"
 Copy-Item $installer.FullName $setup
 
+# The updater signature is written by the build when it was asked for updater
+# artifacts; a local build without the signing key simply has none.
+$installerSig = "$($installer.FullName).sig"
+if (Test-Path $installerSig) {
+  Copy-Item $installerSig "$setup.sig"
+} else {
+  Write-Warning "No installer signature at $installerSig; the update manifest cannot be written from this build."
+}
+
 Remove-Item -Recurse -Force $staging
 
 Write-Host 'Built:'

@@ -31,6 +31,10 @@ const MAX_WINDOW_SIDE: u32 = 16_384;
 /// saved position from a disconnected screen does not hide the app.
 const MIN_VISIBLE_EDGE: i32 = 48;
 
+/// The manifest's entry for the unpacked builds. The installed copy uses the
+/// default `windows-x86_64` entry, which points at the NSIS setup.
+const PORTABLE_UPDATE_TARGET: &str = "windows-x86_64-portable";
+
 /// The remembered geometry of the main window, in physical pixels.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct WindowState {
@@ -197,6 +201,157 @@ fn save_window_state(window: &Window) {
     };
     state.maximized = maximized;
     write_window_state(&window.app_handle(), &state);
+}
+
+/// Progress of the portable update download, mirrored from the plugin's chunk
+/// callback so the modal can show the same bar the installed build shows.
+#[derive(Clone, Serialize)]
+struct UpdateProgress {
+    received: u64,
+    total: Option<u64>,
+}
+
+/// The `Window` behind the main webview, for the code that saves its geometry.
+fn main_window(app: &AppHandle) -> Option<Window> {
+    app.get_webview_window("main")
+        .map(|window| window.as_ref().window())
+}
+
+/// The NSIS install directory carries an uninstaller beside the app; the
+/// portable ZIP and the standalone executable do not. That is the only
+/// difference the updater can rely on when it picks a manifest entry.
+#[tauri::command]
+fn installer_detected() -> bool {
+    std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|dir| dir.join("uninstall.exe").is_file()))
+        .unwrap_or(false)
+}
+
+/// Replace the executable at `exe` with `bytes`, keeping the old image as
+/// `<name>.old`. Windows refuses to overwrite a running executable but allows
+/// renaming it, so the running copy is renamed first and the new bytes take its
+/// name. A failure after the rename restores the old image.
+fn swap_executable(exe: &Path, bytes: &[u8]) -> Result<PathBuf, String> {
+    if bytes.is_empty() {
+        return Err("O arquivo de atualização veio vazio.".into());
+    }
+    let dir = exe.parent().ok_or("A pasta do app não foi encontrada.")?;
+    let name = exe
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or("O nome do executável não foi lido.")?;
+    let staged = dir.join(format!("{name}.new"));
+    let backup = dir.join(format!("{name}.old"));
+
+    let _ = std::fs::remove_file(&staged);
+    std::fs::write(&staged, bytes)
+        .map_err(|error| format!("Não foi possível gravar a atualização: {error}"))?;
+
+    let _ = std::fs::remove_file(&backup);
+    if let Err(error) = std::fs::rename(exe, &backup) {
+        let _ = std::fs::remove_file(&staged);
+        return Err(format!("Não foi possível substituir o executável: {error}"));
+    }
+    if let Err(error) = std::fs::rename(&staged, exe) {
+        let _ = std::fs::rename(&backup, exe);
+        let _ = std::fs::remove_file(&staged);
+        return Err(format!("Não foi possível gravar o novo executável: {error}"));
+    }
+    Ok(backup)
+}
+
+/// The renamed image of the previous launch. It stays locked for a moment
+/// while the old process exits, so the sweep retries before giving up; a file
+/// that survives is removed on the launch after this one.
+fn sweep_previous_image() {
+    let Ok(exe) = std::env::current_exe() else {
+        return;
+    };
+    let Some(dir) = exe.parent().map(Path::to_path_buf) else {
+        return;
+    };
+    let Some(name) = exe.file_name().and_then(|name| name.to_str()) else {
+        return;
+    };
+    let previous = dir.join(format!("{name}.old"));
+    if !previous.exists() {
+        return;
+    }
+    std::thread::spawn(move || {
+        for _ in 0..50 {
+            if std::fs::remove_file(&previous).is_ok() || !previous.exists() {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    });
+}
+
+/// Install a downloaded update over this portable copy: ask the portable
+/// manifest entry, verify the signature through the plugin, swap the executable
+/// and let the new one own the session. The window geometry is written first,
+/// so the reopened app lands where this one was.
+#[tauri::command(rename_all = "snake_case")]
+async fn install_portable_update(app: AppHandle, expected_version: String) -> Result<(), String> {
+    use tauri_plugin_updater::UpdaterExt;
+
+    // Only an unpacked copy may replace its own executable; an installed copy
+    // must go through the signed NSIS setup instead.
+    if installer_detected() {
+        return Err("Esta cópia foi instalada pelo instalador; use a atualização normal.".into());
+    }
+
+    let updater = app
+        .updater_builder()
+        .target(PORTABLE_UPDATE_TARGET)
+        .build()
+        .map_err(|error| error.to_string())?;
+    let Some(update) = updater.check().await.map_err(|error| error.to_string())? else {
+        return Err("Nenhuma atualização disponível.".into());
+    };
+    let mut offered = update.version.to_string();
+    if let Some(stripped) = offered.strip_prefix(['v', 'V']) {
+        offered = stripped.to_string();
+    }
+    if offered != expected_version.trim_start_matches(['v', 'V']) {
+        return Err(format!(
+            "A versão disponível mudou para {offered}; verifique novamente."
+        ));
+    }
+
+    let emitter = app.clone();
+    let mut received = 0u64;
+    let bytes = update
+        .download(
+            move |chunk, total| {
+                received += chunk as u64;
+                let _ = emitter.emit("update-progress", UpdateProgress { received, total });
+            },
+            || {},
+        )
+        .await
+        .map_err(|error| error.to_string())?;
+
+    let exe = std::env::current_exe().map_err(|error| error.to_string())?;
+    swap_executable(&exe, &bytes)?;
+
+    if let Some(window) = main_window(&app) {
+        save_window_state(&window);
+    }
+    Command::new(&exe)
+        .spawn()
+        .map_err(|error| format!("Não foi possível abrir a nova versão: {error}"))?;
+    std::process::exit(0);
+}
+
+/// The updater exits the process without a close event, so the front-end asks
+/// for the geometry explicitly before an install starts.
+#[tauri::command]
+fn save_window_geometry(app: AppHandle) {
+    if let Some(window) = main_window(&app) {
+        save_window_state(&window);
+    }
 }
 
 /// Cancellation state of one download, keyed by the id the front-end chose.
@@ -1191,11 +1346,13 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(Downloads::default())
         .manage(Waifu2xRuns::default())
         .manage(Waifu2xProbeCache::default())
         .manage(WindowBounds::default())
         .setup(|app| {
+            sweep_previous_image();
             if let Some(window) = app.get_webview_window("main") {
                 restore_window_state(&window);
                 let _ = window.show();
@@ -1221,7 +1378,10 @@ pub fn run() {
             reveal_path,
             waifu2x_probe,
             waifu2x_process,
-            cancel_waifu2x
+            cancel_waifu2x,
+            installer_detected,
+            install_portable_update,
+            save_window_geometry
         ])
         .run(tauri::generate_context!())
         .expect("error while running mudae crop");
@@ -1472,5 +1632,32 @@ mod tests {
         };
 
         assert!(!visibly_on_screen(&state, &monitors));
+    }
+
+    #[test]
+    fn a_portable_update_swaps_the_executable_and_keeps_the_previous_image() {
+        let dir = temp_path("swap");
+        std::fs::create_dir_all(&dir).unwrap();
+        let exe = dir.join("Mudae-Crop.exe");
+        std::fs::write(&exe, b"old").unwrap();
+
+        let backup = swap_executable(&exe, b"new").unwrap();
+
+        assert_eq!(std::fs::read(&exe).unwrap(), b"new");
+        assert_eq!(std::fs::read(&backup).unwrap(), b"old");
+        assert!(!dir.join("Mudae-Crop.exe.new").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_empty_portable_update_leaves_the_executable_alone() {
+        let dir = temp_path("swap-empty");
+        std::fs::create_dir_all(&dir).unwrap();
+        let exe = dir.join("Mudae-Crop.exe");
+        std::fs::write(&exe, b"old").unwrap();
+
+        assert!(swap_executable(&exe, b"").is_err());
+        assert_eq!(std::fs::read(&exe).unwrap(), b"old");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
