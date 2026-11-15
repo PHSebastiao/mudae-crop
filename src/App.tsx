@@ -62,6 +62,7 @@ import {
   type SizeEstimate,
 } from './core/export';
 import type { OptimizeResult } from './core/optimize';
+import { mapWithConcurrency, pipelineInOrder, createMutex } from './core/concurrency';
 import { applyRatio } from './core/geometry';
 import { importErrorMessage, loadSource, localPathFrom, type SourceCandidate } from './core/import';
 import { extractPaletteAsync, extractPaletteWithWaifu2x, type PaletteColor } from './core/palette';
@@ -93,7 +94,12 @@ import {
   partitionBySize,
   shouldDemoteGold,
 } from './core/batch';
-import { MAX_UPLOAD_FILE_BYTES, UPLOAD_BATCH_STANDARD, uploadBatchSize } from './core/limits';
+import {
+  MAX_UPLOAD_FILE_BYTES,
+  TILE_CONCURRENCY,
+  UPLOAD_BATCH_STANDARD,
+  uploadBatchSize,
+} from './core/limits';
 import {
   EMPTY_WORKSPACE,
   activateTile,
@@ -181,6 +187,22 @@ async function uniqueExportPath(folder: string, name: string, extension: string)
     pathExists(await join(folder, candidate)),
   );
   return join(folder, fileName);
+}
+
+/**
+ * One waifu2x sidecar at a time. A batch renders two Tiles at once, but two
+ * ncnn processes would fight over the same VRAM; the second waits its turn and
+ * still overlaps the other Tile's render, write or request.
+ */
+const waifu2xGate = createMutex();
+
+/**
+ * One batch run: every Tile in it shares the controller, so Cancel stops all of
+ * them, and reports progress through the seam the single Export already uses.
+ */
+interface BatchRender {
+  readonly controller: AbortController;
+  readonly onProgress: (progress: RenderProgress) => void;
 }
 
 export default function App() {
@@ -940,22 +962,25 @@ export default function App() {
       current: DocumentState,
       controller: AbortController,
       selectedFrame: number,
+      onProgress: (progress: RenderProgress) => void,
     ): Promise<Uint8Array> => {
       const kind = exportKindFor(effectiveSource(current), settingsRef.current.exportFormat);
       // A PNG has one sidecar run, so its own percentages drive the notice. A
       // GIF reports per frame in renderGif instead.
       const waifu2x: Waifu2xFrameRunner | undefined = current.waifu2x.enabled
         ? ({ input, signal }) =>
-            runWaifu2x(input, current.waifu2x, tauriWaifu2xSpawn, {
-              signal: signal ?? controller.signal,
-              onProgress:
-                kind.format === 'png'
-                  ? (fraction) => setRenderProgress({ phase: 'waifu2x', done: fraction, total: 1 })
-                  : undefined,
-            })
+            waifu2xGate(() =>
+              runWaifu2x(input, current.waifu2x, tauriWaifu2xSpawn, {
+                signal: signal ?? controller.signal,
+                onProgress:
+                  kind.format === 'png'
+                    ? (fraction) => onProgress({ phase: 'waifu2x', done: fraction, total: 1 })
+                    : undefined,
+              }),
+            )
         : undefined;
       if (kind.format === 'png') {
-        if (waifu2x) setRenderProgress({ phase: 'waifu2x', done: 0, total: 1 });
+        if (waifu2x) onProgress({ phase: 'waifu2x', done: 0, total: 1 });
         return renderPng(current, browserExportAdapter, {
           frameIndex: selectedFrame,
           prepare: () => prepareExportFrame(current.source, selectedFrame),
@@ -963,14 +988,14 @@ export default function App() {
           waifu2x,
         });
       }
-      setRenderProgress({
+      onProgress({
         phase: waifu2x ? 'waifu2x' : 'render',
         done: 0,
         total: trimFrameCount(effectiveSource(current), effectiveTrim(current)),
       });
       return renderGif(current, browserExportAdapter, {
         signal: controller.signal,
-        onProgress: setRenderProgress,
+        onProgress,
         optimizer: gifsicleOptimizer,
         onOptimized: setOptimizeResult,
         waifu2x,
@@ -981,23 +1006,70 @@ export default function App() {
   );
 
   const renderWithProgress = useCallback(
-    async (current: DocumentState, selectedFrame: number): Promise<Uint8Array> => {
-      const controller = new AbortController();
-      cancelRenderRef.current = controller;
-      setPlaying(false);
+    async (
+      current: DocumentState,
+      selectedFrame: number,
+      run?: BatchRender,
+    ): Promise<Uint8Array> => {
+      const controller = run?.controller ?? new AbortController();
       setOptimizeResult(null);
+      if (!run) {
+        cancelRenderRef.current = controller;
+        setPlaying(false);
+      }
       try {
-        return await renderForExport(current, controller, selectedFrame);
+        return await renderForExport(
+          current,
+          controller,
+          selectedFrame,
+          run?.onProgress ?? setRenderProgress,
+        );
       } finally {
-        cancelRenderRef.current = null;
-        setRenderProgress(null);
+        if (!run) {
+          cancelRenderRef.current = null;
+          setRenderProgress(null);
+        }
       }
     },
     [renderForExport],
   );
 
   const cancelRender = useCallback(() => {
-    cancelRenderRef.current?.abort();
+    // The reason is what the batch helpers rethrow, so Cancel stays a cancel
+    // instead of turning into a failed Tile.
+    cancelRenderRef.current?.abort(new ExportError('Export cancelado.', true));
+  }, []);
+
+  /**
+   * The batch progress line: it follows the leading Tile — the first in Board
+   * order still rendering — and counts finished Tiles, so two Tiles moving at
+   * once can never make the line jump backwards.
+   */
+  const batchProgress = useCallback((tiles: readonly Tile[], label: string) => {
+    const running = new Map<string, RenderProgress>();
+    const leading = (): Tile | undefined => tiles.find((tile) => running.has(tile.id));
+    const publish = (): void => {
+      const lead = leading();
+      setRenderProgress(lead ? (running.get(lead.id) ?? null) : null);
+    };
+    return {
+      report: (tile: Tile) => (next: RenderProgress) => {
+        running.set(tile.id, next);
+        publish();
+      },
+      /** Drop a Tile from the running set; the notice follows the next one. */
+      done: (tile: Tile) => {
+        running.delete(tile.id);
+        publish();
+      },
+      /** Drop a Tile and report the finished count in the batch line. */
+      settle: (tile: Tile, done: number) => {
+        running.delete(tile.id);
+        publish();
+        const lead = leading();
+        setBatch({ label, done, total: tiles.length, name: lead?.doc.source?.name ?? '' });
+      },
+    };
   }, []);
 
   const handleExport = useCallback(async () => {
@@ -1209,63 +1281,121 @@ export default function App() {
         return next;
       });
 
+      const controller = new AbortController();
+      cancelRenderRef.current = controller;
+      setPlaying(false);
+      const progress = batchProgress(tiles, 'Exportando');
       let written = 0;
+      let finished = 0;
       let cancelled = false;
       const failed: string[] = [];
-      for (const [index, tile] of tiles.entries()) {
-        const current = tile.doc;
-        if (!current.source) continue;
-        setBatch({
-          label: 'Exportando',
-          done: index,
-          total: tiles.length,
-          name: current.source.name,
-        });
-        const kind = exportKindFor(effectiveSource(current), settingsRef.current.exportFormat);
-        const name = exportFileName(
-          current.source.name,
-          ratioSlug(current.frame.ratio),
-          new Date(),
-          kind.format,
+
+      /** A Tile that is rendered but not written yet. */
+      type Rendered = {
+        readonly tile: Tile;
+        readonly current: DocumentState;
+        readonly sourceName: string;
+        readonly format: ExportFormat;
+        readonly name: string;
+        readonly path: string;
+        readonly bytes: Uint8Array;
+      };
+
+      const failTile = (tile: Tile, name: string): void => {
+        failed.push(name);
+        setBadges((current) => ({ ...current, [tile.id]: { label: 'falhou', tone: 'bad' } }));
+        finished += 1;
+        progress.settle(tile, finished);
+      };
+
+      try {
+        await pipelineInOrder(
+          tiles,
+          TILE_CONCURRENCY,
+          // Render ahead: the next Tile paints while this one encodes, runs a
+          // sidecar or waits on the disk.
+          async (tile): Promise<Rendered | null> => {
+            const current = tile.doc;
+            if (!current.source) return null;
+            setBatch({
+              label: 'Exportando',
+              done: finished,
+              total: tiles.length,
+              name: current.source.name,
+            });
+            const kind = exportKindFor(effectiveSource(current), settingsRef.current.exportFormat);
+            const name = exportFileName(
+              current.source.name,
+              ratioSlug(current.frame.ratio),
+              new Date(),
+              kind.format,
+            );
+            try {
+              const path = await uniqueExportPath(folder, name, kind.format);
+              const bytes = await renderWithProgress(current, frameForTile(tile.id), {
+                controller,
+                onProgress: progress.report(tile),
+              });
+              return {
+                tile,
+                current,
+                sourceName: current.source.name,
+                format: kind.format,
+                name,
+                path,
+                bytes,
+              };
+            } catch (reason) {
+              if (reason instanceof ExportError && reason.cancelled) throw reason;
+              failTile(tile, name);
+              return null;
+            }
+          },
+          // Write in Board order, so the folder, the Histórico and the notice
+          // keep the same order a one-Tile-at-a-time run would produce.
+          async (rendered) => {
+            if (!rendered) return;
+            const { tile, current, sourceName, format, name, path, bytes } = rendered;
+            try {
+              await writeFileBytes(path, bytes);
+            } catch {
+              failTile(tile, name);
+              return;
+            }
+            setBadges((currentBadges) => {
+              // Only an export failure is settled here: a 'grande' from an
+              // upload is still true, and the next upload would refuse it again.
+              if (currentBadges[tile.id]?.label !== 'falhou') return currentBadges;
+              const next = { ...currentBadges };
+              delete next[tile.id];
+              return next;
+            });
+            const size = outputSize(current);
+            persistHistory(
+              appendHistory(historyRef.current, {
+                kind: 'export',
+                path,
+                fileName: fileNameOf(path),
+                title: postTitle(sourceName, size.width, size.height),
+                format,
+                size: bytes.length,
+                width: size.width,
+                height: size.height,
+                createdAt: new Date().toISOString(),
+              }),
+            );
+            written += 1;
+            finished += 1;
+            progress.settle(tile, finished);
+          },
+          controller.signal,
         );
-        try {
-          const path = await uniqueExportPath(folder, name, kind.format);
-          const bytes = await renderWithProgress(current, frameForTile(tile.id));
-          await writeFileBytes(path, bytes);
-          setBadges((current) => {
-            // Only an export failure is settled here: a 'grande' from an upload
-            // is still true, and the next upload would refuse it again.
-            if (current[tile.id]?.label !== 'falhou') return current;
-            const next = { ...current };
-            delete next[tile.id];
-            return next;
-          });
-          const size = outputSize(current);
-          persistHistory(
-            appendHistory(historyRef.current, {
-              kind: 'export',
-              path,
-              fileName: fileNameOf(path),
-              title: postTitle(current.source.name, size.width, size.height),
-              format: kind.format,
-              size: bytes.length,
-              width: size.width,
-              height: size.height,
-              createdAt: new Date().toISOString(),
-            }),
-          );
-          written += 1;
-        } catch (reason) {
-          if (reason instanceof ExportError && reason.cancelled) {
-            cancelled = true;
-            break;
-          }
-          failed.push(name);
-          setBadges((current) => ({
-            ...current,
-            [tile.id]: { label: 'falhou', tone: 'bad' },
-          }));
-        }
+      } catch (reason) {
+        if (!(reason instanceof ExportError && reason.cancelled)) throw reason;
+        cancelled = true;
+      } finally {
+        cancelRenderRef.current = null;
+        setRenderProgress(null);
       }
 
       if (cancelled) {
@@ -1289,6 +1419,7 @@ export default function App() {
       endRun('export');
     }
   }, [
+    batchProgress,
     beginRun,
     endRun,
     fail,
@@ -1556,6 +1687,11 @@ export default function App() {
       // up, appends to the Post the first attempt created, and keeps its links.
       retryRef.current = () => handleUploadAll(new Set(sent), postId, links);
 
+      const controller = new AbortController();
+      cancelRenderRef.current = controller;
+      setPlaying(false);
+      const progress = batchProgress(tiles, 'Renderizando');
+
       setUploading(true);
       clearNotice();
       setBadges((current) => ({
@@ -1571,6 +1707,7 @@ export default function App() {
         const source = entry.tile.doc.source;
         links.push(image.link);
         sent.add(entry.tile.id);
+        progress.done(entry.tile);
         setBadges((current) => ({
           ...current,
           [entry.tile.id]: { label: 'enviado', tone: 'ok' },
@@ -1602,7 +1739,10 @@ export default function App() {
         });
         rendered += 1;
         const kind = exportKindFor(effectiveSource(current), saved.exportFormat);
-        const bytes = await renderWithProgress(current, frameForTile(tile.id));
+        const bytes = await renderWithProgress(current, frameForTile(tile.id), {
+          controller,
+          onProgress: progress.report(tile),
+        });
         return {
           tile,
           size: bytes.length,
@@ -1629,6 +1769,7 @@ export default function App() {
           return await renderEntry(tile);
         } catch (reason) {
           if (reason instanceof ExportError && reason.cancelled) throw reason;
+          progress.done(tile);
           setBadges((current) => ({
             ...current,
             [tile.id]: { label: 'falhou', tone: 'bad' },
@@ -1652,6 +1793,9 @@ export default function App() {
             }
             return next;
           });
+          for (const entry of split.tooLarge) {
+            progress.done(entry.tile);
+          }
         }
         return split.ok;
       };
@@ -1708,16 +1852,14 @@ export default function App() {
       try {
         if (group) {
           // Render one chunk at a time: a 200-file Gold batch must not hold every
-          // encoded file in memory before the first request.
+          // encoded file in memory before the first request. Inside a chunk the
+          // Tiles render together, and the entries keep Board order.
           let cursor = 0;
           while (cursor < tiles.length) {
             const chunkTiles = tiles.slice(cursor, cursor + cap);
             cursor += chunkTiles.length;
-            const entries: Entry[] = [];
-            for (const tile of chunkTiles) {
-              const entry = await renderOne(tile);
-              if (entry) entries.push(entry);
-            }
+            const rendered = await mapWithConcurrency(chunkTiles, TILE_CONCURRENCY, renderOne);
+            const entries = rendered.filter((entry): entry is Entry => entry !== null);
             const files = usable(entries);
             if (files.length === 0) continue;
             setBatch({
@@ -1729,28 +1871,35 @@ export default function App() {
             postId = await send(files, postId);
           }
         } else {
-          for (const tile of tiles) {
-            const entry = await renderOne(tile);
-            if (!entry) continue;
-            if (usable([entry]).length === 0) continue;
-            setBatch({
-              label: 'Subindo',
-              done: Math.max(0, links.length - (previousLinks?.length ?? 0)),
-              total: tiles.length,
-              name: tile.doc.source?.name ?? '',
-            });
-            const outcome = await uploadBatch({
-              transport: tauriImageChestTransport,
-              token: saved.token,
-              files: [entry.upload],
-              title: titleOfTile(tile),
-              privacy: saved.defaultPrivacy,
-              postId: null,
-              // Each Tile owns its Post here, so each one carries the credit.
-              description: saved.uploadCredit ? UPLOAD_CREDIT : '',
-            });
-            outcome.images.forEach((image) => record(entry, image, outcome.postId));
-          }
+          // Render ahead, send in order: each Tile owns its Post, and only one
+          // request is in flight at a time so a rate limit never hits two.
+          await pipelineInOrder(
+            tiles,
+            TILE_CONCURRENCY,
+            renderOne,
+            async (entry, tile) => {
+              if (!entry) return;
+              if (usable([entry]).length === 0) return;
+              setBatch({
+                label: 'Subindo',
+                done: Math.max(0, links.length - (previousLinks?.length ?? 0)),
+                total: tiles.length,
+                name: tile.doc.source?.name ?? '',
+              });
+              const outcome = await uploadBatch({
+                transport: tauriImageChestTransport,
+                token: saved.token,
+                files: [entry.upload],
+                title: titleOfTile(tile),
+                privacy: saved.defaultPrivacy,
+                postId: null,
+                // Each Tile owns its Post here, so each one carries the credit.
+                description: saved.uploadCredit ? UPLOAD_CREDIT : '',
+              });
+              outcome.images.forEach((image) => record(entry, image, outcome.postId));
+            },
+            controller.signal,
+          );
         }
 
         if (links.length === 0) {
@@ -1811,6 +1960,7 @@ export default function App() {
           uploadFailure(reason);
         }
       } finally {
+        cancelRenderRef.current = null;
         setBatch(null);
         setRenderProgress(null);
         setUploading(false);
@@ -1818,6 +1968,7 @@ export default function App() {
       }
     },
     [
+      batchProgress,
       beginRun,
       clearNotice,
       endRun,

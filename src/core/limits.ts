@@ -27,3 +27,10 @@ export function uploadBatchSize(gold: boolean | null | undefined): number {
  * own bound, not the upload one.
  */
 export const MAX_MEDIA_BYTES = 30 * 1024 * 1024;
+
+/**
+ * How many Tiles a batch command renders at once. Two overlap one Tile's
+ * sidecar, gifsicle pass, write or request with the next Tile's render, while
+ * peak memory stays at one extra encoded file and its canvases.
+ */
+export const TILE_CONCURRENCY = 2;
