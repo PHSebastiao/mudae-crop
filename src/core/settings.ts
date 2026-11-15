@@ -3,6 +3,7 @@ import { MUDAE_RATIO } from './ratios';
 import type { Privacy } from './imagechest';
 import { normalizeHexColor } from './color';
 import { asRecord, parseJson } from './json';
+import { normalizeVersion } from './update';
 
 /** The Export formats this slice can write. */
 export type ExportFormat = 'png' | 'gif';
@@ -36,6 +37,8 @@ export interface Settings {
   readonly imageChestGold: boolean | null;
   /** Whether a batch upload puts every Tile in one Post. */
   readonly samePost: boolean;
+  /** The version the user asked not to be offered again; empty when none. */
+  readonly skippedUpdateVersion: string;
 }
 
 export const DEFAULT_SETTINGS: Settings = Object.freeze({
@@ -51,6 +54,7 @@ export const DEFAULT_SETTINGS: Settings = Object.freeze({
   importMode: 'append',
   imageChestGold: null,
   samePost: false,
+  skippedUpdateVersion: '',
 });
 
 const PRIVACY: ReadonlyArray<Privacy> = ['public', 'hidden', 'secret'];
@@ -101,6 +105,11 @@ function readFolder(value: unknown): string | null {
   return folder || null;
 }
 
+function readVersion(value: unknown): string {
+  const version = readString(value)?.trim() ?? '';
+  return version ? normalizeVersion(version) : DEFAULT_SETTINGS.skippedUpdateVersion;
+}
+
 /**
  * Read whatever is on disk. A corrupt or partial file never throws and never
  * clears a field it does understand; each invalid field falls back alone.
@@ -126,6 +135,7 @@ export function parseSettings(raw: string | null | undefined): Settings {
     importMode: readImportMode(data.importMode),
     imageChestGold: readGold(data.imageChestGold),
     samePost: readBoolean(data.samePost, DEFAULT_SETTINGS.samePost),
+    skippedUpdateVersion: readVersion(data.skippedUpdateVersion),
   };
 }
 

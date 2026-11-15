@@ -52,9 +52,11 @@ jobs:
         shell: pwsh
         run: |
           $config = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          $package = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $cargo = (Select-String -Path src-tauri/Cargo.toml -Pattern '^version = "([^"]+)"').Matches[0].Groups[1].Value
           $version = '${{ steps.version.outputs.version }}'
-          if ($version -ne $config) {
-            throw "Release version $version does not match the app version $config in tauri.conf.json."
+          if ($version -ne $config -or $version -ne $package -or $version -ne $cargo) {
+            throw "Release version $version does not match tauri.conf.json ($config), package.json ($package) and Cargo.toml ($cargo). Run 'npm run version:set -- $version'."
           }
 
       - run: npm ci
@@ -65,11 +67,70 @@ jobs:
         run: npm run waifu2x:install
 
       - name: Build the NSIS installer and the app
-        run: npm run tauri build -- --bundles nsis
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        # The updater artifacts are a release-only concern: a local build must
+        # not require the signing key, so the flag arrives through the extra
+        # config file instead of tauri.conf.json.
+        run: npm run tauri build -- --bundles nsis --config src-tauri/tauri.release.conf.json
 
       - name: Pack the portable ZIP and the standalone executable
         shell: pwsh
         run: ./scripts/make-portable.ps1 -Version '${{ steps.version.outputs.version }}'
+
+      - name: Sign the standalone executable
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        shell: pwsh
+        run: |
+          $version = '${{ steps.version.outputs.version }}'
+          npm run tauri signer sign -- --app-version $version "dist-portable/Mudae-Crop-$version-win64.exe"
+
+      - name: Check the signatures carry the version
+        shell: pwsh
+        run: |
+          # The updater runs with requireSignedVersion, so a signature whose
+          # trusted comment does not name the release version is refused by
+          # every installed copy. Fail the release instead of publishing it.
+          $version = '${{ steps.version.outputs.version }}'
+          $pattern = "version:$([regex]::Escape($version))"
+          foreach ($name in @("Mudae-Crop-$version-win64-setup.exe.sig", "Mudae-Crop-$version-win64.exe.sig")) {
+            $sig = (Get-Content "dist-portable/$name" -Raw).Trim()
+            $decoded = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($sig))
+            if ($decoded -notmatch $pattern) {
+              throw "$name does not bind the signature to version $version; requireSignedVersion would reject this update."
+            }
+            Write-Host "$name carries $($pattern -replace '\\', '')"
+          }
+
+      - name: Write the update manifest
+        shell: pwsh
+        run: |
+          $version = '${{ steps.version.outputs.version }}'
+          $repo = 'https://github.com/PHSebastiao/mudae-crop'
+          $setup = "Mudae-Crop-$version-win64-setup.exe"
+          $standalone = "Mudae-Crop-$version-win64.exe"
+          $setupSig = (Get-Content "dist-portable/$setup.sig" -Raw).Trim()
+          $standaloneSig = (Get-Content "dist-portable/$standalone.sig" -Raw).Trim()
+          $manifest = [ordered]@{
+            version = $version
+            notes = "Mudae Crop $version - veja as notas no GitHub"
+            pub_date = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+            platforms = [ordered]@{
+              'windows-x86_64' = [ordered]@{
+                signature = $setupSig
+                url = "$repo/releases/download/v$version/$setup"
+              }
+              'windows-x86_64-portable' = [ordered]@{
+                signature = $standaloneSig
+                url = "$repo/releases/download/v$version/$standalone"
+              }
+            }
+          }
+          $manifest | ConvertTo-Json -Depth 5 | Set-Content dist-portable/latest.json -Encoding utf8NoBOM
+          Get-Content dist-portable/latest.json
 
       - name: Write release notes with checksums
         shell: pwsh
@@ -78,11 +139,13 @@ jobs:
           $lines = @(
             "# Mudae Crop $version",
             "",
-            "Three Windows x64 assets:",
+            "Three Windows x64 builds, each able to update itself:",
             "",
             "- **Mudae-Crop-$version-win64-setup.exe** - NSIS installer with a Start-menu shortcut and the bundled waifu2x sidecar and models. The installer downloads WebView2 when it is missing.",
             "- **Mudae-Crop-$version-portable-win64.zip** - ``Mudae-Crop.exe`` plus the ``waifu2x/`` folder. Unzip it anywhere; WebView2 must already be installed.",
             "- **Mudae-Crop-$version-win64.exe** - the standalone app, no sidecar. The waifu2x controls stay disabled with the missing-sidecar explanation; import, Crop, Border, Palette, PNG/GIF Export and upload still work. WebView2 must already be installed.",
+            "",
+            "``latest.json`` and the two ``.sig`` files are what the built-in updater reads; leave them in the release.",
             "",
             "The portable and standalone builds still store ``settings.json`` and ``history.json`` in ``%LOCALAPPDATA%\Mudae Crop``, next to ``window.json``.",
             "",

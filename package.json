@@ -1,7 +1,7 @@
 {
   "name": "mudae-crop",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -14,11 +14,13 @@
     "format:check": "prettier --check .",
     "waifu2x:install": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-waifu2x.ps1",
     "icon": "node scripts/make-icons.mjs",
+    "version:set": "node scripts/set-version.mjs",
     "tauri": "tauri"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.9.0",
     "@tauri-apps/plugin-dialog": "^2.4.0",
+    "@tauri-apps/plugin-updater": "^2.14.1",
     "gifsicle-wasm-browser": "^1.5.19",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
