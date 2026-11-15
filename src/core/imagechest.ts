@@ -114,6 +114,12 @@ export interface UploadBatchOutcome {
   /** Every image this request added, in Post order. */
   readonly images: readonly UploadedImage[];
   readonly described: boolean;
+  /**
+   * Every image id the Post holds after this request, the ones that were
+   * already there included. A later chunk passes it back so the append can skip
+   * the validation GET and still tell its own images from the older ones.
+   */
+  readonly knownImages: ReadonlySet<string>;
 }
 
 export interface UploadInput {
@@ -137,6 +143,12 @@ export interface UploadBatchInput {
   /** Written into the first image of the request, best effort. */
   readonly description?: string;
   readonly postId?: string | null;
+  /**
+   * The image ids the caller knows the Post already holds, normally the
+   * `knownImages` of the previous chunk. Supplying it skips the validation GET;
+   * leaving it out keeps the validation for a Post this batch has not seen.
+   */
+  readonly knownImages?: ReadonlySet<string>;
 }
 
 export function isPostId(value: string): boolean {
@@ -411,7 +423,9 @@ export async function uploadBatch(input: UploadBatchInput): Promise<UploadBatchO
 
   const postId = (input.postId ?? '').trim();
   if (postId && !isPostId(postId)) throw invalidPost(postId, 'não parece um id válido');
-  const known = postId ? await requirePost(input.transport, token, postId) : null;
+  const known = postId
+    ? (input.knownImages ?? (await requirePost(input.transport, token, postId)))
+    : null;
 
   const response = await send(input.transport, {
     method: 'POST',
@@ -464,7 +478,12 @@ export async function uploadBatch(input: UploadBatchInput): Promise<UploadBatchO
     description && first
       ? await describeImage(input.transport, token, first.imageId, description)
       : false;
-  return { postId: parsed.postId, images: parsed.images, described };
+  // The next chunk of the same Post gets this back: it is everything the Post
+  // holds now, so an append can skip the validation GET and still filter the
+  // reply down to the files it just sent.
+  const knownImages = new Set<string>(known ?? []);
+  for (const image of parsed.images) knownImages.add(image.imageId);
+  return { postId: parsed.postId, images: parsed.images, described, knownImages };
 }
 
 /** One image: the batch path, narrowed to the single link the caller copies. */

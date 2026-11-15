@@ -113,6 +113,54 @@ describe('uploadBatch', () => {
     expect(outcome.images.map((entry) => entry.imageId)).toEqual(['new', 'newer']);
   });
 
+  it('skips the validation GET when the caller already knows the Post', async () => {
+    const { transport, requests } = script([ok(post('post9', [image('old', 1), image('new', 2)]))]);
+
+    const outcome = await uploadBatch({
+      ...base,
+      transport,
+      postId: 'post9',
+      description: '',
+      knownImages: new Set(['old']),
+      files: [file('one.png')],
+    });
+
+    expect(requests.map((request) => [request.method, request.path])).toEqual([
+      ['POST', '/v1/post/post9/add'],
+    ]);
+    expect(outcome.images.map((entry) => entry.imageId)).toEqual(['new']);
+    expect([...outcome.knownImages].sort()).toEqual(['new', 'old']);
+  });
+
+  it('carries the known ids from one chunk to the next', async () => {
+    const { transport, requests } = script([
+      ok(post('post1', [image('a', 1), image('b', 2)])),
+      ok(post('post1', [image('a', 1), image('b', 2), image('c', 3)])),
+    ]);
+
+    const first = await uploadBatch({
+      ...base,
+      transport,
+      description: '',
+      files: [file('one.png'), file('two.png')],
+    });
+    const second = await uploadBatch({
+      ...base,
+      transport,
+      postId: first.postId,
+      knownImages: first.knownImages,
+      description: '',
+      files: [file('three.png')],
+    });
+
+    expect(requests.map((request) => [request.method, request.path])).toEqual([
+      ['POST', '/v1/post'],
+      ['POST', '/v1/post/post1/add'],
+    ]);
+    expect(second.images.map((entry) => entry.imageId)).toEqual(['c']);
+    expect([...second.knownImages].sort()).toEqual(['a', 'b', 'c']);
+  });
+
   it('refuses an oversized file before any request', async () => {
     const { transport, requests } = script([]);
     const huge: UploadFile = {

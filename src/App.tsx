@@ -1545,6 +1545,9 @@ export default function App() {
       const links: string[] = [...(previousLinks ?? [])];
       const sent = new Set<string>();
       let postId: string | null = resumePostId ?? (requested || null);
+      // The ids the Post already holds, carried from chunk to chunk so an
+      // append validates the Post once per batch instead of once per request.
+      let knownImages: ReadonlySet<string> | undefined;
       let rendered = 0;
 
       // "Tentar de novo" repeats this batch without resending what already went
@@ -1663,6 +1666,7 @@ export default function App() {
             title: groupTitle,
             privacy: saved.defaultPrivacy,
             postId: target,
+            knownImages,
             // One credit per Post: only the first image of a new Post gets it.
             // A retry resumes a Post that already has one, and an explicit Post
             // id may be someone else's, so neither credits.
@@ -1671,6 +1675,7 @@ export default function App() {
                 ? UPLOAD_CREDIT
                 : '',
           });
+          knownImages = outcome.knownImages;
           outcome.images.forEach((image, index) => {
             const entry = entries[index];
             if (entry) record(entry, image, outcome.postId);
