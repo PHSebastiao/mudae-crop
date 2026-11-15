@@ -663,6 +663,38 @@ function writeColorTable(writer: Writer, palette: readonly Rgb[], entries: numbe
 }
 
 /**
+ * One frame after the expensive half of encoding: a palette and the LZW index
+ * stream. `pixels` is the count the frame covers, so the writer can still reject
+ * a frame smaller than the GIF without holding the RGBA pixels.
+ */
+export interface EncodedGifFrame {
+  /** Every colour the frame uses, transparent entry included. */
+  readonly palette: readonly Rgb[];
+  readonly transparentIndex: number | null;
+  readonly minCodeSize: number;
+  /** The LZW-compressed index stream, before the sub-block framing. */
+  readonly data: Uint8Array;
+  readonly pixels: number;
+}
+
+/**
+ * The expensive half of one frame: quantize to at most `maxColors` and LZW the
+ * indices. Pure, so a worker can run it while the next frame renders; the
+ * writer only frames the result.
+ */
+export function encodeGifFrame(pixels: Uint8ClampedArray, maxColors = 256): EncodedGifFrame {
+  const { palette, indices, transparentIndex } = quantize(pixels, maxColors);
+  const minCodeSize = Math.max(2, Math.ceil(Math.log2(Math.max(2, palette.length))));
+  return {
+    palette,
+    transparentIndex,
+    minCodeSize,
+    data: lzwEncode(indices, minCodeSize),
+    pixels: Math.floor(pixels.length / 4),
+  };
+}
+
+/**
  * Incremental GIF writer. Frames are quantized and written one at a time, so a
  * long video Export never holds every RGBA frame in memory.
  */
@@ -681,25 +713,36 @@ export class GifWriter {
   }
 
   addFrame(frame: GifEncodeFrame): void {
-    if (this.ended) throw new GifError('corrupt', 'O GIF já foi finalizado.');
+    this.assertOpen();
     if (frame.pixels.length < this.width * this.height * 4) {
       throw new GifError('corrupt', 'Quadro menor que a dimensão do GIF.');
     }
-    const quantized = quantize(frame.pixels, 256);
+    this.addEncodedFrame(encodeGifFrame(frame.pixels), frame.delayMs);
+  }
+
+  /**
+   * Write a frame whose quantization and LZW already ran, possibly in a worker.
+   * The bytes are exactly what `addFrame` would write for the same pixels; the
+   * only thing left here is the GIF framing, which must stay in order.
+   */
+  addEncodedFrame(frame: EncodedGifFrame, delayMs: number): void {
+    this.assertOpen();
+    if (frame.pixels < this.width * this.height) {
+      throw new GifError('corrupt', 'Quadro menor que a dimensão do GIF.');
+    }
     if (!this.started) {
-      this.writeHeader(quantized.palette);
+      this.writeHeader(frame.palette);
       this.started = true;
     }
 
-    const { palette, indices, transparentIndex } = quantized;
-    const minCodeSize = Math.max(2, Math.ceil(Math.log2(Math.max(2, palette.length))));
+    const { palette, transparentIndex, minCodeSize, data } = frame;
     const tableSize = 1 << minCodeSize;
 
     this.writer.byte(0x21);
     this.writer.byte(0xf9);
     this.writer.byte(4);
     this.writer.byte(0x04 | (transparentIndex === null ? 0 : 0x01));
-    this.writer.uint16(delayCentiseconds(frame.delayMs));
+    this.writer.uint16(delayCentiseconds(delayMs));
     this.writer.byte(transparentIndex ?? 0);
     this.writer.byte(0);
 
@@ -711,7 +754,11 @@ export class GifWriter {
     this.writer.byte(0x80 | (minCodeSize - 1));
     writeColorTable(this.writer, palette, tableSize);
     this.writer.byte(minCodeSize);
-    writeSubBlocks(this.writer, lzwEncode(indices, minCodeSize));
+    writeSubBlocks(this.writer, data);
+  }
+
+  private assertOpen(): void {
+    if (this.ended) throw new GifError('corrupt', 'O GIF já foi finalizado.');
   }
 
   finish(): Uint8Array {

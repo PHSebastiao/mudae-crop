@@ -11,7 +11,7 @@ import {
   type Source,
 } from './document';
 import { sampleTrimIndices } from './animation';
-import { GifWriter, type GifEncodeFrame } from './gif';
+import { encodeGifFrame, GifWriter, type EncodedGifFrame, type GifEncodeFrame } from './gif';
 import {
   OptimizeCancelledError,
   optimizeGif,
@@ -431,6 +431,22 @@ export interface RenderProgress {
   readonly total: number;
 }
 
+/**
+ * The expensive half of one GIF frame, behind a seam so the app can run it in a
+ * worker pool while the next frame renders. A caller that omits it encodes on
+ * the main thread, exactly as before.
+ */
+export interface GifFrameEncoder {
+  encode(frame: GifEncodeFrame): Promise<EncodedGifFrame>;
+}
+
+/**
+ * How many frames may be quantized and LZW'd at once. Two extra frames keep the
+ * workers fed while the main thread renders the next one, without holding a
+ * whole animation's worth of RGBA rasters in memory.
+ */
+export const MAX_FRAMES_IN_FLIGHT = 3;
+
 export interface GifExportOptions {
   readonly signal?: AbortSignal;
   readonly onProgress?: (progress: RenderProgress) => void;
@@ -438,6 +454,8 @@ export interface GifExportOptions {
   readonly onOptimized?: (result: OptimizeResult) => void;
   /** Present only while waifu2x is on. */
   readonly waifu2x?: Waifu2xFrameRunner;
+  /** Omitted, frames are quantized on the main thread. */
+  readonly encoder?: GifFrameEncoder;
 }
 
 function yieldToUi(): Promise<void> {
@@ -446,6 +464,54 @@ function yieldToUi(): Promise<void> {
 
 function cancelledError(): ExportError {
   return new ExportError('Export cancelado.', true);
+}
+
+/** Await a worker result, but let a cancel cut the wait short. */
+function untilAborted<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return promise;
+  if (signal.aborted) return Promise.reject(cancelledError());
+  return new Promise<T>((resolve, reject) => {
+    const abort = () => reject(cancelledError());
+    signal.addEventListener('abort', abort, { once: true });
+    promise.then(
+      (value) => {
+        signal.removeEventListener('abort', abort);
+        resolve(value);
+      },
+      (reason) => {
+        signal.removeEventListener('abort', abort);
+        reject(reason);
+      },
+    );
+  });
+}
+
+/** The encoder a caller gets when it passes none: quantize on the main thread. */
+const mainThreadEncoder: GifFrameEncoder = {
+  async encode(frame) {
+    return encodeGifFrame(frame.pixels);
+  },
+};
+
+/**
+ * A rendered frame waiting for its palette and LZW data. The pixels stay here
+ * until the next frame has been compared with them, because folding needs an
+ * exact comparison, not a hash.
+ */
+interface PendingFrame {
+  readonly pixels: Uint8ClampedArray;
+  delayMs: number;
+  readonly encoded: Promise<EncodedGifFrame>;
+}
+
+/** Whether a rendered Frame repeats the pending one and can be folded into it. */
+function foldsInto(
+  pending: Pick<GifEncodeFrame, 'pixels' | 'delayMs'> | null,
+  frame: GifEncodeFrame,
+): boolean {
+  if (pending === null) return false;
+  if (pending.delayMs + frame.delayMs > MAX_FRAME_DELAY_MS) return false;
+  return sameFramePixels(pending.pixels, frame.pixels);
 }
 
 /**
@@ -461,8 +527,7 @@ function foldFrame(
   pending: GifEncodeFrame | null,
   frame: GifEncodeFrame,
 ): { pending: GifEncodeFrame; dropped: number } {
-  const fits = pending !== null && pending.delayMs + frame.delayMs <= MAX_FRAME_DELAY_MS;
-  if (pending && fits && sameFramePixels(pending.pixels, frame.pixels)) {
+  if (pending && foldsInto(pending, frame)) {
     return {
       pending: { pixels: pending.pixels, delayMs: pending.delayMs + frame.delayMs },
       dropped: 1,
@@ -521,8 +586,21 @@ export async function renderGif(
     height: size.height,
     loopCount: view.video ? 0 : (view.animation?.loopCount ?? null),
   });
-  let pending: GifEncodeFrame | null = null;
+  const encoder = options.encoder ?? mainThreadEncoder;
+  let pending: PendingFrame | null = null;
+  // Frames closed by the fold, in render order, waiting for their turn to be
+  // written. Keeping the order here is what lets the workers finish out of
+  // order without the GIF ever being written out of order.
+  const ready: PendingFrame[] = [];
   let dropped = 0;
+
+  /** Write every closed frame the pipeline is allowed to hold right now. */
+  const writeReady = async (all: boolean): Promise<void> => {
+    while (ready.length > 0 && (all || ready.length >= MAX_FRAMES_IN_FLIGHT)) {
+      const frame = ready.shift() as PendingFrame;
+      writer.addEncodedFrame(await untilAborted(frame.encoded, options.signal), frame.delayMs);
+    }
+  };
 
   for (let offset = 0; offset < total; offset += 1) {
     if (options.signal?.aborted) throw cancelledError();
@@ -547,22 +625,29 @@ export async function renderGif(
       frame = renderedGifFrame(ctx, doc, size, frameIndex);
     }
 
-    // Fold the frame in: identical consecutive frames become one image with
-    // their delays added, whatever the Optimize setting is.
-    const folded = foldFrame(writer, pending, frame);
-    pending = folded.pending;
-    dropped += folded.dropped;
+    // Fold the frame in before it reaches the encoder: identical consecutive
+    // frames become one image with their delays added, whatever the Optimize
+    // setting is, and a repeat costs no quantization at all.
+    if (pending && foldsInto(pending, frame)) {
+      pending.delayMs += frame.delayMs;
+      dropped += 1;
+    } else {
+      if (pending) ready.push(pending);
+      pending = { pixels: frame.pixels, delayMs: frame.delayMs, encoded: encoder.encode(frame) };
+    }
 
     options.onProgress?.({
       phase: usingWaifu2x ? 'waifu2x' : 'render',
       done: offset + 1,
       total,
     });
+    await writeReady(false);
     // Give the progress notice and the cancel button a chance to paint.
     if (offset + 1 < total) await yieldToUi();
   }
 
-  if (pending) writer.addFrame(pending);
+  if (pending) ready.push(pending);
+  await writeReady(true);
   if (options.signal?.aborted) throw cancelledError();
   const base = writer.finish();
 

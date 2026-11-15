@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { GifError, decodeGif, encodeGif } from '../src/core/gif';
+import { GifError, GifWriter, decodeGif, encodeGif, encodeGifFrame } from '../src/core/gif';
 import { buildGif, pixelAt } from './gifFixtures';
 
 const RED: readonly [number, number, number] = [255, 0, 0];
@@ -262,5 +262,34 @@ describe('GIF encode', () => {
       [255, 0, 0, 255],
       [0, 0, 0, 0],
     ]);
+  });
+
+  it('writes a pre-encoded frame exactly as addFrame would', () => {
+    const transparent = new Uint8ClampedArray(3 * 2 * 4);
+    transparent.set([255, 0, 0, 255], 0);
+    const frames = [
+      { pixels: solid(3, 2, [255, 0, 0]), delayMs: 80 },
+      { pixels: solid(3, 2, [0, 128, 255]), delayMs: 120 },
+      { pixels: transparent, delayMs: 40 },
+    ];
+    const options = { width: 3, height: 2, loopCount: 2 };
+
+    const direct = new GifWriter(options);
+    for (const frame of frames) direct.addFrame(frame);
+
+    const encoded = new GifWriter(options);
+    for (const frame of frames) {
+      encoded.addEncodedFrame(encodeGifFrame(frame.pixels), frame.delayMs);
+    }
+
+    expect(encoded.finish()).toEqual(direct.finish());
+  });
+
+  it('rejects a pre-encoded frame smaller than the GIF', () => {
+    const writer = new GifWriter({ width: 4, height: 4, loopCount: null });
+
+    expect(() => writer.addEncodedFrame(encodeGifFrame(solid(2, 2, [1, 2, 3])), 100)).toThrow(
+      /menor que a dimensão/,
+    );
   });
 });

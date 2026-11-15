@@ -6,9 +6,10 @@ import {
   renderGif,
   type EncodableCanvas,
   type ExportAdapter,
+  type GifFrameEncoder,
   type RenderProgress,
 } from '../src/core/export';
-import { decodeGif } from '../src/core/gif';
+import { decodeGif, encodeGifFrame } from '../src/core/gif';
 import { DEFAULT_OPTIMIZE, withTrim, withTrimEnabled } from '../src/core/document';
 import type { GifOptimizer } from '../src/core/optimize';
 import { makeAnimatedSource, makeDoc, makeSource } from './helpers';
@@ -176,6 +177,74 @@ describe('GIF Export', () => {
 
     expect(decoded.frames).toHaveLength(3);
     expect(decoded.frames.reduce((total, frame) => total + frame.delayMs, 0)).toBe(140);
+  });
+
+  it('encodes through the injected encoder and writes frames in order', async () => {
+    const doc = withTrimEnabled(withTrim(makeDoc(source), { start: 0, end: 2 }), true);
+    const sync = await renderGif(doc, adapter);
+    const delays: number[] = [];
+    const encoder: GifFrameEncoder = {
+      async encode(frame) {
+        delays.push(frame.delayMs);
+        // The first frame resolves last, so the writer has to keep its own
+        // order instead of writing whichever worker finishes first.
+        await new Promise((resolve) => setTimeout(resolve, frame.delayMs === 80 ? 5 : 0));
+        return encodeGifFrame(frame.pixels);
+      },
+    };
+
+    const bytes = await renderGif(doc, adapter, { encoder });
+
+    expect(delays).toEqual([80, 120, 40]);
+    expect(bytes).toEqual(sync);
+  });
+
+  it('folds repeated frames before they reach the encoder', async () => {
+    const duplicate = makeAnimatedSource(
+      225,
+      350,
+      ['#D94F6D', '#D94F6D', '#2B9C8F'],
+      [100, 50, 80],
+      0,
+    );
+    let calls = 0;
+    const encoder: GifFrameEncoder = {
+      async encode(frame) {
+        calls += 1;
+        return encodeGifFrame(frame.pixels);
+      },
+    };
+
+    const decoded = decodeGif(await renderGif(makeDoc(duplicate), adapter, { encoder }));
+
+    expect(calls).toBe(2);
+    expect(decoded.frames.map((frame) => frame.delayMs)).toEqual([150, 80]);
+  });
+
+  it('cancels while a frame is still encoding', async () => {
+    const controller = new AbortController();
+    const doc = withTrimEnabled(withTrim(makeDoc(source), { start: 0, end: 1 }), true);
+    const resolvers: Array<() => void> = [];
+    const encoder: GifFrameEncoder = {
+      encode(frame) {
+        return new Promise((resolve) => {
+          resolvers.push(() => resolve(encodeGifFrame(frame.pixels)));
+        });
+      },
+    };
+
+    const attempt = renderGif(doc, adapter, {
+      signal: controller.signal,
+      encoder,
+      onProgress: (progress) => {
+        if (progress.done === progress.total) controller.abort();
+      },
+    });
+
+    await expect(attempt).rejects.toMatchObject({ cancelled: true });
+    // The pool's work is never awaited after a cancel; let it finish so the
+    // test leaves no pending promise behind.
+    for (const resolve of resolvers) resolve();
   });
 
   it('reports progress across rendering and streaming encoding', async () => {

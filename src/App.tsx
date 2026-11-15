@@ -112,6 +112,7 @@ import { loadHistory, loadSettings, saveHistory, saveSettings } from './core/con
 import { DEFAULT_SETTINGS, type ExportFormat, type Settings } from './core/settings';
 import { browserExportAdapter, browserPaletteAdapter, decodeWithBrowser } from './platform/browser';
 import { configStore } from './platform/config';
+import { gifFrameEncoder } from './platform/gifEncoder';
 import { gifsicleOptimizer } from './platform/gifOptimizer';
 import { tauriImageChestTransport } from './platform/imagechest';
 import { historyPreviewAdapter, readExportBytes } from './platform/historyPreview';
@@ -973,6 +974,7 @@ export default function App() {
         optimizer: gifsicleOptimizer,
         onOptimized: setOptimizeResult,
         waifu2x,
+        encoder: gifFrameEncoder,
       });
     },
     [],
