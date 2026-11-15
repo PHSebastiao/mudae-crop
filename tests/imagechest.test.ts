@@ -86,14 +86,14 @@ describe('uploadStill', () => {
       privacy: 'hidden',
       nsfw: 'false',
     });
-    expect(request.file).toMatchObject({
+    expect(request.files?.[0]).toMatchObject({
       field: 'images[]',
       name: 'card.png',
       contentType: 'image/png',
     });
-    expect(Array.from(request.file?.bytes ?? [])).toEqual([1, 2, 3, 4]);
+    expect(Array.from(request.files?.[0]?.bytes ?? [])).toEqual([1, 2, 3, 4]);
     expect(requests[1].form).toEqual({ description: base.description });
-    expect(requests[1].file).toBeUndefined();
+    expect(requests[1].files).toBeUndefined();
   });
 
   it('keeps the link when the description is rejected', async () => {
@@ -134,12 +134,14 @@ describe('uploadStill', () => {
     expect(outcome.link).toBe('https://cdn.imgchest.com/files/img1.gif');
     expect(outcome.described).toBe(true);
     expect(requests).toHaveLength(2);
-    expect(requests[0].file).toMatchObject({
+    expect(requests[0].files?.[0]).toMatchObject({
       field: 'images[]',
       name: 'card.gif',
       contentType: 'image/gif',
     });
-    expect(Array.from(requests[0].file?.bytes ?? [])).toEqual([0x47, 0x49, 0x46, 0x38, 0x39, 0x61]);
+    expect(Array.from(requests[0].files?.[0]?.bytes ?? [])).toEqual([
+      0x47, 0x49, 0x46, 0x38, 0x39, 0x61,
+    ]);
     expect(requests[1].path).toBe('/v1/file/img1');
   });
 
@@ -160,7 +162,7 @@ describe('uploadStill', () => {
     ]);
     // Appending never renames the Post or changes its privacy.
     expect(requests[1].form).toBeUndefined();
-    expect(requests[1].file?.field).toBe('images[]');
+    expect(requests[1].files?.[0]?.field).toBe('images[]');
     // The credit line goes on the image that was just added.
     expect(requests[2].form).toEqual({ description: base.description });
   });
@@ -235,13 +237,13 @@ describe('upload failures', () => {
     expect(uploadErrorMessage(error)).toContain('Configurações');
   });
 
-  it('maps 413 to the 30 MB explanation', async () => {
+  it('maps 413 to the 20 MB explanation', async () => {
     const { transport } = script([ok({}, 413)]);
 
     const error = await uploadStill({ ...base, transport }).catch((reason: unknown) => reason);
 
     expect((error as ImageChestError).code).toBe('too-large');
-    expect(uploadErrorMessage(error)).toContain('30 MB');
+    expect(uploadErrorMessage(error)).toContain('20 MB');
   });
 
   it('maps 429 to a backoff with the Retry-After seconds', async () => {

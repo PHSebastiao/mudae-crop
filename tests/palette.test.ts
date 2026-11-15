@@ -6,6 +6,7 @@ import {
   MAX_PALETTE,
   WHITE_SWATCH,
   extractPalette,
+  extractPaletteAsync,
   paletteFromPixels,
   withWhiteFirst,
   type PaletteAdapter,
@@ -61,6 +62,24 @@ describe('palette', () => {
     expect(hexes(palette)).toEqual(['#FF0000', '#00FF00', '#0000FF', '#FFFFFF']);
     expect(palette[0].count).toBe(2);
     expect(palette[0].share).toBeCloseTo(2 / 5);
+  });
+
+  it('finds the dominant colour among tens of thousands of them', () => {
+    // A photographic frame can hold far more distinct colours than the merge
+    // needs to see; the covered one must still win.
+    const pixels: Array<[number, number, number, number]> = [];
+    for (let index = 0; index < 800; index += 1) pixels.push([255, 0, 0, 255]);
+    for (let index = 1; index < 20_000; index += 1) {
+      pixels.push([index & 0xff, (index >> 8) & 0xff, 0, 255]);
+    }
+
+    const sampled = paletteFromPixels(rgba(pixels), pixels.length, 1, '#000000');
+
+    expect(hexes(sampled)[0]).toBe('#FF0000');
+    expect(sampled.length).toBeLessThanOrEqual(MAX_PALETTE);
+    // The share is over the colours the merge saw, so it can only read higher
+    // than the fraction of the whole sample — never diluted by the dropped tail.
+    expect(sampled[0].share).toBeGreaterThan(800 / pixels.length);
   });
 
   it('merges near-duplicates but still relaxes to four when the image needs it', () => {
@@ -184,6 +203,62 @@ describe('palette', () => {
     const doc: DocumentState = makeDoc(source, 1);
 
     expect(hexes(extractPalette(doc, adapter))).toContain('#FF0000');
+  });
+
+  it('samples in slices, returning what the synchronous sample returns', async () => {
+    const colors = Array.from({ length: 9 }, (_, index) =>
+      index % 2 === 0 ? '#D94F6D' : '#2B9C8F',
+    );
+    const source = makeAnimatedSource(40, 40, colors, Array(9).fill(100));
+    const doc: DocumentState = makeDoc(source, 1);
+
+    let yields = 0;
+    let clock = 0;
+    const sliced = await extractPaletteAsync(doc, adapter, {
+      // 6 ms a frame against an 8 ms budget: one yield every two frames.
+      now: () => (clock += 6),
+      yieldToUi: async () => {
+        yields += 1;
+      },
+    });
+
+    expect(sliced).toEqual(extractPalette(doc, adapter));
+    // Slices, not one yield per frame: the Preview keeps painting.
+    expect(yields).toBe(4);
+    expect(yields).toBeLessThan(9);
+  });
+
+  it('stops between slices when the sample is aborted', async () => {
+    const controller = new AbortController();
+    const source = makeAnimatedSource(20, 20, Array(12).fill('#123456'), Array(12).fill(100));
+    const doc: DocumentState = makeDoc(source, 1);
+
+    let clock = 0;
+    const sliced = await extractPaletteAsync(doc, adapter, {
+      signal: controller.signal,
+      now: () => (clock += 100),
+      yieldToUi: async () => controller.abort(),
+    });
+
+    expect(sliced).toEqual([]);
+  });
+
+  it('does not return a palette when the trailing yield is aborted', async () => {
+    const controller = new AbortController();
+    const source = makeAnimatedSource(20, 20, Array(3).fill('#123456'));
+    const doc: DocumentState = makeDoc(source, 1);
+
+    // The budget is only spent on the last frame, so the only yield is the
+    // trailing one — the case that used to fall through to a full palette.
+    const ticks = [0, 1, 2, 30];
+    let tick = 0;
+    const sliced = await extractPaletteAsync(doc, adapter, {
+      signal: controller.signal,
+      now: () => ticks[Math.min(tick++, ticks.length - 1)],
+      yieldToUi: async () => controller.abort(),
+    });
+
+    expect(sliced).toEqual([]);
   });
 });
 

@@ -6,6 +6,7 @@ import { decodeGif, MIN_GIF_DELAY_MS } from '../core/gif';
 import { ExportError, type EncodableCanvas, type ExportAdapter } from '../core/export';
 import { encodeCanvasPng } from '../core/png';
 import type { PaletteAdapter } from '../core/palette';
+import type { RenderContext } from '../core/render';
 import { deflateZlib } from './deflate';
 import { decodeVideoWithBrowser } from './video';
 
@@ -196,6 +197,16 @@ export const browserExportAdapter: ExportAdapter = {
 };
 
 export const browserPaletteAdapter: PaletteAdapter = {
-  createCanvas: (width, height) => canvasFrom({ width, height }),
+  // The Palette reads every sampled frame back, so the canvas is created for
+  // that: without the hint Chromium keeps it on the GPU and each getImageData
+  // pays a readback stall.
+  createCanvas(width, height) {
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext('2d', { willReadFrequently: true });
+    if (!context) throw new Error('canvas 2D indisponível');
+    return { getContext: () => context as unknown as RenderContext };
+  },
   encodePng: (canvas) => browserExportAdapter.encodePng(canvas as unknown as EncodableCanvas),
 };

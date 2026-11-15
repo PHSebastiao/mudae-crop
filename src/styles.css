@@ -582,6 +582,11 @@ button {
   color: #fff;
 }
 
+.chip-button.on {
+  border-color: var(--accent-state);
+  color: var(--accent-state);
+}
+
 .shortcuts-button {
   display: grid;
   place-items: center;
@@ -1378,28 +1383,33 @@ button {
   display: block;
 }
 
-/* Feather the dimmed Source so the stage does not read as a hard rectangle.
-   A long falloff keeps the picture inside a pool of its own light instead of
-   ending on a visible oval edge. */
+/* The backdrop is the Source at the Frame's scale. Outside the adjust phase it
+   sits in a soft vignette, so a spotlight reads as a picture; while adjusting
+   the dim is flat and the image keeps its full edge. */
 .backdrop {
-  mask-image: radial-gradient(closest-side, #000 48%, rgba(0, 0, 0, 0.65) 74%, transparent 100%);
+  mask-image: radial-gradient(closest-side, #000 52%, rgba(0, 0, 0, 0.72) 78%, transparent 100%);
   -webkit-mask-image: radial-gradient(
     closest-side,
-    #000 48%,
-    rgba(0, 0, 0, 0.65) 74%,
+    #000 52%,
+    rgba(0, 0, 0, 0.72) 78%,
     transparent 100%
   );
 }
 
-/* While adjusting, the Frame is a window through the backdrop. Keep that window
-   fully opaque so the feather only fades the dimmed surround, never the Crop. */
 .stage.adjusting .backdrop {
+  mask-image: none;
+  -webkit-mask-image: none;
+}
+
+/* The spotlight feathers the surround but keeps the Frame window fully opaque,
+   so the vignette never reaches the Crop. */
+.stage.surround:not(.adjusting) .backdrop {
   mask-image:
     linear-gradient(#000, #000),
-    radial-gradient(closest-side, #000 48%, rgba(0, 0, 0, 0.65) 74%, transparent 100%);
+    radial-gradient(closest-side, #000 52%, rgba(0, 0, 0, 0.72) 78%, transparent 100%);
   -webkit-mask-image:
     linear-gradient(#000, #000),
-    radial-gradient(closest-side, #000 48%, rgba(0, 0, 0, 0.65) 74%, transparent 100%);
+    radial-gradient(closest-side, #000 52%, rgba(0, 0, 0, 0.72) 78%, transparent 100%);
   mask-size:
     var(--frame-width) var(--frame-height),
     100% 100%;
@@ -1417,6 +1427,9 @@ button {
   mask-composite: add;
   -webkit-mask-composite: source-over;
 }
+
+/* While adjusting, the Frame is a window through the backdrop. The dim is
+   painted by the canvas itself, so no mask is needed here. */
 
 .frame-canvas {
   box-shadow:
@@ -1501,9 +1514,9 @@ button {
 
 .centre-guides .centre-hint {
   position: absolute;
-  /* Above the frame, stacked over the size badge so the image stays clear. */
+  /* Below the frame: the ratio badge owns the space above it. */
   left: var(--centre-x);
-  top: var(--frame-top);
+  top: calc(var(--frame-top) + var(--frame-height));
   padding: 2px 8px;
   border: 1px solid #1e4b62;
   border-radius: 999px;
@@ -1512,7 +1525,7 @@ button {
   font-size: 11px;
   letter-spacing: 0.2px;
   white-space: nowrap;
-  transform: translate(-50%, calc(-100% - 30px));
+  transform: translate(-50%, 8px);
   opacity: 0;
   transition: opacity 140ms ease;
 }
@@ -3090,4 +3103,419 @@ button {
 .settings-modal .toggle {
   flex: 0 0 auto;
   min-width: 90px;
+}
+
+/* Board ---------------------------------------------------------------- */
+
+.board-wrap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.board {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  /* The fit reads clientWidth; a stable gutter keeps the scrollbar from
+     resizing the Board and making the fit oscillate. */
+  scrollbar-gutter: stable;
+  overscroll-behavior: contain;
+  background: radial-gradient(140% 100% at 50% -20%, #23212d 0%, #16151c 52%, #111016 100%);
+}
+
+.board > .stage-empty {
+  position: absolute;
+  inset: 0;
+}
+
+/* The reorder toggle floats on the canvas, out of the layout. */
+.board-dock {
+  position: absolute;
+  right: 16px;
+  bottom: 14px;
+  z-index: 4;
+  display: flex;
+  gap: 8px;
+}
+
+.board-canvas {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  align-content: flex-start;
+  min-height: 100%;
+}
+
+/* One Tile is not a grid: it sits in the middle of the stage, like before. */
+.board-canvas.single {
+  display: grid;
+  place-items: center;
+}
+
+.tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  cursor: pointer;
+}
+
+.tile-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.tile-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tile-num {
+  display: grid;
+  place-items: center;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 5px;
+  background: var(--accent-state);
+  color: var(--accent-ink);
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.tile-kill {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 3;
+  appearance: none;
+  border: 0;
+  background: rgba(12, 11, 16, 0.72);
+  color: var(--text-dim);
+  font-size: 12px;
+  line-height: 1;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity 120ms,
+    background 120ms;
+}
+
+.tile:hover .tile-kill,
+.tile-kill:focus-visible {
+  opacity: 1;
+}
+
+.tile-kill:hover {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+.tile-card {
+  position: relative;
+  border-radius: 6px;
+  background: #0d0c11;
+}
+
+.tile.active .tile-card {
+  box-shadow:
+    0 0 0 3px var(--accent-state),
+    0 10px 26px rgba(0, 0, 0, 0.45);
+}
+
+/* The Active Tile is the one you are working on: the others sit under a scrim
+   until you hover them, so the focus reads at a glance without a label. */
+.tile:not(.active) .tile-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 6px;
+  background: rgba(10, 9, 14, 0.42);
+  pointer-events: none;
+  transition: opacity 140ms ease;
+}
+
+.tile:not(.active):hover .tile-card::after {
+  opacity: 0;
+}
+
+.tile.active .tile-head {
+  color: var(--text);
+}
+
+.tile.active .tile-name {
+  font-weight: 600;
+}
+
+.tile-preview {
+  display: block;
+  border-radius: 6px;
+}
+
+.tile.reordering {
+  touch-action: none;
+  cursor: grab;
+}
+
+.tile.reordering .tile-card {
+  pointer-events: none;
+}
+
+.tile.reordering .tile-head {
+  cursor: grab;
+}
+
+.tile.dragging {
+  opacity: 0.55;
+  cursor: grabbing;
+}
+
+.tile.dragging .tile-card {
+  transform: scale(0.97);
+}
+
+.tile-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  height: 20px;
+  font-size: 10px;
+  color: var(--text-faint);
+  overflow: hidden;
+}
+
+.tile-error {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--danger);
+}
+
+.tile-badge {
+  flex: none;
+  padding: 0 5px;
+  border-radius: 4px;
+  font-size: 9.5px;
+  line-height: 15px;
+}
+
+.tile-badge.busy {
+  background: var(--line);
+  color: var(--text-dim);
+}
+
+.tile-badge.ok {
+  background: var(--ok-bg);
+  color: var(--ok);
+}
+
+.tile-badge.bad {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+.tile-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 100%;
+  padding: 12px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 6px;
+  color: var(--text-faint);
+  font-size: 11px;
+  text-align: center;
+}
+
+.tile-placeholder strong {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+/* The Active Tile's editor fills its card exactly. */
+.stage.embedded {
+  position: absolute;
+  inset: 0;
+  background: transparent;
+  border-radius: 6px;
+  /* The magnifier must be able to leave the card, so the radius is clipped on
+     the scene instead of here. */
+  overflow: visible;
+}
+
+.stage.embedded .scene {
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+/* While adjusting, the handles and the ratio badge need to leave the scene. */
+.stage.embedded.adjusting .scene {
+  overflow: visible;
+}
+
+/* A Tile with no surround is exactly the Frame: the backdrop has nothing to
+   paint. The spotlight keeps it, so the cropped-out Source stays visible. */
+.stage.embedded:not(.adjusting):not(.surround) .backdrop {
+  display: none;
+}
+
+/* Batch buttons in the Export panel footer. */
+.batch-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.batch-button {
+  appearance: none;
+  border: 1px solid var(--line-strong);
+  background: transparent;
+  color: var(--text-dim);
+  border-radius: var(--r-sm);
+  padding: 7px 8px;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.batch-button:hover:not(:disabled) {
+  border-color: var(--text-faint);
+  color: var(--text);
+}
+
+.batch-button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* Focus is not Active: Alt+←/→ moves the focused Tile, so the ring has to show
+   after a click or a drag too, not only on keyboard navigation. It is drawn in
+   the neutral ink, outside the Active Tile's accent ring, so the two never read
+   as one thicker ring on the Tile you are both working on and focused. */
+.tile:focus,
+.tile:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 3px;
+  /* Matches the card's 6px corner plus the offset, so the ring stays parallel. */
+  border-radius: 9px;
+}
+
+/* Spotlight: one Tile exposed above the Board, as if it were the only one. */
+.board-spotlight {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  /* A vignette, so the exposed card sits in a pool of light. */
+  background: radial-gradient(circle at 50% 42%, rgba(8, 7, 11, 0.62), rgba(8, 7, 11, 0.9));
+  backdrop-filter: blur(4px);
+  animation: spotlight-in 160ms ease-out;
+}
+
+/* Adjusting is a working view: flat scrim, no vignette. */
+.board-spotlight.adjusting {
+  background: rgba(8, 7, 11, 0.82);
+}
+
+.spotlight-card {
+  display: flex;
+  flex-direction: column;
+  animation: spotlight-card-in 180ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+.spotlight-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 26px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.spotlight-hint {
+  font-size: 10.5px;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+.spotlight-frame {
+  position: relative;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+/* Adjusting needs the handles and labels to leave the card. */
+.spotlight-frame.adjusting {
+  overflow: visible;
+}
+
+@keyframes spotlight-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes spotlight-card-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Settings: one group per idea, so the Image Chest section stops reading as a
+   wall of hints. */
+.settings-group {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.settings-group:first-of-type {
+  padding-top: 2px;
+  border-top: 0;
+}
+
+.settings-group-title {
+  margin: 0;
+  font-size: 10.5px;
+  letter-spacing: 0.075em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  font-weight: 650;
+}
+
+/* The spotlight's Border is a DOM stroke over the cutout window, so it never
+   forces the Source through a canvas re-render. */
+.frame-border {
+  position: absolute;
+  z-index: 2;
+  pointer-events: none;
 }

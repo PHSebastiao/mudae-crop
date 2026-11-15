@@ -49,7 +49,12 @@ interface ExportPanelProps {
   readonly optimizeResult: OptimizeResult | null;
   readonly sizeEstimate: SizeEstimate | null;
   readonly waifu2xReady: boolean;
+  /** How many Tiles a batch command would act on. */
+  readonly tileCount: number;
+  readonly samePost: boolean;
+  readonly onSamePost: (value: boolean) => void;
   readonly onExport: () => void;
+  readonly onExportAll: () => void;
   readonly onExportScale: (scale: CartaScale) => void;
   readonly onExportFormat: (format: 'png' | 'gif') => void;
   readonly onResizeWidth: (width: number) => void;
@@ -62,6 +67,7 @@ interface ExportPanelProps {
   readonly onAppendPostId: (value: string) => void;
   readonly onCommitAppendPostId: () => void;
   readonly onUpload: () => void;
+  readonly onUploadAll: () => void;
   readonly onOpenSettings: () => void;
   readonly onCopyText: (value: string) => void;
   readonly onOpenLink: (value: string) => void;
@@ -176,7 +182,11 @@ export const ExportPanel = memo(function ExportPanel({
   optimizeResult,
   sizeEstimate,
   waifu2xReady,
+  tileCount,
+  samePost,
+  onSamePost,
   onExport,
+  onExportAll,
   onExportScale,
   onExportFormat,
   onResizeWidth,
@@ -189,6 +199,7 @@ export const ExportPanel = memo(function ExportPanel({
   onAppendPostId,
   onCommitAppendPostId,
   onUpload,
+  onUploadAll,
   onOpenSettings,
   onCopyText,
   onOpenLink,
@@ -316,8 +327,32 @@ export const ExportPanel = memo(function ExportPanel({
               ? `Aguarde ${cooldownSeconds}s`
               : 'Subir e copiar link'}
       </button>
+      {tileCount > 1 && (
+        <div className="batch-actions">
+          <button
+            type="button"
+            className="batch-button"
+            onClick={onExportAll}
+            disabled={busy || waifuUnavailable}
+            title="Escolhe uma pasta e exporta todas as Tiles"
+          >
+            Exportar todas ({tileCount})
+          </button>
+          <button
+            type="button"
+            className="batch-button"
+            onClick={hasToken ? onUploadAll : onOpenSettings}
+            disabled={hasToken ? uploadDisabled : busy}
+            title={samePost ? 'Um Post com todas as Tiles' : 'Um Post por Tile'}
+          >
+            {hasToken ? `Subir todas (${tileCount})` : 'Token para subir todas'}
+          </button>
+        </div>
+      )}
       <p className="panel-hint">
-        {hasToken ? 'Ctrl+S exporta · Ctrl+Enter envia.' : 'Ctrl+S exporta.'}
+        {hasToken
+          ? 'Ctrl+S exporta · Ctrl+Enter envia · Shift faz o lote todo.'
+          : 'Ctrl+S exporta.'}
       </p>
     </div>
   );
@@ -348,6 +383,13 @@ export const ExportPanel = memo(function ExportPanel({
               </span>
               {optimizeResult && <span>otimizado · {formatBytes(optimizeResult.size)}</span>}
             </div>
+            {doc.source && (
+              <div className="export-summary-row export-summary-foot">
+                <span>
+                  origem {doc.source.format.toUpperCase()} {doc.source.width}×{doc.source.height}
+                </span>
+              </div>
+            )}
           </div>
 
           {overGuidance && (
@@ -753,6 +795,18 @@ export const ExportPanel = memo(function ExportPanel({
                 disabled={busy}
               />
               {badPostId && <p className="panel-hint bad">O Post id aceita só letras e números.</p>}
+              {tileCount > 1 && (
+                <label className="row">
+                  <span className="key">mesmo Post</span>
+                  <input
+                    type="checkbox"
+                    checked={samePost}
+                    onChange={(event) => onSamePost(event.target.checked)}
+                    disabled={busy}
+                    title="Um Post com todas as Tiles do lote (o Post id também agrupa)"
+                  />
+                </label>
+              )}
             </div>
           </details>
         )}

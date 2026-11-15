@@ -27,7 +27,6 @@ describe('settings', () => {
     const settings: Settings = {
       token: 'secret-token',
       defaultPrivacy: 'public',
-      appendPostId: '3qe4gdvj4j2',
       saveFolder: 'C:\\Cards\\Exports',
       borderColor: '#AABBCC',
       borderWidth: 3,
@@ -35,6 +34,9 @@ describe('settings', () => {
       frameRatio: 16 / 9,
       snapRatios: false,
       uploadCredit: true,
+      importMode: 'replace',
+      imageChestGold: true,
+      samePost: true,
     };
 
     const loaded = parseSettings(serializeSettings(settings));
@@ -47,7 +49,6 @@ describe('settings', () => {
       JSON.stringify({
         token: ' kept ',
         defaultPrivacy: 'everyone',
-        appendPostId: '../bad',
         saveFolder: '',
         borderColor: 'red',
         borderWidth: 99,
@@ -60,7 +61,6 @@ describe('settings', () => {
 
     expect(loaded.token).toBe('kept');
     expect(loaded.defaultPrivacy).toBe(DEFAULT_SETTINGS.defaultPrivacy);
-    expect(loaded.appendPostId).toBe('');
     expect(loaded.saveFolder).toBeNull();
     expect(loaded.borderColor).toBe(DEFAULT_SETTINGS.borderColor);
     expect(loaded.borderWidth).toBe(99);

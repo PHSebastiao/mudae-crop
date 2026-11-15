@@ -25,10 +25,12 @@ export const tauriImageChestTransport: ImageChestTransport = {
       path: request.path,
       token: request.token,
       form: request.form ?? null,
-      file_field: request.file?.field ?? null,
-      file_name: request.file?.name ?? null,
-      file_type: request.file?.contentType ?? null,
-      file_bytes: request.file ? Array.from(request.file.bytes) : null,
+      files: (request.files ?? []).map((file) => ({
+        field: file.field,
+        name: file.name,
+        content_type: file.contentType,
+        bytes: Array.from(file.bytes),
+      })),
     });
     return {
       status: reply.status,

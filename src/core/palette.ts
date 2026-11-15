@@ -10,6 +10,19 @@ export const MAX_PALETTE = 10;
 export const MAX_SAMPLE_SIDE = 128;
 /** Animations are sampled at most this many evenly spaced frames. */
 export const MAX_SAMPLE_FRAMES = 60;
+/**
+ * Work allowed between yields in `extractPaletteAsync`. Counted in time, not in
+ * frames: a slow machine must not turn four frames into a long task.
+ */
+export const PALETTE_SLICE_BUDGET_MS = 8;
+
+export interface PaletteSamplingOptions {
+  readonly signal?: AbortSignal;
+  /** Gives the thread back between slices; defaults to a zero timeout. */
+  readonly yieldToUi?: () => Promise<void>;
+  /** Clock for the slice budget; overridable so a test can be deterministic. */
+  readonly now?: () => number;
+}
 
 /** The fixed white swatch the Border starts from, always first in the UI. */
 export const WHITE_SWATCH: PaletteColor = Object.freeze({
@@ -21,7 +34,11 @@ export const WHITE_SWATCH: PaletteColor = Object.freeze({
 export interface PaletteColor {
   readonly hex: string;
   readonly count: number;
-  /** Share of the non-transparent sampled pixels, from 0 to 1. */
+  /**
+   * Share of the colours the Palette merged, from 0 to 1. Identical to a share
+   * of every sampled pixel until a photographic sample exceeds the merge cap;
+   * past it, the dropped tail is in no swatch and is left out of the total too.
+   */
   readonly share: number;
 }
 
@@ -48,7 +65,8 @@ export type PaletteWaifu2x = (png: Uint8Array) => Promise<CanvasImageSource>;
 export const MAX_WAIFU2X_PALETTE_FRAMES = 6;
 
 interface SampleColor extends Rgb {
-  readonly count: number;
+  /** Mutable on purpose: the accumulator counts pixels in place. */
+  count: number;
   /** First-seen order, used as a stable tie-break. */
   readonly order: number;
 }
@@ -171,13 +189,21 @@ export function withWhiteFirst(palette: readonly PaletteColor[]): PaletteColor[]
 }
 
 /**
+ * Representatives the merge compares a colour against. The list is coverage
+ * ordered, so the top of it holds every colour that can win a swatch; a photo's
+ * long tail of near-duplicates is what makes an unbounded comparison quadratic
+ * (16k distinct colours measured 118 ms).
+ */
+export const MAX_MERGE_COMPARISONS = 64;
+
+/**
  * Merge colors within `threshold` into the most-covered representative. Near
  * duplicates never produce a second swatch; their coverage adds to the first.
  */
 function mergeColors(colors: readonly SampleColor[], threshold: number): SampleColor[] {
   const merged: SampleColor[] = [];
   for (const color of colors) {
-    const index = merged.findIndex((rep) => distance(rep, color) <= threshold);
+    const index = nearestRepresentative(merged, color, threshold);
     if (index === -1) {
       merged.push({ ...color });
     } else {
@@ -188,10 +214,85 @@ function mergeColors(colors: readonly SampleColor[], threshold: number): SampleC
   return sortByCoverage(merged);
 }
 
+function nearestRepresentative(
+  merged: readonly SampleColor[],
+  color: SampleColor,
+  threshold: number,
+): number {
+  const bound = Math.min(merged.length, MAX_MERGE_COMPARISONS);
+  for (let index = 0; index < bound; index += 1) {
+    if (distance(merged[index], color) <= threshold) return index;
+  }
+  return -1;
+}
+
 interface ColorCounts {
   readonly counts: Map<number, SampleColor>;
   order: number;
   sampled: number;
+}
+
+/**
+ * Colours the merge actually considers. A photographic animation accumulates
+ * hundreds of thousands of near-identical colours, and the merge that follows
+ * then blocks the Preview (measured: 60 photographic frames, 597 ms). Only the
+ * colours with real coverage can win a swatch, so the tail is selected away
+ * first — the palette stays exact, the work stays bounded.
+ */
+export const MAX_MERGE_COLORS = 16_384;
+
+/** The `limit` most-covered colours, selected without sorting the whole map. */
+function mostCovered(colors: Iterable<SampleColor>, limit: number): SampleColor[] {
+  const heap: SampleColor[] = [];
+  for (const color of colors) {
+    if (heap.length < limit) {
+      heap.push(color);
+      siftUp(heap, heap.length - 1);
+    } else if (worseThan(heap[0], color)) {
+      heap[0] = color;
+      siftDown(heap, 0);
+    }
+  }
+  return sortByCoverage(heap);
+}
+
+/** True when `a` ranks below `b`: less coverage, and later first-seen on a tie. */
+function worseThan(a: SampleColor, b: SampleColor): boolean {
+  return a.count < b.count || (a.count === b.count && a.order > b.order);
+}
+
+function siftUp(heap: SampleColor[], index: number): void {
+  let child = index;
+  while (child > 0) {
+    const parent = (child - 1) >> 1;
+    if (!worseThan(heap[child], heap[parent])) return;
+    [heap[parent], heap[child]] = [heap[child], heap[parent]];
+    child = parent;
+  }
+}
+
+function siftDown(heap: SampleColor[], index: number): void {
+  let parent = index;
+  for (;;) {
+    const left = parent * 2 + 1;
+    const right = left + 1;
+    let worst = parent;
+    if (left < heap.length && worseThan(heap[left], heap[worst])) worst = left;
+    if (right < heap.length && worseThan(heap[right], heap[worst])) worst = right;
+    if (worst === parent) return;
+    [heap[parent], heap[worst]] = [heap[worst], heap[parent]];
+    parent = worst;
+  }
+}
+
+/** One canvas and one accumulator, reused across the frames of a sample. */
+interface PaletteSampling {
+  readonly ctx: RenderContext;
+  readonly width: number;
+  readonly height: number;
+  readonly pad: Rgb;
+  readonly indices: readonly number[];
+  readonly accumulator: ColorCounts;
 }
 
 function countPixels(
@@ -213,7 +314,9 @@ function countPixels(
     const key = (r << 16) | (g << 8) | b;
     const existing = accumulator.counts.get(key);
     if (existing) {
-      accumulator.counts.set(key, { ...existing, count: existing.count + 1 });
+      // Counting in place: a 60-frame sample used to allocate a fresh object
+      // per distinct colour, per frame, which is what made it block.
+      existing.count += 1;
     } else {
       accumulator.counts.set(key, { r, g, b, count: 1, order: accumulator.order });
       accumulator.order += 1;
@@ -224,7 +327,11 @@ function countPixels(
 
 function paletteFromCounts(accumulator: ColorCounts): PaletteColor[] {
   if (accumulator.sampled === 0) return [];
-  const colors = sortByCoverage([...accumulator.counts.values()]);
+  const colors = mostCovered(accumulator.counts.values(), MAX_MERGE_COLORS);
+  // The share is taken over the colours that reached the merge, not over every
+  // sampled pixel: the tail the cap dropped is counted in no swatch, and
+  // dividing by it would understate every percentage the Border tooltip shows.
+  const considered = colors.reduce((total, color) => total + color.count, 0);
   let threshold = 30;
   let merged = mergeColors(colors, threshold);
   // Fewer than four swatches means the threshold was too aggressive. Relax it
@@ -237,7 +344,7 @@ function paletteFromCounts(accumulator: ColorCounts): PaletteColor[] {
   return selectSwatches(merged).map((color) => ({
     hex: toHexColor(color),
     count: color.count,
-    share: color.count / accumulator.sampled,
+    share: considered > 0 ? color.count / considered : 0,
   }));
 }
 
@@ -265,7 +372,48 @@ export function paletteFromPixels(
  * animation is sampled across its active Trim, at most 60 evenly spaced frames.
  */
 export function extractPalette(doc: DocumentState, adapter: PaletteAdapter): PaletteColor[] {
-  if (!doc.source) return [];
+  const sampling = beginSampling(doc, adapter);
+  if (!sampling) return [];
+  for (const frameIndex of sampling.indices) {
+    sampleFrame(sampling, doc, frameIndex);
+  }
+  return paletteFromCounts(sampling.accumulator);
+}
+
+/**
+ * The same Palette, counted in slices: a long animation no longer freezes the
+ * Preview while its frames are sampled. The caller supplies the yield so the
+ * core stays free of browser APIs; an aborted signal stops between slices.
+ */
+export async function extractPaletteAsync(
+  doc: DocumentState,
+  adapter: PaletteAdapter,
+  options: PaletteSamplingOptions = {},
+): Promise<PaletteColor[]> {
+  const sampling = beginSampling(doc, adapter);
+  if (!sampling) return [];
+  const yieldToUi = options.yieldToUi ?? defaultYield;
+  const now = options.now ?? Date.now;
+  let sliceStarted = now();
+  for (const frameIndex of sampling.indices) {
+    if (options.signal?.aborted) return [];
+    sampleFrame(sampling, doc, frameIndex);
+    if (now() - sliceStarted >= PALETTE_SLICE_BUDGET_MS) {
+      await yieldToUi();
+      // An abort during the yield must not return a palette nobody wants.
+      if (options.signal?.aborted) return [];
+      sliceStarted = now();
+    }
+  }
+  return paletteFromCounts(sampling.accumulator);
+}
+
+function defaultYield(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+function beginSampling(doc: DocumentState, adapter: PaletteAdapter): PaletteSampling | null {
+  if (!doc.source) return null;
   const native = nativeSize(doc);
   const frameScale = Math.min(1, MAX_SAMPLE_SIDE / Math.max(native.width, native.height));
   const width = Math.max(1, Math.round(native.width * frameScale));
@@ -280,12 +428,14 @@ export function extractPalette(doc: DocumentState, adapter: PaletteAdapter): Pal
   const indices = doc.source.video
     ? [effectiveTrim(doc)?.start ?? 0]
     : sampleTrimIndices(effectiveSource(doc), effectiveTrim(doc), MAX_SAMPLE_FRAMES);
-  for (const frameIndex of indices) {
-    renderFrame(ctx, doc, { outputWidth: width, outputHeight: height, border: false, frameIndex });
-    const image = ctx.getImageData(0, 0, width, height);
-    countPixels(accumulator, image.data, image.width, image.height, pad);
-  }
-  return paletteFromCounts(accumulator);
+  return { ctx, width, height, pad, indices, accumulator };
+}
+
+function sampleFrame(sampling: PaletteSampling, doc: DocumentState, frameIndex: number): void {
+  const { ctx, width, height, pad, accumulator } = sampling;
+  renderFrame(ctx, doc, { outputWidth: width, outputHeight: height, border: false, frameIndex });
+  const image = ctx.getImageData(0, 0, width, height);
+  countPixels(accumulator, image.data, image.width, image.height, pad);
 }
 
 /**

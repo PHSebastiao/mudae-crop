@@ -1,0 +1,56 @@
+import { MUDAE_RATIO, presetForRatio, ratioLabel } from '../core/ratios';
+
+interface EmptyBoardProps {
+  /** The Frame proportion a new Tile starts at. */
+  readonly ratio: number;
+  readonly busy: boolean;
+  readonly onOpen: () => void;
+}
+
+/**
+ * The Board with no Tiles. It owns the whole workspace: there is nothing to
+ * frame, so it invites a batch instead of showing two empty columns.
+ */
+export function EmptyBoard({ ratio, busy, onOpen }: EmptyBoardProps) {
+  const preset = presetForRatio(ratio) ?? null;
+  const label = ratioLabel(ratio || MUDAE_RATIO);
+  return (
+    <div className="stage-empty">
+      <div className="stage-empty-card">
+        <div className="stage-empty-art" aria-hidden="true">
+          <div className="stage-empty-frame" style={{ aspectRatio: String(ratio) }}>
+            <svg viewBox="0 0 16 16" focusable="false">
+              <path
+                d="M2 11.5 5.8 7.7l2.6 2.6 2.1-2.1L14 11.6M2 2.5h12v11H2z"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.1"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </div>
+        </div>
+        <div className="stage-empty-copy">
+          <h1>Arraste suas imagens</h1>
+          <p className="stage-empty-sub">
+            {preset
+              ? `Cada uma vira uma carta ${label}, pronta para exportar.`
+              : 'Cada uma vira uma carta na proporção escolhida, pronta para exportar.'}
+          </p>
+          <button
+            type="button"
+            className="primary stage-empty-cta"
+            onClick={onOpen}
+            disabled={busy}
+          >
+            Abrir imagens…
+          </button>
+          <p className="stage-empty-hint">
+            ou cole um link no topo · <kbd>Ctrl</kbd>+<kbd>V</kbd> · arraste vários arquivos
+          </p>
+          <p className="stage-empty-formats">PNG · JPG · GIF · WebP · APNG · MP4 · MOV · WebM</p>
+        </div>
+      </div>
+    </div>
+  );
+}

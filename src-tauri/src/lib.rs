@@ -576,6 +576,16 @@ struct ImageChestReply {
     retry_after_seconds: Option<u64>,
 }
 
+/// One file part of a multipart upload. Image Chest takes several per request,
+/// so the command carries a list instead of a single file.
+#[derive(Deserialize)]
+struct ImageChestFilePart {
+    field: String,
+    name: String,
+    content_type: Option<String>,
+    bytes: Vec<u8>,
+}
+
 /// One Image Chest API request on the native side, where CORS does not apply.
 /// The front-end still owns the request shape and the response interpretation;
 /// this command only carries the multipart upload or the form fields and
@@ -586,10 +596,7 @@ async fn imagechest_request(
     path: String,
     token: String,
     form: Option<HashMap<String, String>>,
-    file_field: Option<String>,
-    file_name: Option<String>,
-    file_type: Option<String>,
-    file_bytes: Option<Vec<u8>>,
+    files: Option<Vec<ImageChestFilePart>>,
 ) -> Result<ImageChestReply, String> {
     if !path.starts_with("/v1/") || path.contains("..") {
         return Err("Caminho de API inválido.".into());
@@ -619,12 +626,12 @@ async fn imagechest_request(
         for (key, value) in form.unwrap_or_default() {
             multipart = multipart.text(key, value);
         }
-        if let (Some(field), Some(name), Some(bytes)) = (file_field, file_name, file_bytes) {
-            let mut part = reqwest::multipart::Part::bytes(bytes).file_name(name);
-            if let Some(mime) = file_type {
+        for file in files.unwrap_or_default() {
+            let mut part = reqwest::multipart::Part::bytes(file.bytes).file_name(file.name);
+            if let Some(mime) = file.content_type {
                 part = part.mime_str(&mime).map_err(|error| error.to_string())?;
             }
-            multipart = multipart.part(field, part);
+            multipart = multipart.part(file.field, part);
         }
         request = request.multipart(multipart);
     } else if let Some(fields) = form {
@@ -647,6 +654,13 @@ async fn imagechest_request(
         body,
         retry_after_seconds,
     })
+}
+
+/// Whether a path exists. The batch Export asks before writing so it never
+/// overwrites a file the user already has.
+#[tauri::command]
+fn path_exists(path: String) -> bool {
+    Path::new(&path).exists()
 }
 
 #[tauri::command]
@@ -1216,6 +1230,7 @@ pub fn run() {
             read_config,
             write_config,
             imagechest_request,
+            path_exists,
             copy_text,
             open_external,
             reveal_path,

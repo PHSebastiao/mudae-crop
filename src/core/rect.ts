@@ -110,6 +110,8 @@ export function stageView(bounds: Size, rect: Rect, adjusting: boolean): StageVi
 /** Where the Frame canvas and the stage scene sit, in CSS and device pixels. */
 export interface StageLayout {
   readonly adjusting: boolean;
+  /** Whether the scene shows the whole Source instead of only the Frame. */
+  readonly viewSource: boolean;
   readonly view: StageView;
   /** Rotated Source pixels to CSS pixels. */
   readonly scale: number;
@@ -119,6 +121,9 @@ export interface StageLayout {
   readonly frameHeight: number;
   readonly sceneWidth: number;
   readonly sceneHeight: number;
+  /** The Source's centre in scene pixels: the axis the Crop snaps to. */
+  readonly centreX: number;
+  readonly centreY: number;
   readonly framePixelWidth: number;
   readonly framePixelHeight: number;
   readonly scenePixelWidth: number;
@@ -130,21 +135,32 @@ export interface StageLayout {
  * canvases. Outside the adjust phase the Frame is the view and fills the stage;
  * while adjusting the whole Source is the view and the Frame can move over it.
  * Sizes snap to whole device pixels so the browser never resamples the canvas.
+ *
+ * `pad` is the margin around the scene. A Tile on the Board passes 0 so the
+ * card fills it, and a small pad while adjusting so the handles are reachable.
+ *
+ * `viewSource` keeps the whole Source in the scene while the Frame stays a
+ * window inside it — the adjust phase needs it, and so does the spotlight, which
+ * shows what the Crop left out without putting handles on it.
  */
 export function stageLayout(
   doc: DocumentState,
   stageSize: Size,
   dpr: number,
   adjusting: boolean,
+  pad: number = STAGE_PAD,
+  viewSource: boolean = adjusting,
 ): StageLayout {
   const rect = doc.crop.rect;
   const hasFrame = doc.source !== null && rect.width > 0 && rect.height > 0;
   const pixelRatio = Number.isFinite(dpr) && dpr > 0 ? dpr : 1;
-  const availableWidth = Math.max(0, stageSize.width - STAGE_PAD * 2);
-  const availableHeight = Math.max(0, stageSize.height - STAGE_PAD * 2);
+  const margin = Number.isFinite(pad) ? Math.max(0, pad) : STAGE_PAD;
+  const availableWidth = Math.max(0, stageSize.width - margin * 2);
+  const availableHeight = Math.max(0, stageSize.height - margin * 2);
   const active = adjusting && doc.source !== null;
+  const showsSource = viewSource && doc.source !== null;
   const bounds = rotatedSize(doc.source, doc.crop.rotation);
-  const view = stageView(bounds, rect, active);
+  const view = stageView(bounds, rect, showsSource);
   const naturalScale =
     hasFrame &&
     availableWidth > 0 &&
@@ -156,24 +172,40 @@ export function stageLayout(
   // Outside the adjust phase the Frame fills the stage at every zoom, so the
   // preview never shrinks as the user zooms in. In the adjust phase the cap
   // avoids magnifying a tiny Source absurdly while the whole Source is shown.
-  const scale = active ? Math.min(naturalScale, MAX_STAGE_SCALE) : naturalScale;
+  const scale = showsSource ? Math.min(naturalScale, MAX_STAGE_SCALE) : naturalScale;
   const empty = fitRect({ width: availableWidth, height: availableHeight }, doc.frame.ratio);
   const align = (value: number) => Math.round(value * pixelRatio) / pixelRatio;
   const frameWidth = hasFrame ? align(rect.width * scale) : empty.width;
   const frameHeight = hasFrame ? align(rect.height * scale) : empty.height;
-  const sceneWidth = (active ? align(view.viewWidth * scale) : frameWidth) + STAGE_PAD * 2;
-  const sceneHeight = (active ? align(view.viewHeight * scale) : frameHeight) + STAGE_PAD * 2;
+  const sceneWidth = (showsSource ? align(view.viewWidth * scale) : frameWidth) + margin * 2;
+  const sceneHeight = (showsSource ? align(view.viewHeight * scale) : frameHeight) + margin * 2;
+  // The Source is pinned to an aligned position and the window is placed
+  // relative to it. Aligning the window instead would shift the Source by the
+  // rounding error every time the Crop panned — the whole picture, surround
+  // included, jumped a pixel when the centre snap moved the window.
+  const frameLeft = showsSource ? align(margin - view.originX * scale) + rect.x * scale : margin;
+  const frameTop = showsSource ? align(margin - view.originY * scale) + rect.y * scale : margin;
+  // The guide marks the Source's centre in scene pixels. In a Tile the scene is
+  // the Crop, so the Source centre has to be mapped through the Crop's offset;
+  // in the spotlight the scene is the Source itself.
+  const originX = showsSource ? view.originX : rect.x;
+  const originY = showsSource ? view.originY : rect.y;
+  const centreX = align(margin + (bounds.width / 2 - originX) * scale);
+  const centreY = align(margin + (bounds.height / 2 - originY) * scale);
 
   return {
     adjusting: active,
+    viewSource: showsSource,
     view,
     scale,
-    frameLeft: active ? STAGE_PAD + (rect.x - view.originX) * scale : STAGE_PAD,
-    frameTop: active ? STAGE_PAD + (rect.y - view.originY) * scale : STAGE_PAD,
+    frameLeft,
+    frameTop,
     frameWidth,
     frameHeight,
     sceneWidth,
     sceneHeight,
+    centreX,
+    centreY,
     framePixelWidth: Math.round(frameWidth * pixelRatio),
     framePixelHeight: Math.round(frameHeight * pixelRatio),
     scenePixelWidth: Math.round(sceneWidth * pixelRatio),

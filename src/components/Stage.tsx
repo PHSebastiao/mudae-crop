@@ -6,16 +6,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 import { toHexColor } from '../core/color';
-import {
-  animationFrameCount,
-  effectiveSource,
-  isAnimated,
-  outputSize,
-  type DocumentState,
-  type Rect,
-} from '../core/document';
-import { formatFps, formatPlaybackDuration } from '../core/animation';
-import { formatBytes } from '../core/download';
+import { outputSize, type DocumentState, type Rect } from '../core/document';
 import {
   centreSnapAxes,
   dragPan,
@@ -25,9 +16,15 @@ import {
   startDrag,
   type DragAnchor,
 } from '../core/geometry';
-import { stageLayout, type Handle } from '../core/rect';
-import { presetForRatio, ratioLabel } from '../core/ratios';
-import { borderReferenceWidth, drawSource, paintsPadColor, renderFrame } from '../core/render';
+import { stageLayout, STAGE_PAD, type Handle } from '../core/rect';
+import { ratioLabel } from '../core/ratios';
+import {
+  borderReferenceWidth,
+  drawSource,
+  frameBorderStroke,
+  paintsPadColor,
+  renderFrame,
+} from '../core/render';
 import { type StageMode } from '../core/stageMode';
 
 /** Screen pixels of drag before a free resize starts snapping. */
@@ -65,6 +62,9 @@ const MAGNIFIER_REGION = 9;
 const MAGNIFIER_OFFSET = 22;
 const MAGNIFIER_MARGIN = 12;
 
+/** Margin a Tile keeps while adjusting, so the handles and labels are not clipped. */
+const EMBEDDED_PAD = 30;
+
 interface MagnifierState {
   readonly left: number;
   readonly top: number;
@@ -92,8 +92,16 @@ interface StageProps {
   readonly mode: StageMode;
   /** Whether free resizes snap to a nearby ratio preset. */
   readonly snapRatios: boolean;
-  readonly onOpen: () => void;
-  readonly busy: boolean;
+  /**
+   * A Tile on the Board: the card fills the box, there is no surround to dim
+   * and the Board owns the Source readout, the hints and the empty state.
+   */
+  readonly embedded?: boolean;
+  /**
+   * The spotlight: the whole Source stays in view around the Frame, with the
+   * vignette, but no handles. The card itself is still the rendered Crop.
+   */
+  readonly surround?: boolean;
   readonly onPickColor: (hex: string) => void;
   readonly onPickMiss: (reason: 'outside' | 'transparent') => void;
 }
@@ -107,12 +115,13 @@ export function Stage({
   onResizeTo,
   mode,
   snapRatios,
-  onOpen,
-  busy,
+  embedded = false,
+  surround = false,
   onPickColor,
   onPickMiss,
 }: StageProps) {
   const hostRef = useRef<HTMLDivElement>(null);
+  const sceneRef = useRef<HTMLDivElement>(null);
   const backdropRef = useRef<HTMLCanvasElement>(null);
   const frameRef = useRef<HTMLCanvasElement>(null);
   const pickRef = useRef<HTMLCanvasElement | null>(null);
@@ -156,7 +165,20 @@ export function Stage({
 
   const rect = frameRect(doc);
   const dpr = window.devicePixelRatio || 1;
-  const layout = stageLayout(doc, stageSize, dpr, mode.kind === 'adjust');
+  const adjustMode = mode.kind === 'adjust';
+  // The spotlight keeps the whole Source in the scene without turning on the
+  // handles, so what the Crop left out stays visible around the card.
+  const viewSource = adjustMode || surround;
+  // A Tile's card fills it exactly; a scene that shows the Source keeps a margin
+  // for the handles (adjust) or the vignette (spotlight).
+  const layout = stageLayout(
+    doc,
+    stageSize,
+    dpr,
+    adjustMode,
+    embedded ? (viewSource ? EMBEDDED_PAD : 0) : STAGE_PAD,
+    viewSource,
+  );
   const {
     adjusting,
     scale,
@@ -166,12 +188,20 @@ export function Stage({
     frameHeight,
     sceneWidth,
     sceneHeight,
+    centreX,
+    centreY,
     framePixelWidth,
     framePixelHeight,
     scenePixelWidth,
     scenePixelHeight,
   } = layout;
-  const sourceView = effectiveSource(doc);
+  // The spotlight shows the Source through the window, so its Border is a DOM
+  // stroke over the cutout: it costs no canvas re-render and never resamples.
+  // Adjusting keeps the window clean — the handles are what you are placing.
+  const windowBorder =
+    surround && !adjusting && doc.source && doc.border.width > 0
+      ? frameBorderStroke(doc, frameWidth, outputSize(doc).width, borderReferenceWidth(doc), 1)
+      : 0;
   // The adjust mask needs the window rectangle to keep it opaque while the
   // feather fades only the dimmed surround.
   const sceneStyle = {
@@ -186,7 +216,15 @@ export function Stage({
   // the guides read the settled document instead of guessing from the pointer.
   // An axis the window cannot pan on is always centred, and that is not a snap.
   const snapBounds = rotatedBounds(doc);
-  const centred = centreSnapAxes(snapBounds, doc.crop.rect, 0, 0, CENTRE_SNAP_EPSILON);
+  // The guide reads the distance to the Source's centre, not the settled snap:
+  // it shows up as the window approaches and stays put at the centre.
+  const centred = centreSnapAxes(
+    snapBounds,
+    doc.crop.rect,
+    0,
+    0,
+    scale > 0 ? CENTRE_SNAP_PX / scale : 0,
+  );
   const centreSnap =
     doc.source && dragging && panned && !altDown
       ? {
@@ -203,12 +241,12 @@ export function Stage({
     // canvas) at the Source's own resolution.
     if (!(frameWidth >= 1) || !(frameHeight >= 1)) return;
 
-    if (adjusting) {
+    if (adjusting || surround) {
       // The Frame is a window cut out of the dim overlay: the Frame canvas is
       // hidden, so nothing is re-rendered or resampled inside it while the
-      // window moves. The window shows the backdrop's own Source, exactly
-      // continuous with the surround, and the Source never moves. The CSS mask
-      // keeps the window itself opaque so the feather only fades the surround.
+      // window moves. The backdrop draws the Source at the same scene position
+      // on every step — only the dim overlay and the mask move — so the picture
+      // stays put and the CSS mask keeps the window itself opaque.
       frameCanvas.style.display = 'none';
     } else {
       frameCanvas.style.display = 'block';
@@ -233,6 +271,11 @@ export function Stage({
       });
     }
 
+    if (embedded && !viewSource) {
+      // A Tile's card is exactly the Frame: there is no surround to draw.
+      return;
+    }
+
     if (backdrop.width !== scenePixelWidth || backdrop.height !== scenePixelHeight) {
       backdrop.width = scenePixelWidth;
       backdrop.height = scenePixelHeight;
@@ -253,7 +296,7 @@ export function Stage({
 
     // A Pad window paints its uncovered area with the Pad color. In Fit the
     // Source always covers the window, so only the other modes need it.
-    if (adjusting && paintsPadColor(doc)) {
+    if ((adjusting || surround) && paintsPadColor(doc)) {
       backdropContext.fillStyle = doc.padColor;
       backdropContext.fillRect(left, top, width, height);
     }
@@ -270,8 +313,9 @@ export function Stage({
       frameIndex,
     );
 
-    // Dim everything the Crop leaves outside the Frame.
-    backdropContext.fillStyle = 'rgba(8, 7, 11, 0.55)';
+    // Dim everything the Crop leaves outside the Frame. Light enough that the
+    // Source still reads as an image rather than blending into the stage.
+    backdropContext.fillStyle = 'rgba(8, 7, 11, 0.38)';
     backdropContext.fillRect(0, 0, fullWidth, top);
     backdropContext.fillRect(0, top + height, fullWidth, fullHeight - top - height);
     backdropContext.fillRect(0, top, left, height);
@@ -349,17 +393,24 @@ export function Stage({
     if (!element) return;
     const onWheel = (event: WheelEvent) => {
       if (!doc.source) return;
-      event.preventDefault();
+      // Ctrl+wheel always belongs to the Board, even over the image.
+      if (event.ctrlKey) return;
+      // The eyedropper does not zoom: the wheel belongs to the Board there.
       if (mode.kind === 'pick-pad') return;
-      const frameCanvas = frameRef.current;
-      if (!frameCanvas) return;
-      const bounds = frameCanvas.getBoundingClientRect();
+      // Over the image the wheel zooms the Crop; outside it, the Board scrolls.
+      event.preventDefault();
+      // The Frame canvas is hidden while adjusting and in the spotlight, and a
+      // hidden element has no rect: measure the scene and offset by the Frame's
+      // own position instead.
+      const scene = sceneRef.current;
+      if (!scene) return;
+      const bounds = scene.getBoundingClientRect();
       // The wheel works in displayed crop pixels; zoomAt needs Source pixels.
       const point = {
-        x: rect.x + (event.clientX - bounds.left) / scale,
-        y: rect.y + (event.clientY - bounds.top) / scale,
+        x: rect.x + (event.clientX - bounds.left - frameLeft) / scale,
+        y: rect.y + (event.clientY - bounds.top - frameTop) / scale,
       };
-      const factor = Math.exp(-event.deltaY * 0.0015);
+      const factor = Math.exp(-event.deltaY * 0.0009);
       // Zooming changes the Crop under the pointer, so the next pointer step
       // must start from the zoomed Frame instead of the drag's old anchor.
       if (dragRef.current) dragRef.current.rebase = true;
@@ -368,7 +419,7 @@ export function Stage({
     };
     element.addEventListener('wheel', onWheel, { passive: false });
     return () => element.removeEventListener('wheel', onWheel);
-  }, [doc.source, onZoomAt, mode, scale, rect.x, rect.y]);
+  }, [doc.source, onZoomAt, mode, scale, rect.x, rect.y, frameLeft, frameTop]);
 
   function framePixelAt(clientX: number, clientY: number): { sx: number; sy: number } | null {
     const frameCanvas = frameRef.current;
@@ -638,22 +689,37 @@ export function Stage({
       ref={hostRef}
       className={`stage${doc.source ? ' has-source' : ''}${adjusting ? ' adjusting' : ''}${
         dragging ? ' dragging' : ''
-      }${mode.kind === 'pick-pad' ? ' picking' : ''}`}
+      }${mode.kind === 'pick-pad' ? ' picking' : ''}${embedded ? ' embedded' : ''}${
+        surround ? ' surround' : ''
+      }`}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={endDrag}
       onPointerCancel={endDrag}
       onPointerLeave={() => setMagnifier(null)}
-      aria-label="Palco do Crop"
+      aria-label="Área de edição do Crop"
       role="group"
     >
-      <div className="scene" style={sceneStyle}>
+      <div className="scene" ref={sceneRef} style={sceneStyle}>
         <canvas ref={backdropRef} className="backdrop" />
         <canvas
           ref={frameRef}
           className="frame-canvas"
           style={{ left: frameLeft, top: frameTop, width: frameWidth, height: frameHeight }}
         />
+        {windowBorder > 0 && (
+          <span
+            className="frame-border"
+            style={{
+              left: frameLeft,
+              top: frameTop,
+              width: frameWidth,
+              height: frameHeight,
+              boxShadow: `inset 0 0 0 ${windowBorder}px ${doc.border.color}`,
+            }}
+            aria-hidden="true"
+          />
+        )}
         {doc.source && (
           <div
             className={`frame-guides${adjusting || dragging ? ' visible' : ''}`}
@@ -671,8 +737,8 @@ export function Stage({
             className="centre-guides"
             style={
               {
-                '--centre-x': `${frameLeft + frameWidth / 2}px`,
-                '--centre-y': `${frameTop + frameHeight / 2}px`,
+                '--centre-x': `${centreX}px`,
+                '--centre-y': `${centreY}px`,
               } as CSSProperties
             }
             aria-hidden="true"
@@ -733,74 +799,6 @@ export function Stage({
           </div>
         )}
       </div>
-      {!doc.source && (
-        <div className="stage-empty">
-          <div className="stage-empty-card">
-            <div className="stage-empty-art" aria-hidden="true">
-              <div className="stage-empty-frame" style={{ aspectRatio: String(doc.frame.ratio) }}>
-                <svg viewBox="0 0 16 16" focusable="false">
-                  <path
-                    d="M2 11.5 5.8 7.7l2.6 2.6 2.1-2.1L14 11.6M2 2.5h12v11H2z"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.1"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-              </div>
-            </div>
-            <div className="stage-empty-copy">
-              <h1>Arraste sua imagem</h1>
-              <p className="stage-empty-sub">
-                {presetForRatio(doc.frame.ratio)
-                  ? `Ela vira uma carta ${ratioLabel(doc.frame.ratio)}, pronta para exportar.`
-                  : 'Ela vira uma carta na proporção escolhida, pronta para exportar.'}
-              </p>
-              <button
-                type="button"
-                className="primary stage-empty-cta"
-                onClick={onOpen}
-                disabled={busy}
-              >
-                Abrir imagem…
-              </button>
-              <p className="stage-empty-hint">
-                ou cole um link no topo · <kbd>Ctrl</kbd>+<kbd>V</kbd> · arraste um arquivo
-              </p>
-              <p className="stage-empty-formats">
-                PNG · JPG · GIF · WebP · APNG · MP4 · MOV · WebM
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
-      {doc.source && (
-        <>
-          <div className="stage-meta">
-            <span className="source-name" title={doc.source.path ?? doc.source.name}>
-              {doc.source.name}
-            </span>
-            <span className="source-facts">
-              {doc.source.format.toUpperCase()} · {doc.source.width}×{doc.source.height} ·{' '}
-              {formatBytes(doc.source.bytes)} ·{' '}
-              {doc.source.video
-                ? `vídeo ${formatFps(doc.source.video.fps)} fps · ${formatPlaybackDuration(doc.source.video.durationMs)}`
-                : isAnimated(sourceView)
-                  ? `${animationFrameCount(sourceView)} quadros`
-                  : 'estático'}
-            </span>
-          </div>
-          {mode.kind !== 'idle' && (
-            <div className="stage-hint">
-              {mode.kind === 'pick-pad'
-                ? 'clique na imagem para pegar a cor · Esc cancela'
-                : `arraste as bordas para ajustar o Frame · Shift proporção livre · ${
-                    snapRatios ? 'Alt sem encaixe' : 'encaixe desligado'
-                  } · roda para zoom · C ou Esc conclui`}
-            </div>
-          )}
-        </>
-      )}
       {mode.kind === 'pick-pad' && magnifier && (
         <div
           className="magnifier"

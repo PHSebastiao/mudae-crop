@@ -65,14 +65,16 @@ export function fileNameOf(path: string): string {
   return parts[parts.length - 1] || path;
 }
 
-export async function chooseSourceFile(): Promise<string | null> {
+/** The media picker; several files at once become several Tiles. */
+export async function chooseSourceFiles(): Promise<string[]> {
   const selected = await open({
-    multiple: false,
+    multiple: true,
     directory: false,
-    title: 'Abrir imagem ou vídeo',
+    title: 'Abrir imagens ou vídeos',
     filters: [{ name: 'Imagens e vídeos', extensions: MEDIA_EXTENSIONS }],
   });
-  return typeof selected === 'string' ? selected : null;
+  if (!selected) return [];
+  return Array.isArray(selected) ? selected : [selected];
 }
 
 export async function chooseExportPath(
@@ -88,13 +90,19 @@ export async function chooseExportPath(
 }
 
 /** Pick the folder the Export save dialog should open in next time. */
-export async function chooseExportFolder(): Promise<string | null> {
+export async function chooseExportFolder(defaultPath?: string): Promise<string | null> {
   const selected = await open({
     directory: true,
     multiple: false,
     title: 'Pasta dos Exports',
+    ...(defaultPath ? { defaultPath } : {}),
   });
   return typeof selected === 'string' ? selected : null;
+}
+
+/** Whether a path already exists; the batch Export never overwrites one. */
+export async function pathExists(path: string): Promise<boolean> {
+  return invoke<boolean>('path_exists', { path });
 }
 
 /** The folder part of a native path; empty when the path has no separator. */

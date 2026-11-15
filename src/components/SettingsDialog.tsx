@@ -15,9 +15,11 @@ interface SettingsDialogProps {
   readonly desktop: boolean;
   readonly testing: boolean;
   readonly testResult: TokenTestResult | null;
+  readonly checkingAccount: boolean;
   readonly onChange: (patch: Partial<Settings>) => void;
   readonly onClose: () => void;
   readonly onTestConnection: () => void;
+  readonly onCheckAccount: () => void;
   readonly onClearToken: () => void;
   readonly onOpenApiKeyPage: () => void;
   readonly onChooseFolder: () => void;
@@ -29,9 +31,11 @@ export function SettingsDialog({
   desktop,
   testing,
   testResult,
+  checkingAccount,
   onChange,
   onClose,
   onTestConnection,
+  onCheckAccount,
   onClearToken,
   onOpenApiKeyPage,
   onChooseFolder,
@@ -88,100 +92,141 @@ export function SettingsDialog({
 
         <section>
           <h3>Image Chest</h3>
-          <label className="settings-field">
-            <span>Token</span>
-            <input
-              type="password"
-              value={tokenDraft}
-              onChange={(event) => setTokenDraft(event.target.value)}
-              onBlur={commitToken}
-              placeholder="cole o token pessoal"
-              autoComplete="off"
-              spellCheck={false}
-              aria-label="Token do Image Chest"
-            />
-          </label>
-          <p className="settings-hint">
-            O upload exige uma API key pessoal.{' '}
-            <a
-              className="inline-link"
-              href={IMAGE_CHEST_API_KEY_URL}
-              target="_blank"
-              rel="noreferrer"
-              onClick={(event) => {
-                event.preventDefault();
-                onOpenApiKeyPage();
-              }}
-            >
-              gerar um aqui
-            </a>
-          </p>
-          <div className="settings-actions">
-            <button
-              type="button"
-              className="settings-primary"
-              onClick={commitToken}
-              disabled={testing}
-            >
-              Salvar token
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                commitToken();
-                onTestConnection();
-              }}
-              disabled={testing || !tokenDraft.trim()}
-            >
-              {testing ? 'Testando…' : 'Testar conexão'}
-            </button>
-            <button
-              type="button"
-              className="danger-ghost"
-              onClick={onClearToken}
-              disabled={testing || !settings.token}
-              title="Apaga o token salvo neste computador"
-            >
-              Limpar token
-            </button>
-          </div>
-          {testResult && (
-            <p className={`settings-result ${testResult.ok ? 'ok' : 'bad'}`} role="status">
-              {testResult.message}
-            </p>
-          )}
-          <p className="settings-hint">
-            O token fica em texto simples na pasta de configuração do app, só neste computador.
-          </p>
 
+          <div className="settings-group">
+            <h4 className="settings-group-title">Conexão</h4>
+            <label className="settings-field">
+              <span>Token pessoal</span>
+              <input
+                type="password"
+                value={tokenDraft}
+                onChange={(event) => setTokenDraft(event.target.value)}
+                onBlur={commitToken}
+                placeholder="cole o token pessoal"
+                autoComplete="off"
+                spellCheck={false}
+                aria-label="Token do Image Chest"
+              />
+            </label>
+            <p className="settings-hint">
+              Salvo só neste computador.{' '}
+              <a
+                className="inline-link"
+                href={IMAGE_CHEST_API_KEY_URL}
+                target="_blank"
+                rel="noreferrer"
+                onClick={(event) => {
+                  event.preventDefault();
+                  onOpenApiKeyPage();
+                }}
+              >
+                Gerar um token
+              </a>
+            </p>
+            <div className="settings-actions">
+              <button
+                type="button"
+                onClick={() => {
+                  commitToken();
+                  onTestConnection();
+                }}
+                disabled={testing || !tokenDraft.trim()}
+              >
+                {testing ? 'Testando…' : 'Testar conexão'}
+              </button>
+              <button
+                type="button"
+                className="danger-ghost"
+                onClick={onClearToken}
+                disabled={testing || !settings.token}
+                title="Apaga o token salvo neste computador"
+              >
+                Limpar token
+              </button>
+            </div>
+            {testResult && (
+              <p className={`settings-result ${testResult.ok ? 'ok' : 'bad'}`} role="status">
+                {testResult.message}
+              </p>
+            )}
+          </div>
+
+          <div className="settings-group">
+            <h4 className="settings-group-title">Upload</h4>
+            <label className="settings-field">
+              <span>Privacidade padrão</span>
+              <select
+                value={settings.defaultPrivacy}
+                onChange={(event) =>
+                  onChange({ defaultPrivacy: event.target.value as Settings['defaultPrivacy'] })
+                }
+                aria-label="Privacidade padrão do Post"
+              >
+                {PRIVACY_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="settings-check">
+              <input
+                type="checkbox"
+                checked={settings.uploadCredit}
+                onChange={(event) => onChange({ uploadCredit: event.target.checked })}
+              />
+              <span>Crédito na descrição</span>
+            </label>
+            <p className="settings-hint">
+              Um crédito por Post; num lote com Post único, só a primeira imagem.
+            </p>
+
+            <div className="settings-row">
+              <span className="settings-key">Conta</span>
+            </div>
+            <div className="settings-row">
+              {settings.imageChestGold === true
+                ? 'Gold · 200 por Post'
+                : settings.imageChestGold === false
+                  ? 'Padrão · 20 por Post'
+                  : 'não verificada · 20 por Post'}
+            </div>
+            <div className="settings-actions">
+              <button
+                type="button"
+                onClick={() => {
+                  commitToken();
+                  onCheckAccount();
+                }}
+                disabled={checkingAccount || testing || !tokenDraft.trim()}
+                title="Pergunta ao Image Chest se a conta é Gold, para liberar lotes de 200"
+              >
+                {checkingAccount ? 'Verificando…' : 'Verificar conta'}
+              </button>
+            </div>
+            <p className="settings-hint">20 arquivos por Post; 200 em contas Gold.</p>
+          </div>
+        </section>
+
+        <section>
+          <h3>Board</h3>
           <label className="settings-field">
-            <span>Privacidade padrão</span>
+            <span>Ao importar</span>
             <select
-              value={settings.defaultPrivacy}
+              value={settings.importMode}
               onChange={(event) =>
-                onChange({ defaultPrivacy: event.target.value as Settings['defaultPrivacy'] })
+                onChange({ importMode: event.target.value as Settings['importMode'] })
               }
-              aria-label="Privacidade padrão do Post"
+              aria-label="O que fazer ao importar com Tiles no Board"
             >
-              {PRIVACY_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
+              <option value="append">Adicionar ao Board</option>
+              <option value="replace">Substituir o Board</option>
             </select>
           </label>
-
-          <label className="settings-check">
-            <input
-              type="checkbox"
-              checked={settings.uploadCredit}
-              onChange={(event) => onChange({ uploadCredit: event.target.checked })}
-            />
-            <span>Crédito na descrição</span>
-          </label>
           <p className="settings-hint">
-            Escreve o crédito do Mudae Crop na descrição da imagem enviada. Desligado, a imagem sobe
-            sem descrição.
+            Adicionar mantém as Tiles abertas; substituir limpa o Board e começa de novo com o que
+            você importou.
           </p>
         </section>
 
@@ -245,8 +290,8 @@ export function SettingsDialog({
             </span>
           </div>
           <p className="settings-hint">
-            A Borda é desenhada em pixels do card 1× e cresce junto com o Export; estes valores
-            também são guardados para a próxima sessão.
+            A largura é em pixels do card 1× e cresce junto com o Export: 1 px no 1× vira 2 px no
+            2×. Mudar a Borda não muda o tamanho escolhido no Export.
           </p>
         </section>
 

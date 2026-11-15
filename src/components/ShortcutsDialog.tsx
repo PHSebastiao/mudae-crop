@@ -8,10 +8,12 @@ interface Shortcut {
 }
 
 const FILE: readonly Shortcut[] = [
-  { keys: 'Ctrl+O', label: 'Abrir um arquivo' },
-  { keys: 'Ctrl+V', label: 'Colar uma imagem, um link ou um caminho' },
-  { keys: 'Ctrl+S', label: 'Exportar o Frame' },
-  { keys: 'Ctrl+Enter', label: 'Subir e copiar o link' },
+  { keys: 'Ctrl+O', label: 'Abrir um ou vários arquivos' },
+  { keys: 'Ctrl+V', label: 'Colar imagens, um link ou um caminho' },
+  { keys: 'Ctrl+S', label: 'Exportar a Tile ativa' },
+  { keys: 'Ctrl+Shift+S', label: 'Exportar todas as Tiles numa pasta' },
+  { keys: 'Ctrl+Enter', label: 'Subir a Tile ativa e copiar o link' },
+  { keys: 'Ctrl+Shift+Enter', label: 'Subir todas as Tiles e copiar os links' },
   { keys: 'Ctrl+,', label: 'Abrir Configurações' },
   { keys: '?', label: 'Abrir esta lista' },
 ];
@@ -30,8 +32,13 @@ const FRAME: readonly Shortcut[] = [
 ];
 
 const MOUSE: readonly Shortcut[] = [
+  { keys: 'Clique', label: 'Ativar uma Tile do Board' },
+  { keys: 'Duplo clique na Tile', label: 'Expor a Tile em tela cheia' },
+  { keys: 'Alt+←/→', label: 'Mover a Tile focada (modo Reordenar)' },
   { keys: 'Arrastar', label: 'Mover a Source ou o Frame' },
-  { keys: 'Roda do mouse', label: 'Zoom no ponto do cursor' },
+  { keys: 'Roda sobre a imagem', label: 'Zoom no Crop' },
+  { keys: 'Roda fora da imagem', label: 'Rolar o Board' },
+  { keys: 'Ctrl+roda', label: 'Zoom no Board' },
   { keys: 'Shift', label: 'Soltar a proporção em Ajustar Frame' },
   { keys: 'Alt', label: 'Ignorar os encaixes de proporção e de centro' },
 ];

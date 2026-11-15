@@ -1,5 +1,6 @@
-import { useCallback, useReducer } from 'react';
+import { useCallback, useReducer, useRef } from 'react';
 import {
+  IDLE_ACTIVITY,
   INITIAL_APP_SHELL,
   reduceAppShell,
   type ActivityLabel,
@@ -10,7 +11,7 @@ import {
 } from '../core/appState';
 
 /** The shared pt-BR explanation for refusing a second operation. */
-const BUSY_REFUSAL = 'Termine a operação em andamento antes de importar outra Source.';
+const BUSY_REFUSAL = 'Termine a operação em andamento antes de começar outra.';
 
 export type ActivityStart =
   { readonly ok: true } | { readonly ok: false; readonly message: string };
@@ -40,19 +41,25 @@ export interface AppShell {
 
 export function useAppShell(): AppShell {
   const [state, dispatch] = useReducer(reduceAppShell, INITIAL_APP_SHELL);
+  // The lock is claimed in the ref before React re-renders, so two commands in
+  // the same frame (a fast double Ctrl+Enter) cannot both see an idle app.
+  const activityRef = useRef(state.activity);
+  activityRef.current = state.activity;
 
-  // The guard reads the rendered activity: every caller is a user event or an
-  // async continuation of one, so the value is current for this handler.
-  const begin = useCallback(
-    (label: ActivityLabel): ActivityStart => {
-      if (state.activity.kind === 'running') return { ok: false, message: BUSY_REFUSAL };
-      dispatch({ type: 'begin', label });
-      return { ok: true };
-    },
-    [state.activity],
-  );
+  const begin = useCallback((label: ActivityLabel): ActivityStart => {
+    if (activityRef.current.kind === 'running') return { ok: false, message: BUSY_REFUSAL };
+    activityRef.current = { kind: 'running', label };
+    dispatch({ type: 'begin', label });
+    return { ok: true };
+  }, []);
 
-  const end = useCallback((label: ActivityLabel) => dispatch({ type: 'end', label }), []);
+  const end = useCallback((label: ActivityLabel) => {
+    const current = activityRef.current;
+    if (current.kind === 'running' && current.label === label) {
+      activityRef.current = IDLE_ACTIVITY;
+    }
+    dispatch({ type: 'end', label });
+  }, []);
   const inform = useCallback((message: string) => dispatch({ type: 'inform', message }), []);
   const fail = useCallback(
     (message: string, action: NoticeAction | null = null) =>

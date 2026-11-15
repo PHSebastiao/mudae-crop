@@ -193,9 +193,53 @@ describe('stageLayout', () => {
     expect(layout.view.viewWidth).toBe(1000);
     expect(layout.scale).toBeCloseTo(scale);
     expect(layout.frameWidth).toBeCloseTo(Math.round(400 * scale));
+    // The Source is pinned to the device pixel grid and the window sits at its
+    // exact offset, so the picture never shifts when the Crop pans.
     expect(layout.frameLeft).toBeCloseTo(STAGE_PAD + 100 * scale);
     expect(layout.frameTop).toBeCloseTo(STAGE_PAD + 200 * scale);
     expect(layout.sceneWidth).toBeCloseTo(400);
+  });
+
+  it('pins the Source to the device pixel grid while the window moves', () => {
+    const doc = withCrop(makeDoc(makeSource(1000, 1000), 1), {
+      mode: 'fit',
+      rect: { x: 101, y: 203, width: 400, height: 400 },
+      rotation: 0,
+    });
+    const layout = stageLayout(doc, stage, 2, true);
+    const sourceLeft = layout.frameLeft - doc.crop.rect.x * layout.scale;
+    const sourceTop = layout.frameTop - doc.crop.rect.y * layout.scale;
+    expect(sourceLeft * 2).toBeCloseTo(Math.round(sourceLeft * 2));
+    expect(sourceTop * 2).toBeCloseTo(Math.round(sourceTop * 2));
+
+    const moved = withCrop(doc, {
+      ...doc.crop,
+      rect: { x: 151, y: 203, width: 400, height: 400 },
+    });
+    const after = stageLayout(moved, stage, 2, true);
+    expect(after.frameLeft - moved.crop.rect.x * after.scale).toBeCloseTo(sourceLeft);
+    expect(after.frameTop - moved.crop.rect.y * after.scale).toBeCloseTo(sourceTop);
+  });
+
+  it('anchors the snap guide to the Source centre, not to the window', () => {
+    const doc = withCrop(makeDoc(makeSource(1000, 1000), 1), {
+      mode: 'fit',
+      rect: { x: 100, y: 200, width: 400, height: 400 },
+      rotation: 0,
+    });
+    const layout = stageLayout(doc, stage, 1, true);
+    const scale = available / 1000;
+    expect(layout.centreX).toBeCloseTo(Math.round(STAGE_PAD + 500 * scale));
+    expect(layout.centreY).toBeCloseTo(Math.round(STAGE_PAD + 500 * scale));
+
+    const moved = withCrop(doc, {
+      ...doc.crop,
+      rect: { x: 300, y: 200, width: 400, height: 400 },
+    });
+    const after = stageLayout(moved, stage, 1, true);
+    expect(after.frameLeft).not.toBe(layout.frameLeft);
+    expect(after.centreX).toBe(layout.centreX);
+    expect(after.centreY).toBe(layout.centreY);
   });
 
   it('uses the Frame ratio for the empty stage', () => {

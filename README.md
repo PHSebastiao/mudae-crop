@@ -11,9 +11,10 @@
 
 ## O que é
 
-O mudae crop faz o caminho inteiro em uma janela: traz uma Source, enquadra no
-Frame do card, ajusta a Borda e a Palette, trata o GIF e exporta um PNG ou GIF
-pronto para o `$ai`.
+O mudae crop faz o caminho inteiro em uma janela: traz uma ou várias Sources,
+enquadra cada uma no Frame do card, ajusta a Borda e a Palette, trata o GIF e
+exporta um PNG ou GIF pronto para o `$ai` — ou manda o lote inteiro para o
+Image Chest de uma vez.
 
 Tudo roda no seu computador. A única coisa que usa a rede é o upload para o
 Image Chest.
@@ -22,10 +23,20 @@ Image Chest.
 
 - **Source** de arquivo, arrastar e soltar, Ctrl+V, link ou caminho local: PNG,
   JPG, GIF, WebP, APNG e vídeos MP4/MOV/WebM.
+- **Board** com várias Tiles: cada Source tem o seu Frame, Crop, Borda, Pad e
+  tamanho de Export (o formato PNG/GIF é da sessão); a Tile ativa comanda os
+  ajustes, a Palette e a reprodução, o X remove a Tile (a última volta à tela
+  inicial) e o **Reordenar** arrasta a ordem.
+- **Importação em lote** pelo diálogo, arrastar e soltar ou Ctrl+V: cada Tile
+  aparece assim que o arquivo carrega, sem esperar o lote inteiro.
+- **Spotlight**: duplo clique numa Tile abre a Source inteira em tela cheia, com
+  o Crop em destaque e o que ficou de fora em volta.
+- **Navegação**: a roda rola o Board, Ctrl+roda dá zoom no Board e a roda sobre a
+  imagem dá zoom no Crop.
 - **Frame** por proporção, com Fit, Pad, largura/altura total, zoom, pan e
   rotação em 90°.
-- **Ajustar Frame** com oito alças, proporção travada, encaixe de proporção e
-  centro, e guias de terços.
+- **Ajustar Frame** abre a Tile no spotlight com oito alças, proporção travada,
+  encaixe de proporção e centro, e guias de terços.
 - **Borda** de 1 px branca por padrão, sem teto de largura e escalando com o
   Export (1 px no card 1× vira 2 px no 2×), com a **Palette** extraída do Crop
   (inclusive de GIFs) e cópia do HEX.
@@ -34,11 +45,14 @@ Image Chest.
 - **GIF tools**: trim, velocidade, grade de quadros, remover/retomar quadro e
   otimização com alvo de 10 MB.
 - **Export** PNG ou GIF, no tamanho nativo, Carta 1×/2× ou resize com trava de
-  proporção; aviso de 10 MB e estimativa de tamanho.
+  proporção; aviso de 10 MB e estimativa de tamanho. **Exportar todas** escolhe
+  uma pasta e nunca sobrescreve um arquivo existente.
 - **Upload** para o Image Chest com link direto copiado, crédito opcional na
-  descrição da imagem (desligado por padrão) e Histórico de 50 itens.
-- A janela lembra tamanho e posição; cada abertura começa com um documento
-  vazio.
+  descrição (desligado por padrão; só a primeira imagem quando o lote vira um
+  Post só) e Histórico de 50 itens. **Subir todas** manda o lote num Post só — ou
+  um Post por Tile, com o checkbox **mesmo Post** — em blocos de 20 (200 quando
+  a conta é Gold) e copia os links separados por `$`.
+- A janela lembra tamanho e posição; cada abertura começa com o Board vazio.
 
 ## Instalação
 
@@ -106,7 +120,7 @@ empurra uma tag `v*` ou dispara manualmente.
 ## Estrutura
 
 ```text
-src/core/       lógica pura: Crop, Frame, render, Palette, GIF, Export
+src/core/       lógica pura: Board, Crop, Frame, render, Palette, GIF, Export
 src/platform/   adaptadores Tauri e navegador
 src/components/ UI React
 src-tauri/      shell Rust, comandos nativos e sidecar waifu2x

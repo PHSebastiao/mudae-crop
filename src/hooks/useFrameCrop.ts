@@ -61,6 +61,8 @@ export function useFrameCrop({
   setStageMode,
 }: FrameCropOptions): FrameCrop {
   const persistedFrameRatioRef = useRef(doc.frame.ratio);
+  /** A preset ratio waiting out the debounce; flushed when the Tile changes. */
+  const pendingRatioRef = useRef<number | null>(null);
 
   // A preset ratio is remembered for the next launch; a free Personalizado
   // ratio never overwrites the stored value. Only the settled proportion is
@@ -71,8 +73,15 @@ export function useFrameCrop({
     if (ratio === persistedFrameRatioRef.current) return;
     persistedFrameRatioRef.current = ratio;
     const preset = presetForRatio(ratio);
-    if (!preset) return;
-    const timer = window.setTimeout(() => persistSettings({ frameRatio: preset.ratio }), 600);
+    if (!preset) {
+      pendingRatioRef.current = null;
+      return;
+    }
+    pendingRatioRef.current = preset.ratio;
+    const timer = window.setTimeout(() => {
+      pendingRatioRef.current = null;
+      persistSettings({ frameRatio: preset.ratio });
+    }, 600);
     return () => window.clearTimeout(timer);
   }, [doc.frame.ratio, persistSettings]);
 
@@ -175,9 +184,19 @@ export function useFrameCrop({
     [persistSettings],
   );
 
-  const markRatioPersisted = useCallback((ratio: number) => {
-    persistedFrameRatioRef.current = ratio;
-  }, []);
+  const markRatioPersisted = useCallback(
+    (ratio: number) => {
+      // A choice made just before switching Tiles still deserves to be saved:
+      // the effect's cleanup drops the debounce timer, so flush it here.
+      const pending = pendingRatioRef.current;
+      if (pending !== null) {
+        pendingRatioRef.current = null;
+        persistSettings({ frameRatio: pending });
+      }
+      persistedFrameRatioRef.current = ratio;
+    },
+    [persistSettings],
+  );
 
   return {
     snapRatios,
