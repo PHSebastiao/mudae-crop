@@ -39,6 +39,10 @@ export interface Settings {
   readonly samePost: boolean;
   /** The version the user asked not to be offered again; empty when none. */
   readonly skippedUpdateVersion: string;
+  /** Whether the first-run onboarding tour has already been shown. */
+  readonly tourSeen: boolean;
+  /** Whether the editor walkthrough has already been shown. */
+  readonly editorTourSeen: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = Object.freeze({
@@ -55,6 +59,8 @@ export const DEFAULT_SETTINGS: Settings = Object.freeze({
   imageChestGold: null,
   samePost: false,
   skippedUpdateVersion: '',
+  tourSeen: false,
+  editorTourSeen: false,
 });
 
 const PRIVACY: ReadonlyArray<Privacy> = ['public', 'hidden', 'secret'];
@@ -136,6 +142,8 @@ export function parseSettings(raw: string | null | undefined): Settings {
     imageChestGold: readGold(data.imageChestGold),
     samePost: readBoolean(data.samePost, DEFAULT_SETTINGS.samePost),
     skippedUpdateVersion: readVersion(data.skippedUpdateVersion),
+    tourSeen: readBoolean(data.tourSeen, DEFAULT_SETTINGS.tourSeen),
+    editorTourSeen: readBoolean(data.editorTourSeen, DEFAULT_SETTINGS.editorTourSeen),
   };
 }
 

@@ -54,7 +54,7 @@ export function BorderBar({
   }, [border.color, hasSource, palette]);
 
   return (
-    <footer className="border-bar">
+    <footer className="border-bar" id="tour-border">
       <div className="border-row">
         <span className="label">Borda</span>
         <div className="current-color">

@@ -514,7 +514,7 @@ export function Board({
   const spotlightOutput = spotlightTile ? outputOf(spotlightTile.doc) : null;
 
   return (
-    <div className="board-wrap" ref={wrapRef}>
+    <div className="board-wrap" id="tour-board" ref={wrapRef}>
       <div
         ref={viewportRef}
         className={`board${reordering ? ' reordering' : ''}`}

@@ -126,7 +126,7 @@ export const RatioMenu = memo(function RatioMenu({
     else close();
   };
   return (
-    <div className="ratio-menu" ref={menuRef}>
+    <div className="ratio-menu" id="tour-proportion" ref={menuRef}>
       <button
         ref={chipRef}
         type="button"

@@ -3612,3 +3612,240 @@ button {
     width: 100%;
   }
 }
+
+/* Product tour */
+
+.tour-root {
+  position: relative;
+  --tour-ink: rgba(4, 4, 6, 0.62);
+}
+
+.tour-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  /* The hole has to reach the app: the layer itself never takes a click. */
+  pointer-events: none;
+}
+
+/* The scrim is painted as four panels around the target, so the hole is a
+   real gap in the layer and an interactive step can be used in place. */
+.tour-scrim-panel {
+  position: absolute;
+  background: var(--tour-ink);
+  pointer-events: auto;
+}
+
+.tour-backdrop-fill {
+  position: absolute;
+  inset: 0;
+  background: var(--tour-ink);
+  pointer-events: auto;
+}
+
+/* A non-interactive step covers its own hole, so the target cannot be clicked
+   by accident while the card talks about it. */
+.tour-hole-blocker {
+  position: absolute;
+  border-radius: var(--r-lg);
+  pointer-events: auto;
+}
+
+/* The spotlight is the scrim's hole: the huge spread paints everything except
+   this rounded rect, so the target stays bright and interactive-looking. */
+.tour-spotlight {
+  position: absolute;
+  border-radius: var(--r-lg);
+  outline: 1px solid rgba(255, 255, 255, 0.85);
+  outline-offset: 2px;
+  pointer-events: none;
+}
+
+.tour-spotlight-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.22),
+    0 8px 40px rgba(0, 0, 0, 0.5);
+}
+
+.tour-card {
+  position: absolute;
+  width: 320px;
+  max-width: calc(100vw - 24px);
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--panel);
+  box-shadow: var(--shadow-pop);
+  color: var(--text);
+  pointer-events: auto;
+}
+
+.tour-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.tour-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.35;
+  color: var(--text);
+}
+
+.tour-close {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 26px;
+  height: 26px;
+  margin: -4px -4px 0 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--text-faint);
+  cursor: pointer;
+  transition:
+    background 120ms ease,
+    color 120ms ease;
+}
+
+.tour-close:hover {
+  background: var(--line-soft);
+  color: var(--text);
+}
+
+.tour-content {
+  margin-top: 6px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-faint);
+}
+
+.tour-content strong {
+  color: var(--text-dim);
+  font-weight: 600;
+}
+
+.tour-content kbd {
+  padding: 1px 5px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  background: var(--bg-deep);
+  color: var(--text-dim);
+  font-family: inherit;
+  font-size: 11.5px;
+}
+
+.tour-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.tour-progress {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tour-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--line-strong);
+  transition:
+    width 300ms ease,
+    background 300ms ease;
+}
+
+.tour-dot.is-current {
+  width: 16px;
+  background: var(--accent);
+}
+
+.tour-count {
+  color: var(--text-faint);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.tour-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tour-back,
+.tour-next {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: var(--r-md);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  transition:
+    background 120ms ease,
+    box-shadow 120ms ease,
+    color 120ms ease;
+}
+
+.tour-back {
+  background: none;
+  color: var(--text-faint);
+  font-weight: 550;
+}
+
+.tour-back:hover {
+  background: var(--line-soft);
+  color: var(--text-dim);
+}
+
+.tour-next {
+  padding: 6px 12px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 650;
+}
+
+.tour-next:hover {
+  background: #fff;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+}
+
+/* The replay control in Settings → Sobre reads as a link, not a chip. */
+.settings-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #c3d2ee;
+  font: inherit;
+  font-size: 12px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.settings-link:hover {
+  color: #e9e6ef;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tour-dot,
+  .tour-back,
+  .tour-next,
+  .tour-close {
+    transition: none;
+  }
+}

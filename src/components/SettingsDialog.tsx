@@ -30,6 +30,8 @@ interface SettingsDialogProps {
   readonly onClearFolder: () => void;
   readonly onCheckUpdate: () => void;
   readonly onOpenRepository: () => void;
+  /** Close Settings and open the onboarding tour. */
+  readonly onReplayTour: () => void;
 }
 
 export function SettingsDialog({
@@ -50,6 +52,7 @@ export function SettingsDialog({
   onClearFolder,
   onCheckUpdate,
   onOpenRepository,
+  onReplayTour,
 }: SettingsDialogProps) {
   // The token is a draft until blur, so a long token is not written once per
   // keystroke. Clearing it from another control resets the draft.
@@ -310,6 +313,12 @@ export function SettingsDialog({
           <div className="settings-row">
             <span className="settings-key">Versão</span>
             <span>{version ?? '—'}</span>
+          </div>
+          <div className="settings-row">
+            <span className="settings-key">Tour</span>
+            <button type="button" className="settings-link" onClick={onReplayTour}>
+              Ver o tour novamente
+            </button>
           </div>
           <div className="settings-row">
             <span className="settings-key">Repositório</span>

@@ -178,7 +178,7 @@ export const ToolRail = memo(function ToolRail({
   }
 
   return (
-    <aside className="rail">
+    <aside className="rail" id="tour-tools">
       <div className="group">
         <div className="label">Frame</div>
         <div

@@ -38,6 +38,8 @@ describe('settings', () => {
       imageChestGold: true,
       samePost: true,
       skippedUpdateVersion: '0.2.0',
+      tourSeen: true,
+      editorTourSeen: true,
     };
 
     const loaded = parseSettings(serializeSettings(settings));
@@ -109,5 +111,19 @@ describe('settings', () => {
       '',
     );
     expect(DEFAULT_SETTINGS.skippedUpdateVersion).toBe('');
+  });
+
+  it('keeps the onboarding tour unseen until it is finished', () => {
+    expect(DEFAULT_SETTINGS.tourSeen).toBe(false);
+    expect(parseSettings('{}').tourSeen).toBe(false);
+    expect(parseSettings(JSON.stringify({ tourSeen: 'yes' })).tourSeen).toBe(false);
+    expect(parseSettings(JSON.stringify({ tourSeen: true })).tourSeen).toBe(true);
+  });
+
+  it('keeps the editor walkthrough unseen until the first import shows it', () => {
+    expect(DEFAULT_SETTINGS.editorTourSeen).toBe(false);
+    expect(parseSettings('{}').editorTourSeen).toBe(false);
+    expect(parseSettings(JSON.stringify({ editorTourSeen: 'yes' })).editorTourSeen).toBe(false);
+    expect(parseSettings(JSON.stringify({ editorTourSeen: true })).editorTourSeen).toBe(true);
   });
 });

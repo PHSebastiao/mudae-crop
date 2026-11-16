@@ -358,7 +358,7 @@ export const ExportPanel = memo(function ExportPanel({
   );
 
   return (
-    <aside className="panel">
+    <aside className="panel" id="tour-export">
       <div className="panel-scroll">
         <section>
           <h4>Export</h4>

@@ -149,6 +149,7 @@ import { SettingsDialog, type TokenTestResult } from './components/SettingsDialo
 import { ShortcutsDialog } from './components/ShortcutsDialog';
 import { UpdateDialog } from './components/UpdateDialog';
 import { WindowControls } from './components/WindowControls';
+import { Tour, useTour, type TourStep } from './components/ui/product-tour';
 import { useAppShell } from './hooks/useAppShell';
 import { useFrameCrop } from './hooks/useFrameCrop';
 import { REPO_URL, RELEASES_URL, useUpdater } from './hooks/useUpdater';
@@ -169,6 +170,131 @@ function isTextEntry(target: EventTarget | null): boolean {
       element.tagName === 'SELECT' ||
       element.isContentEditable)
   );
+}
+
+/**
+ * The onboarding steps. An empty Board teaches how to start; an open Tile
+ * teaches the editor. The list is frozen when the tour starts, so a Source
+ * landing mid-tour never reshuffles the step the user is reading.
+ */
+function tourStepsFor(hasSource: boolean): TourStep[] {
+  const welcome: TourStep = {
+    title: 'Bem-vindo ao mudae crop',
+    content: (
+      <>
+        Monte cartas a partir das suas imagens: escolha a proporção, enquadre o Frame e exporte em
+        PNG ou GIF. O tour leva menos de um minuto — <kbd>Esc</kbd> encerra quando quiser.
+      </>
+    ),
+    placement: 'center',
+  };
+  const finish: TourStep = {
+    title: 'Tudo pronto',
+    content: (
+      <>
+        Bom proveito! Para rever este guia, abra <strong>Configurações → Sobre</strong>.
+      </>
+    ),
+    placement: 'center',
+  };
+  const settings: TourStep = {
+    target: '#tour-settings',
+    title: 'Configurações',
+    content:
+      'Token do Image Chest, pasta dos Exports, Borda padrão e atualizações ficam nesta janela.',
+    placement: 'bottom',
+  };
+
+  if (!hasSource) {
+    return [
+      welcome,
+      {
+        target: '#tour-source',
+        title: 'Abra a Source',
+        content:
+          'Cole um link, escolha um arquivo ou arraste imagens. Pode experimentar agora: o tour continua assim que a Source carregar.',
+        placement: 'bottom',
+        interactive: true,
+        // The hole is exactly the form: the top bar around it is the window's
+        // drag region, so a padded hole would start a window drag.
+        padding: 0,
+      },
+      {
+        target: '#tour-proportion',
+        title: 'Escolha a proporção',
+        content:
+          'A proporção define o formato da carta. As proporções do Mudae já trazem os tamanhos Carta 1× e 2× no Export.',
+        placement: 'bottom',
+      },
+      {
+        target: '#tour-shortcuts',
+        title: 'Atalhos',
+        content:
+          'Este botão abre a janela de Atalhos, com todas as teclas do editor. Consulte quando esquecer uma combinação.',
+        placement: 'bottom',
+      },
+      settings,
+      {
+        title: 'Tudo pronto',
+        content: (
+          <>
+            Bom proveito! Quando você importar uma imagem, o tour do editor abre com os ajustes da
+            Source, do Board, do Export e da Borda. Para rever este guia, abra{' '}
+            <strong>Configurações → Sobre</strong>.
+          </>
+        ),
+        placement: 'center',
+      },
+    ];
+  }
+
+  return [
+    welcome,
+    {
+      target: '#tour-proportion',
+      title: 'Proporção do Frame',
+      content:
+        'A proporção define o formato da carta. As proporções do Mudae já trazem os tamanhos Carta 1× e 2× no Export.',
+      placement: 'bottom',
+    },
+    {
+      target: '#tour-tools',
+      title: 'Ajustes da Source',
+      content:
+        'Fit, Pad, zoom, rotação, nitidez e waifu2x ficam nesta barra. As setas do teclado movem a Source 1 pixel por vez; com Shift, 10 pixels.',
+      placement: 'right',
+    },
+    {
+      target: '#tour-board',
+      title: 'Enquadre a carta',
+      content: (
+        <>
+          Arraste para mover a Source, use a roda para o zoom e os cantos para redimensionar o
+          Frame. <kbd>C</kbd> entra em Ajustar Frame.
+        </>
+      ),
+    },
+    {
+      target: '#tour-export',
+      title: 'Export',
+      content: (
+        <>
+          Escolha o formato, o tamanho e o Optimize. <kbd>Ctrl</kbd>+<kbd>S</kbd> exporta;{' '}
+          <kbd>Ctrl</kbd>+<kbd>Enter</kbd> envia para o Image Chest.
+        </>
+      ),
+      placement: 'left',
+    },
+    {
+      target: '#tour-border',
+      title: 'Borda e Palette',
+      content:
+        'A Borda é desenhada por último, depois do realce. A Palette sugere cores tiradas da própria imagem.',
+      placement: 'top',
+    },
+    settings,
+    finish,
+  ];
 }
 
 /** Read a picked or dropped file, naming it when the read fails. */
@@ -278,6 +404,14 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [ratioOpen, setRatioOpen] = useState(false);
+  // The tour is its own layer: it is not a dialog in the Settings sense, but it
+  // owns the keyboard and the update prompt while it runs.
+  const tour = useTour();
+  const [tourSteps, setTourSteps] = useState<TourStep[]>([]);
+  /** Whether the open tour is the basic walkthrough or the editor one. */
+  const tourModeRef = useRef<'basic' | 'editor'>('basic');
+  // A ready Tile owns the editor tour; a failed placeholder does not.
+  const hasReadySource = readyTiles(workspace).length > 0;
   const [testingToken, setTestingToken] = useState(false);
   const [checkingAccount, setCheckingAccount] = useState(false);
   const [tokenResult, setTokenResult] = useState<TokenTestResult | null>(null);
@@ -377,6 +511,39 @@ export default function App() {
   );
 
   /**
+   * Open the onboarding tour against the workspace as it is now. The steps are
+   * frozen here: a Source imported mid-tour must not move the reader.
+   */
+  const startTour = useCallback(
+    (startIndex = 0) => {
+      setSettingsOpen(false);
+      setShortcutsOpen(false);
+      setRatioOpen(false);
+      // A failed import can be the Active Tile without owning a Source, so the
+      // editor steps are keyed on a ready Tile, not on the Active Tile.
+      const hasSource = readyTiles(workspaceRef.current).length > 0;
+      tourModeRef.current = hasSource ? 'editor' : 'basic';
+      setTourSteps(tourStepsFor(hasSource));
+      tour.start();
+      // The editor walkthrough opens on the first import with the welcome
+      // already behind the user, so it starts on the proportion instead.
+      if (startIndex > 0) tour.setIndex(startIndex);
+    },
+    [tour.setIndex, tour.start],
+  );
+
+  /** Finishing or skipping both count as seen: the launch check never nags. */
+  const finishTour = useCallback(() => {
+    // The basic tour is done either way; only an editor walkthrough marks the
+    // editor guide as seen, so the first import can still offer it later.
+    persistSettings(
+      tourModeRef.current === 'editor'
+        ? { tourSeen: true, editorTourSeen: true }
+        : { tourSeen: true },
+    );
+  }, [persistSettings]);
+
+  /**
    * The Border bar edits the Active Tile and remembers the last choice as the
    * setup default for the next launch.
    */
@@ -440,9 +607,10 @@ export default function App() {
   // The update prompt is the topmost modal: an open Settings, Atalhos or
   // proportion popover would keep its own Escape handler and focus trap, so
   // they give way instead of stacking. It is hidden while an Export or an
-  // upload owns the app, and that hidden state is not a dialog for shortcuts.
+  // upload owns the app, or while the onboarding tour runs, and that hidden
+  // state is not a dialog for shortcuts.
   const updatePromptVisible =
-    updater.prompt && (updater.status.phase !== 'available' || (!busy && !uploading));
+    updater.prompt && (updater.status.phase !== 'available' || (!busy && !uploading && !tour.open));
 
   useEffect(() => {
     if (!updatePromptVisible) return;
@@ -489,6 +657,55 @@ export default function App() {
       alive = false;
     };
   }, [fail, markRatioPersisted]);
+
+  // First launch: the tour opens once, after Settings say it was never seen.
+  // An update prompt is the topmost modal, so the tour waits for it instead
+  // of stacking on top.
+  useEffect(() => {
+    if (!settingsLoaded || settings.tourSeen || tour.open || updatePromptVisible || busy) {
+      return undefined;
+    }
+    const timer = setTimeout(startTour, 900);
+    return () => clearTimeout(timer);
+  }, [busy, settings.tourSeen, settingsLoaded, startTour, tour.open, updatePromptVisible]);
+
+  // The basic tour turns into the editor tour as soon as a Source lands: the
+  // user imported from the interactive step, so the rest of the walkthrough
+  // should be about the editor instead of the empty Board. The check runs on
+  // every step, so a drop or a paste on any of them also switches.
+  useEffect(() => {
+    if (!tour.open || tourModeRef.current !== 'basic') return;
+    if (!hasReadySource) return;
+    tourModeRef.current = 'editor';
+    setTourSteps(tourStepsFor(true));
+    // Step 2 (Abra a Source) hands over to Proporção; a later basic step
+    // already passed it, so it continues on the first editor-only step.
+    tour.setIndex(tour.index <= 1 ? 1 : 2);
+  }, [hasReadySource, tour.open, tour.index, tour.setIndex]);
+
+  // The basic tour promises the editor walkthrough on the first import. If it
+  // ended before importing, the first Source opens the editor tour once,
+  // starting on the proportion instead of the welcome.
+  useEffect(() => {
+    if (!settingsLoaded || !settings.tourSeen || settings.editorTourSeen) return undefined;
+    if (tour.open || updatePromptVisible || busy) return undefined;
+    if (settingsOpen || shortcutsOpen || ratioOpen) return undefined;
+    if (!hasReadySource) return undefined;
+    const timer = setTimeout(() => startTour(1), 600);
+    return () => clearTimeout(timer);
+  }, [
+    busy,
+    hasReadySource,
+    ratioOpen,
+    settings.editorTourSeen,
+    settings.tourSeen,
+    settingsLoaded,
+    settingsOpen,
+    shortcutsOpen,
+    startTour,
+    tour.open,
+    updatePromptVisible,
+  ]);
 
   // Vulkan and the bundled sidecar are checked once at launch. While the check
   // runs, or when it fails, the waifu2x controls stay disabled but the rest of
@@ -2326,8 +2543,8 @@ export default function App() {
     const onKeyDown = (event: KeyboardEvent) => {
       // A dialog (the proportion popover) already handled this key.
       if (event.defaultPrevented) return;
-      // An open dialog owns the keyboard; global shortcuts must not fire.
-      if (settingsOpen || shortcutsOpen || ratioOpen || updatePromptVisible) return;
+      // An open dialog or the tour owns the keyboard; global shortcuts must not fire.
+      if (settingsOpen || shortcutsOpen || ratioOpen || updatePromptVisible || tour.open) return;
       if (event.key === 'Escape') {
         if (isTextEntry(event.target)) return;
         if (stageMode.kind !== 'idle') {
@@ -2426,6 +2643,7 @@ export default function App() {
     toggleAdjustFrame,
     toggleFrames,
     togglePlay,
+    tour.open,
     updatePromptVisible,
     zoomBy,
   ]);
@@ -2577,6 +2795,7 @@ export default function App() {
           <div className="topbar-right">
             <form
               className="link-import"
+              id="tour-source"
               data-tauri-drag-region="false"
               onSubmit={(event) => {
                 event.preventDefault();
@@ -2629,6 +2848,7 @@ export default function App() {
             <button
               type="button"
               className="chip chip-button shortcuts-button"
+              id="tour-shortcuts"
               onClick={() => setShortcutsOpen(true)}
               title="Atalhos (?)"
               aria-label="Atalhos"
@@ -2638,6 +2858,7 @@ export default function App() {
             <button
               type="button"
               className="chip chip-button"
+              id="tour-settings"
               onClick={openSettings}
               title="Configurações (Ctrl+,)"
             >
@@ -2880,6 +3101,7 @@ export default function App() {
           onClearFolder={() => persistSettings({ saveFolder: null })}
           onCheckUpdate={updater.check}
           onOpenRepository={() => void openLink(REPO_URL)}
+          onReplayTour={startTour}
         />
       )}
 
@@ -2902,6 +3124,16 @@ export default function App() {
       )}
 
       {shortcutsOpen && <ShortcutsDialog onClose={() => setShortcutsOpen(false)} />}
+
+      <Tour
+        steps={tourSteps}
+        open={tour.open}
+        onOpenChange={tour.setOpen}
+        index={tour.index}
+        onIndexChange={tour.setIndex}
+        onFinish={finishTour}
+        onSkip={finishTour}
+      />
     </div>
   );
 }

@@ -53,6 +53,9 @@ Image Chest.
   um Post por Tile, com o checkbox **mesmo Post** — em blocos de 20 (200 quando
   a conta é Gold) e copia os links separados por `$`.
 - A janela lembra tamanho e posição; cada abertura começa com o Board vazio.
+- **Tour de boas-vindas** na primeira abertura: um passo a passo que destaca a
+  Source, a proporção, o Board e o Export. Pode ser revisto em
+  **Configurações → Sobre**.
 
 ## Instalação
 
@@ -102,6 +105,26 @@ janela desktop.
 O ícone do app sai de `assets/icon.svg`; `npm run icon` regenera os arquivos de
 `src-tauri/icons` para todas as plataformas. Ele renderiza um master de 1024 px
 antes de reduzir, para a borda fina não quebrar nos tamanhos pequenos.
+
+### Onboarding (product tour)
+
+O tour de primeira abertura é o primitivo `Tour` em
+`src/components/ui/product-tour.tsx`, montado pelo `App.tsx` com passos que
+apontam para ids reais (`#tour-source`, `#tour-proportion`, `#tour-tools`,
+`#tour-board`, `#tour-export`, `#tour-border`, `#tour-settings`,
+`#tour-shortcuts`). O flag `tourSeen` fica em `settings.json`; terminar ou pular
+grava o flag, e **Configurações → Sobre → Ver o tour novamente** abre de novo.
+
+A etapa **Abra a Source** é interativa: o scrim é recortado em quatro painéis
+em volta do campo, então o input e o botão de arquivo continuam utilizáveis. No
+momento em que uma Source carrega, o tour troca sozinho para os passos do editor
+(Ajustes da Source, Board, Export, Borda) em vez de continuar no tour básico. Se
+o tour básico terminar antes da primeira importação, a primeira Source abre o
+tour do editor uma vez, começando na proporção; o flag `editorTourSeen` guarda
+essa escolha.
+
+Os estilos do tour são as regras `.tour-*` em `src/styles.css`; a animação usa
+`framer-motion` e os ícones vêm de `lucide-react`.
 
 ### Checks
 
