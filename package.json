@@ -1,7 +1,15 @@
 {
   "name": "mudae-crop",
-  "private": true,
-  "version": "0.3.2",
+  "version": "0.4.0",
+  "description": "A local Windows editor that turns images and GIFs into Mudae cards: crop, Border, Palette and PNG/GIF Export in one window.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/PHSebastiao/mudae-crop.git"
+  },
+  "bugs": {
+    "url": "https://github.com/PHSebastiao/mudae-crop/issues"
+  },
+  "homepage": "https://github.com/PHSebastiao/mudae-crop#readme",
   "type": "module",
   "scripts": {
     "dev": "vite",
