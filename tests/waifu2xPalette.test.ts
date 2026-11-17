@@ -91,7 +91,7 @@ describe('waifu2x Palette', () => {
         solidSidecar('#123456'),
         controller.signal,
       ),
-    ).rejects.toThrow('Palette cancelada.');
+    ).rejects.toThrow('palette.cancelled');
   });
 
   it('falls back to the raw Crop when the adapter cannot encode a frame', async () => {

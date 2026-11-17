@@ -47,9 +47,9 @@ import {
   DownloadError,
   downloadErrorMessage,
   downloadSource,
-  formatBytes,
   sourceUrlFrom,
 } from './core/download';
+import { formatBytes, wholePercent } from './core/format';
 import {
   estimateExportSize,
   exportKindFor,
@@ -115,14 +115,20 @@ import {
   type Workspace,
 } from './core/workspace';
 import { loadHistory, loadSettings, saveHistory, saveSettings } from './core/config';
+import { setActiveLocale } from './core/i18n/active';
+import { detectLocale } from './core/i18n/locale';
+import { t as globalT } from './core/i18n/messages';
+import { text, textOf, type TextRef } from './core/i18n/text';
+import { KeyedError } from './core/errors';
 import { DEFAULT_SETTINGS, type ExportFormat, type Settings } from './core/settings';
+import type { MessageKey } from './core/i18n/messages.pt-BR';
 import { browserExportAdapter, browserPaletteAdapter, decodeWithBrowser } from './platform/browser';
 import { configStore } from './platform/config';
 import { gifFrameEncoder } from './platform/gifEncoder';
 import { gifsicleOptimizer } from './platform/gifOptimizer';
 import { tauriImageChestTransport } from './platform/imagechest';
 import { historyPreviewAdapter, readExportBytes } from './platform/historyPreview';
-import { copyText, openExternal, revealInExplorer } from './platform/system';
+import { copyText, openExternal, revealInExplorer, systemLocale } from './platform/system';
 import { probeWaifu2x, tauriWaifu2xSpawn, type Waifu2xAvailability } from './platform/waifu2x';
 import { runWaifu2x } from './core/waifu2x';
 import {
@@ -152,12 +158,27 @@ import { WindowControls } from './components/WindowControls';
 import { Tour, useTour, type TourStep } from './components/ui/product-tour';
 import { useAppShell } from './hooks/useAppShell';
 import { useFrameCrop } from './hooks/useFrameCrop';
+import { useI18n, type I18n } from './hooks/useI18n';
 import { REPO_URL, RELEASES_URL, useUpdater } from './hooks/useUpdater';
 
-function messageOf(error: unknown): string {
+/** The untranslated detail of a rejection, for a `{reason}` parameter. */
+function detailOf(error: unknown): string {
   if (typeof error === 'string') return error;
   if (error instanceof Error && error.message) return error.message;
-  return 'Algo deu errado.';
+  return String(error);
+}
+
+/** The keyed message of a rejection: what the notice bar shows and repaints. */
+function messageOf(error: unknown): TextRef {
+  return textOf(error) ?? text('notice.unknown', { detail: detailOf(error) });
+}
+
+/**
+ * A rejection as a `{reason}` parameter: its key when it carries one, so the
+ * sentence nests a translated phrase instead of printing `export.errNoSource`.
+ */
+function reasonOf(error: unknown): TextRef | string {
+  return textOf(error) ?? detailOf(error);
 }
 
 /** A text field or editable control keeps every key for itself. */
@@ -177,31 +198,29 @@ function isTextEntry(target: EventTarget | null): boolean {
  * teaches the editor. The list is frozen when the tour starts, so a Source
  * landing mid-tour never reshuffles the step the user is reading.
  */
-function tourStepsFor(hasSource: boolean): TourStep[] {
+function tourStepsFor(hasSource: boolean, t: I18n['t']): TourStep[] {
   const welcome: TourStep = {
-    title: 'Bem-vindo ao mudae crop',
+    title: t('tour.welcomeTitle'),
     content: (
       <>
-        Monte cartas a partir das suas imagens: escolha a proporção, enquadre o Frame e exporte em
-        PNG ou GIF. O tour leva menos de um minuto — <kbd>Esc</kbd> encerra quando quiser.
+        {t('tour.welcomeBody')} <kbd>Esc</kbd> {t('tour.welcomeEnd')}
       </>
     ),
     placement: 'center',
   };
   const finish: TourStep = {
-    title: 'Tudo pronto',
+    title: t('tour.finishTitle'),
     content: (
       <>
-        Bom proveito! Para rever este guia, abra <strong>Configurações → Sobre</strong>.
+        {t('tour.finishBody')} <strong>{t('tour.settingsLink')}</strong>.
       </>
     ),
     placement: 'center',
   };
   const settings: TourStep = {
     target: '#tour-settings',
-    title: 'Configurações',
-    content:
-      'Token do Image Chest, pasta dos Exports, Borda padrão e atualizações ficam nesta janela.',
+    title: t('tour.settingsTitle'),
+    content: t('tour.settingsBody'),
     placement: 'bottom',
   };
 
@@ -210,9 +229,8 @@ function tourStepsFor(hasSource: boolean): TourStep[] {
       welcome,
       {
         target: '#tour-source',
-        title: 'Abra a Source',
-        content:
-          'Cole um link, escolha um arquivo ou arraste imagens. Pode experimentar agora: o tour continua assim que a Source carregar.',
+        title: t('tour.sourceTitle'),
+        content: t('tour.sourceBody'),
         placement: 'bottom',
         interactive: true,
         // The hole is exactly the form: the top bar around it is the window's
@@ -221,26 +239,22 @@ function tourStepsFor(hasSource: boolean): TourStep[] {
       },
       {
         target: '#tour-proportion',
-        title: 'Escolha a proporção',
-        content:
-          'A proporção define o formato da carta. As proporções do Mudae já trazem os tamanhos Carta 1× e 2× no Export.',
+        title: t('tour.ratioTitle'),
+        content: t('tour.ratioBody'),
         placement: 'bottom',
       },
       {
         target: '#tour-shortcuts',
-        title: 'Atalhos',
-        content:
-          'Este botão abre a janela de Atalhos, com todas as teclas do editor. Consulte quando esquecer uma combinação.',
+        title: t('tour.shortcutsTitle'),
+        content: t('tour.shortcutsBody'),
         placement: 'bottom',
       },
       settings,
       {
-        title: 'Tudo pronto',
+        title: t('tour.finishTitle'),
         content: (
           <>
-            Bom proveito! Quando você importar uma imagem, o tour do editor abre com os ajustes da
-            Source, do Board, do Export e da Borda. Para rever este guia, abra{' '}
-            <strong>Configurações → Sobre</strong>.
+            {t('tour.editorFinishBody')} <strong>{t('tour.settingsLink')}</strong>.
           </>
         ),
         placement: 'center',
@@ -252,44 +266,40 @@ function tourStepsFor(hasSource: boolean): TourStep[] {
     welcome,
     {
       target: '#tour-proportion',
-      title: 'Proporção do Frame',
-      content:
-        'A proporção define o formato da carta. As proporções do Mudae já trazem os tamanhos Carta 1× e 2× no Export.',
+      title: t('tour.frameRatioTitle'),
+      content: t('tour.ratioBody'),
       placement: 'bottom',
     },
     {
       target: '#tour-tools',
-      title: 'Ajustes da Source',
-      content:
-        'Fit, Pad, zoom, rotação, nitidez e waifu2x ficam nesta barra. As setas do teclado movem a Source 1 pixel por vez; com Shift, 10 pixels.',
+      title: t('tour.sourceToolsTitle'),
+      content: t('tour.sourceToolsBody'),
       placement: 'right',
     },
     {
       target: '#tour-board',
-      title: 'Enquadre a carta',
+      title: t('tour.cropTitle'),
       content: (
         <>
-          Arraste para mover a Source, use a roda para o zoom e os cantos para redimensionar o
-          Frame. <kbd>C</kbd> entra em Ajustar Frame.
+          {t('tour.cropBody')} <kbd>C</kbd> {t('tour.cropEnd')}
         </>
       ),
     },
     {
       target: '#tour-export',
-      title: 'Export',
+      title: t('tour.exportTitle'),
       content: (
         <>
-          Escolha o formato, o tamanho e o Optimize. <kbd>Ctrl</kbd>+<kbd>S</kbd> exporta;{' '}
-          <kbd>Ctrl</kbd>+<kbd>Enter</kbd> envia para o Image Chest.
+          {t('tour.exportBody')} <kbd>Ctrl</kbd>+<kbd>S</kbd> {t('tour.exportKeys')} <kbd>Ctrl</kbd>
+          +<kbd>Enter</kbd> {t('tour.exportUpload')}
         </>
       ),
       placement: 'left',
     },
     {
       target: '#tour-border',
-      title: 'Borda e Palette',
-      content:
-        'A Borda é desenhada por último, depois do realce. A Palette sugere cores tiradas da própria imagem.',
+      title: t('tour.borderTitle'),
+      content: t('tour.borderBody'),
       placement: 'top',
     },
     settings,
@@ -303,7 +313,7 @@ async function readCandidate(path: string): Promise<SourceCandidate> {
   try {
     return { name, path, bytes: await readFileBytes(path) };
   } catch (reason) {
-    throw new Error(`Não foi possível ler "${name}". ${messageOf(reason)}`);
+    throw new KeyedError(text('app.readFailed', { name, reason: reasonOf(reason) }));
   }
 }
 
@@ -332,6 +342,7 @@ interface BatchRender {
 }
 
 export default function App() {
+  const { locale, t, tr } = useI18n();
   const [workspace, setWorkspace] = useState<Workspace>(EMPTY_WORKSPACE);
   const active = activeTile(workspace);
   // Every command in this file writes "the document": on a Board that is the
@@ -357,7 +368,7 @@ export default function App() {
   const pendingImportsRef = useRef<(() => Promise<SourceCandidate>)[]>([]);
   const [importQueue, setImportQueue] = useState<{ done: number; total: number } | null>(null);
   const [batch, setBatch] = useState<{
-    label: string;
+    label: MessageKey;
     done: number;
     total: number;
     name: string;
@@ -504,9 +515,11 @@ export default function App() {
       }
       if (patch.token !== undefined) setTokenResult(null);
       void saveSettings(configStore, next).catch((reason) => {
-        fail(`Não foi possível salvar as Configurações. ${messageOf(reason)}`);
+        fail(text('app.saveSettingsFailed', { reason: reasonOf(reason) }));
       });
     },
+    // Resolved through the module, not the hook: a stable identity here keeps the
+    // boot effect (and the proportion debounce) from re-running on a switch.
     [fail],
   );
 
@@ -523,12 +536,14 @@ export default function App() {
       // editor steps are keyed on a ready Tile, not on the Active Tile.
       const hasSource = readyTiles(workspaceRef.current).length > 0;
       tourModeRef.current = hasSource ? 'editor' : 'basic';
-      setTourSteps(tourStepsFor(hasSource));
+      setTourSteps(tourStepsFor(hasSource, globalT));
       tour.start();
       // The editor walkthrough opens on the first import with the welcome
       // already behind the user, so it starts on the proportion instead.
       if (startIndex > 0) tour.setIndex(startIndex);
     },
+    // `globalT` reads the active language at call time, so this stays stable:
+    // the first-launch timer must not restart on a language switch.
     [tour.setIndex, tour.start],
   );
 
@@ -564,9 +579,11 @@ export default function App() {
       historyRef.current = next;
       setHistory(next);
       void saveHistory(configStore, next).catch((reason) => {
-        fail(`Não foi possível salvar o Histórico. ${messageOf(reason)}`);
+        fail(text('app.saveHistoryFailed', { reason: reasonOf(reason) }));
       });
     },
+    // Same reason as `persistSettings`: resolved at call time, so the identity
+    // stays stable and no effect that lists this re-runs on a language switch.
     [fail],
   );
 
@@ -617,19 +634,40 @@ export default function App() {
     setSettingsOpen(false);
     setShortcutsOpen(false);
     setRatioOpen(false);
-    // A notice bar sits above the backdrop, so its "abrir Configurações"
+    // A notice bar sits above the backdrop, so its "open Settings" action
     // action could open a dialog over the prompt; closing on every attempt
     // keeps the update modal the only one.
   }, [updatePromptVisible, settingsOpen, shortcutsOpen, ratioOpen]);
 
+  // The page language drives the Han font choice and the `:lang()` rules that
+  // drop the rail labels' tracking, so it follows the active language.
+  useEffect(() => {
+    document.documentElement.lang = locale;
+  }, [locale]);
+
+  // The stored language is the source of truth: the boot resolves it once, and
+  // a change in Settings has to apply on the spot, without a restart. The guard
+  // keeps the default value from flashing before the file is read.
+  useEffect(() => {
+    if (!settingsLoaded) return;
+    setActiveLocale(settings.language);
+  }, [settings.language, settingsLoaded]);
+
   useEffect(() => {
     let alive = true;
     void (async () => {
-      const [savedSettings, savedHistory] = await Promise.all([
-        loadSettings(configStore),
+      // The system language is read once, here, and only matters when the file
+      // has never held one. `setActiveLocale` runs before the app is marked
+      // ready, so the first real paint is already in the right language.
+      const detected = detectLocale(await systemLocale());
+      const [loaded, savedHistory] = await Promise.all([
+        loadSettings(configStore, detected),
         loadHistory(configStore),
       ]);
       if (!alive) return;
+      const savedSettings = loaded.settings;
+      setActiveLocale(savedSettings.language);
+      if (loaded.needsWrite) void saveSettings(configStore, savedSettings).catch(() => undefined);
       settingsRef.current = savedSettings;
       setSettings(savedSettings);
       setSettingsLoaded(true);
@@ -651,7 +689,9 @@ export default function App() {
       // The defaults are what the app runs on, so the launch check may proceed:
       // a broken settings file must not disable updates for the session.
       setSettingsLoaded(true);
-      fail(`Não foi possível ler as Configurações; usando os padrões. ${messageOf(reason)}`);
+      // Resolved through the module, not the hook: this effect must run once, and
+      // `t` from `useI18n` changes identity with the language.
+      fail(text('app.loadSettingsFailed', { reason: reasonOf(reason) }));
     });
     return () => {
       alive = false;
@@ -677,11 +717,19 @@ export default function App() {
     if (!tour.open || tourModeRef.current !== 'basic') return;
     if (!hasReadySource) return;
     tourModeRef.current = 'editor';
-    setTourSteps(tourStepsFor(true));
-    // Step 2 (Abra a Source) hands over to Proporção; a later basic step
+    setTourSteps(tourStepsFor(true, t));
+    // Step 2 (open a Source) hands over to Proportion; a later basic step
     // already passed it, so it continues on the first editor-only step.
     tour.setIndex(tour.index <= 1 ? 1 : 2);
-  }, [hasReadySource, tour.open, tour.index, tour.setIndex]);
+  }, [hasReadySource, tour.open, tour.index, tour.setIndex, t]);
+
+  // The step list is frozen when the tour starts, so a language switch has to
+  // rebuild it in place: the index is separate state, so the reader stays on the
+  // step they were reading, now in the new language.
+  useEffect(() => {
+    if (!tour.open) return;
+    setTourSteps(tourStepsFor(tourModeRef.current === 'editor', t));
+  }, [t, tour.open]);
 
   // The basic tour promises the editor walkthrough on the first import. If it
   // ended before importing, the first Source opens the editor tour once,
@@ -725,7 +773,7 @@ export default function App() {
   useEffect(() => {
     if (notice.kind !== 'info') return;
     // Give a long link enough time to be read, but never hold the screen.
-    const delay = Math.min(9000, Math.max(4000, 1200 + notice.message.length * 40));
+    const delay = Math.min(9000, Math.max(4000, 1200 + tr(notice.message).length * 40));
     const timer = setTimeout(clearNotice, delay);
     return () => clearTimeout(timer);
   }, [notice, clearNotice]);
@@ -760,7 +808,7 @@ export default function App() {
             signal: controller.signal,
           });
           const decodePng = browserExportAdapter.decodePng;
-          if (!decodePng) throw new Error('Decodificação de PNG indisponível.');
+          if (!decodePng) throw new KeyedError(text('browser.pngDecodeUnavailable'));
           return decodePng(bytes);
         };
         const paletteWaifu2x = paletteUsesWaifu2x ? waifu2xFrame : null;
@@ -985,7 +1033,7 @@ export default function App() {
       // A URL import holds the 'download' run through its own decode, so only
       // a render or an upload may refuse an import.
       if (activityRef.current === 'export' || activityRef.current === 'upload') {
-        fail('Termine a exportação ou o upload em andamento antes de importar.');
+        fail(text('app.finishExportBeforeImport'));
         return;
       }
       // Files dropped while a batch is still decoding join the same queue, in
@@ -995,7 +1043,7 @@ export default function App() {
       const replaceMode = settingsRef.current.importMode === 'replace';
       let replaced = false;
       importingRef.current = true;
-      const failures: string[] = [];
+      const failures: TextRef[] = [];
       let loaded = 0;
       let done = 0;
       setImportQueue({ done, total: pendingImportsRef.current.length });
@@ -1050,11 +1098,11 @@ export default function App() {
         fail(
           failures.length === 1
             ? failures[0]
-            : `${failures.length} arquivos não puderam ser importados. ${failures[0]}`,
+            : text('app.importFailures', { count: failures.length, first: failures[0] }),
         );
         return;
       }
-      inform(loaded === 1 ? 'Imagem carregada.' : `${loaded} imagens carregadas.`);
+      inform(loaded === 1 ? text('app.imageLoaded') : text('app.imagesLoaded', { count: loaded }));
     },
     [disposeTiles, fail, inform],
   );
@@ -1081,7 +1129,7 @@ export default function App() {
   const importFromUrl = useCallback(
     async (raw: string) => {
       if (!isDesktop()) {
-        fail('Importar por link só funciona no app desktop.');
+        fail(text('app.urlImportDesktopOnly'));
         return;
       }
       const started = beginRun('download');
@@ -1107,7 +1155,7 @@ export default function App() {
         setLink('');
       } catch (reason) {
         if (reason instanceof DownloadError && reason.code === 'cancelled') {
-          inform('Download cancelado.');
+          inform(text('app.downloadCancelled'));
         } else {
           fail(downloadErrorMessage(reason));
         }
@@ -1138,20 +1186,20 @@ export default function App() {
   const handleOpen = useCallback(async () => {
     // Same rule as the queue: only a render or an upload refuses the dialog.
     if (activityRef.current === 'export' || activityRef.current === 'upload') {
-      fail('Termine a exportação ou o upload em andamento antes de importar.');
+      fail(text('app.finishExportBeforeImport'));
       return;
     }
     try {
       if (!isDesktop()) {
-        fail('Abrir arquivos só funciona no app desktop.');
+        fail(text('app.openFilesDesktopOnly'));
         return;
       }
       const paths = await chooseSourceFiles();
       if (paths.length > 0) await importPaths(paths);
     } catch (reason) {
-      fail(`Não foi possível abrir o diálogo de arquivos. ${messageOf(reason)}`);
+      fail(text('app.openDialogFailed', { reason: reasonOf(reason) }));
     }
-  }, [fail, importPaths]);
+  }, [fail, importPaths, t]);
 
   /** The Source bar takes a link or a local path; Enter and the button share this. */
   const submitLink = useCallback(() => {
@@ -1162,17 +1210,15 @@ export default function App() {
     }
     const path = localPathFrom(link);
     if (!path) {
-      fail(
-        'Cole um link http(s) ou o caminho de um arquivo PNG, JPG, GIF, WebP, APNG, MP4, MOV ou WebM.',
-      );
+      fail(text('app.linkOrPathHint'));
       return;
     }
     if (!isDesktop()) {
-      fail('Importar por caminho de arquivo só funciona no app desktop.');
+      fail(text('app.pathImportDesktopOnly'));
       return;
     }
     void importPath(path);
-  }, [fail, importFromUrl, importPath, link]);
+  }, [fail, importFromUrl, importPath, link, t]);
 
   const renderForExport = useCallback(
     async (
@@ -1254,15 +1300,15 @@ export default function App() {
   const cancelRender = useCallback(() => {
     // The reason is what the batch helpers rethrow, so Cancel stays a cancel
     // instead of turning into a failed Tile.
-    cancelRenderRef.current?.abort(new ExportError('Export cancelado.', true));
-  }, []);
+    cancelRenderRef.current?.abort(new ExportError(text('app.exportCancelled'), true));
+  }, [t]);
 
   /**
    * The batch progress line: it follows the leading Tile — the first in Board
    * order still rendering — and counts finished Tiles, so two Tiles moving at
    * once can never make the line jump backwards.
    */
-  const batchProgress = useCallback((tiles: readonly Tile[], label: string) => {
+  const batchProgress = useCallback((tiles: readonly Tile[], label: MessageKey) => {
     const running = new Map<string, RenderProgress>();
     const leading = (): Tile | undefined => tiles.find((tile) => running.has(tile.id));
     const publish = (): void => {
@@ -1293,15 +1339,15 @@ export default function App() {
     const current = docRef.current;
     if (!current.source) return;
     if (importingRef.current) {
-      fail('Aguarde a importação terminar antes de exportar.');
+      fail(text('app.waitImportBeforeExport'));
       return;
     }
     if (!isDesktop()) {
-      fail('Exportar só funciona no app desktop.');
+      fail(text('app.exportDesktopOnly'));
       return;
     }
     if (current.waifu2x.enabled && waifu2xAvailability.status !== 'ready') {
-      fail('O waifu2x não está disponível neste computador. Desligue-o para exportar.');
+      fail(text('app.waifu2xUnavailableExport'));
       return;
     }
     const startedExport = beginRun('export');
@@ -1331,7 +1377,7 @@ export default function App() {
       const suffix = new RegExp(`\\.${extension}$`, 'i');
       const path = suffix.test(chosen) ? chosen : `${chosen}.${extension}`;
       if (current.source.path && path.toLowerCase() === current.source.path.toLowerCase()) {
-        throw new Error('o Export não pode sobrescrever a Source. Escolha outro nome.');
+        throw new KeyedError(text('app.exportOverwriteSource'));
       }
 
       const bytes = await renderWithProgress(current, frameIndexRef.current);
@@ -1356,12 +1402,19 @@ export default function App() {
       };
       persistHistory(appendHistory(historyRef.current, entry));
       clearBadge(workspaceRef.current.activeId);
-      inform(`${label} ${size.width}×${size.height} exportado: ${fileNameOf(path)}`);
+      inform(
+        text('app.exported', {
+          label,
+          width: size.width,
+          height: size.height,
+          name: fileNameOf(path),
+        }),
+      );
     } catch (reason) {
       if (reason instanceof ExportError && reason.cancelled) {
-        inform('Render cancelado.');
+        inform(text('app.renderCancelled'));
       } else {
-        fail(`Não foi possível exportar o ${label}. ${messageOf(reason)}`);
+        fail(text('app.exportFailed', { label, reason: reasonOf(reason) }));
       }
     } finally {
       setRenderProgress(null);
@@ -1375,6 +1428,7 @@ export default function App() {
     persistHistory,
     persistSettings,
     renderWithProgress,
+    t,
     waifu2xAvailability.status,
   ]);
 
@@ -1457,15 +1511,15 @@ export default function App() {
     const tiles = readyTiles(workspaceRef.current);
     if (tiles.length === 0) return;
     if (!isDesktop()) {
-      fail('Exportar só funciona no app desktop.');
+      fail(text('app.exportDesktopOnly'));
       return;
     }
     if (importingRef.current) {
-      fail('Aguarde a importação terminar antes de exportar.');
+      fail(text('app.waitImportBeforeExport'));
       return;
     }
     if (tiles.some((tile) => tile.doc.waifu2x.enabled && waifu2xAvailability.status !== 'ready')) {
-      fail('O waifu2x não está disponível neste computador. Desligue-o nas Tiles que o usam.');
+      fail(text('app.waifu2xUnavailableTiles'));
       return;
     }
     const startedExport = beginRun('export');
@@ -1493,7 +1547,7 @@ export default function App() {
         for (const tile of tiles) {
           // Only the export's own failures: a 'grande' from an upload is still
           // true and stays useful.
-          if (next[tile.id]?.label === 'falhou') delete next[tile.id];
+          if (next[tile.id]?.state === 'failed') delete next[tile.id];
         }
         return next;
       });
@@ -1501,7 +1555,7 @@ export default function App() {
       const controller = new AbortController();
       cancelRenderRef.current = controller;
       setPlaying(false);
-      const progress = batchProgress(tiles, 'Exportando');
+      const progress = batchProgress(tiles, 'app.exporting');
       let written = 0;
       let finished = 0;
       let cancelled = false;
@@ -1520,7 +1574,7 @@ export default function App() {
 
       const failTile = (tile: Tile, name: string): void => {
         failed.push(name);
-        setBadges((current) => ({ ...current, [tile.id]: { label: 'falhou', tone: 'bad' } }));
+        setBadges((current) => ({ ...current, [tile.id]: { state: 'failed', tone: 'bad' } }));
         finished += 1;
         progress.settle(tile, finished);
       };
@@ -1535,7 +1589,7 @@ export default function App() {
             const current = tile.doc;
             if (!current.source) return null;
             setBatch({
-              label: 'Exportando',
+              label: 'app.exporting',
               done: finished,
               total: tiles.length,
               name: current.source.name,
@@ -1568,7 +1622,7 @@ export default function App() {
               return null;
             }
           },
-          // Write in Board order, so the folder, the Histórico and the notice
+          // Write in Board order, so the folder, the History and the notice
           // keep the same order a one-Tile-at-a-time run would produce.
           async (rendered) => {
             if (!rendered) return;
@@ -1582,7 +1636,7 @@ export default function App() {
             setBadges((currentBadges) => {
               // Only an export failure is settled here: a 'grande' from an
               // upload is still true, and the next upload would refuse it again.
-              if (currentBadges[tile.id]?.label !== 'falhou') return currentBadges;
+              if (currentBadges[tile.id]?.state !== 'failed') return currentBadges;
               const next = { ...currentBadges };
               delete next[tile.id];
               return next;
@@ -1616,20 +1670,25 @@ export default function App() {
       }
 
       if (cancelled) {
-        inform(`Export cancelado. ${written} de ${tiles.length} exportados.`);
+        inform(text('app.exportCancelledCount', { written, total: tiles.length }));
       } else if (failed.length > 0) {
         fail(
-          `${written} de ${tiles.length} exportados. Falharam: ${failed.slice(0, 3).join(', ')}${
-            failed.length > 3 ? '…' : ''
-          }`,
+          text('app.exportFailures', {
+            written,
+            total: tiles.length,
+            names: failed.slice(0, 3).join(', '),
+            more: failed.length > 3 ? '…' : '',
+          }),
         );
       } else {
         inform(
-          `${written} ${written === 1 ? 'arquivo exportado' : 'arquivos exportados'} em ${folder}`,
+          written === 1
+            ? text('app.fileExported', { count: written, folder })
+            : text('app.filesExported', { count: written, folder }),
         );
       }
     } catch (reason) {
-      fail(`Não foi possível exportar. ${messageOf(reason)}`);
+      fail(text('app.exportAllFailed', { reason: reasonOf(reason) }));
     } finally {
       setBatch(null);
       setRenderProgress(null);
@@ -1645,6 +1704,7 @@ export default function App() {
     persistHistory,
     persistSettings,
     renderWithProgress,
+    t,
     waifu2xAvailability.status,
   ]);
 
@@ -1652,12 +1712,12 @@ export default function App() {
     (reason: unknown) => {
       if (reason instanceof ImageChestError) {
         if (reason.code === 'unauthorized' || reason.code === 'no-token') {
-          fail(reason.message, { label: 'Abrir Configurações', run: openSettings });
+          fail(messageOf(reason), { label: text('app.openSettings'), run: openSettings });
           return;
         }
         if (reason.code === 'offline' || reason.code === 'server' || reason.code === 'malformed') {
-          fail(reason.message, {
-            label: 'Tentar de novo',
+          fail(messageOf(reason), {
+            label: text('app.tryAgain'),
             run: () => void retryRef.current(),
           });
           return;
@@ -1666,15 +1726,18 @@ export default function App() {
           setCooldownSeconds(reason.retryAfterSeconds ?? 30);
           // The retry closure is safe: the cooldown check refuses politely
           // until the wait is over, and then it resumes the batch.
-          fail(reason.message, { label: 'Tentar de novo', run: () => void retryRef.current() });
+          fail(messageOf(reason), {
+            label: text('app.tryAgain'),
+            run: () => void retryRef.current(),
+          });
           return;
         }
-        fail(reason.message);
+        fail(messageOf(reason));
         return;
       }
       fail(uploadErrorMessage(reason));
     },
-    [fail, openSettings],
+    [fail, openSettings, t],
   );
 
   const handleUpload = useCallback(async () => {
@@ -1682,22 +1745,22 @@ export default function App() {
     if (!current.source) return;
     // The single-flight lock below reports a double click or a repeated Ctrl+Enter.
     if (importingRef.current) {
-      fail('Aguarde a importação terminar antes de subir.');
+      fail(text('app.waitImportBeforeUpload'));
       return;
     }
     if (!isDesktop()) {
-      fail('O upload só funciona no app desktop.');
+      fail(text('app.uploadDesktopOnly'));
       return;
     }
     if (current.waifu2x.enabled && waifu2xAvailability.status !== 'ready') {
-      fail('O waifu2x não está disponível neste computador. Desligue-o para subir.');
+      fail(text('app.waifu2xUnavailableUpload'));
       return;
     }
 
     const saved = settingsRef.current;
     if (!saved.token.trim()) {
-      fail('Salve o token do Image Chest em Configurações antes de subir.', {
-        label: 'Abrir Configurações',
+      fail(text('app.saveTokenBeforeUpload'), {
+        label: text('app.openSettings'),
         run: openSettings,
       });
       return;
@@ -1705,13 +1768,13 @@ export default function App() {
 
     const requestedPost = appendPostIdRef.current.trim();
     if (requestedPost && !isPostId(requestedPost)) {
-      fail('O Post id aceita só letras e números.');
+      fail(text('app.postIdInvalid'));
       return;
     }
     if (cooldownRef.current > 0) {
       // Keep whatever retry is pending: a batch resume must outlive the wait.
-      fail(`Aguarde ${cooldownRef.current}s antes de subir de novo.`, {
-        label: 'Tentar de novo',
+      fail(text('app.uploadCooldown', { seconds: cooldownRef.current }), {
+        label: text('app.tryAgain'),
         run: () => void retryRef.current(),
       });
       return;
@@ -1727,7 +1790,7 @@ export default function App() {
     retryRef.current = () =>
       workspaceRef.current.activeId === failingId
         ? handleUpload()
-        : Promise.resolve(fail('A Tile que falhou não é mais a ativa.'));
+        : Promise.resolve(fail(text('app.tileNoLongerActive')));
 
     const kind = exportKindFor(effectiveSource(current), settingsRef.current.exportFormat);
     const extension = kind.format;
@@ -1779,17 +1842,20 @@ export default function App() {
         createdAt: new Date().toISOString(),
       };
       persistHistory(appendHistory(historyRef.current, record));
-      const noDescription =
-        description && !outcome.described ? ' A descrição não foi aplicada.' : '';
+      const noted = Boolean(description) && !outcome.described;
       inform(
         copied
-          ? `Link copiado: ${outcome.link}${noDescription}`
-          : `Export no Post ${outcome.postId}. Não foi possível copiar; use o Histórico.${noDescription}`,
+          ? noted
+            ? text('app.linkCopiedNoted', { link: outcome.link })
+            : text('app.linkCopied', { link: outcome.link })
+          : noted
+            ? text('app.exportedToPostNoCopyNoted', { postId: outcome.postId })
+            : text('app.exportedToPostNoCopy', { postId: outcome.postId }),
       );
       clearBadge(workspaceRef.current.activeId);
     } catch (reason) {
       if (reason instanceof ExportError && reason.cancelled) {
-        inform('Render cancelado.');
+        inform(text('app.renderCancelled'));
       } else {
         uploadFailure(reason);
       }
@@ -1808,6 +1874,7 @@ export default function App() {
     openSettings,
     persistHistory,
     renderWithProgress,
+    t,
     uploadFailure,
     waifu2xAvailability.status,
   ]);
@@ -1832,39 +1899,39 @@ export default function App() {
         if (previousLinks && previousLinks.length > 0) {
           try {
             await copyText(joinLinks(previousLinks));
-            inform(`${previousLinks.length} links copiados.`);
+            inform(text('app.linksCopied', { count: previousLinks.length }));
           } catch {
-            // The links are in the Histórico.
+            // The links are in the History.
           }
         }
         return;
       }
       if (!isDesktop()) {
-        fail('O upload só funciona no app desktop.');
+        fail(text('app.uploadDesktopOnly'));
         return;
       }
       if (importingRef.current) {
-        fail('Aguarde a importação terminar antes de subir.');
+        fail(text('app.waitImportBeforeUpload'));
         return;
       }
       const saved = settingsRef.current;
       if (!saved.token.trim()) {
-        fail('Salve o token do Image Chest em Configurações antes de subir.', {
-          label: 'Abrir Configurações',
+        fail(text('app.saveTokenBeforeUpload'), {
+          label: text('app.openSettings'),
           run: openSettings,
         });
         return;
       }
       const requested = appendPostIdRef.current.trim();
       if (requested && !isPostId(requested)) {
-        fail('O Post id aceita só letras e números.');
+        fail(text('app.postIdInvalid'));
         return;
       }
       if (cooldownRef.current > 0) {
         // Keep the resume handle alive across the wait: dropping it would push
         // the user onto "Subir todas", which duplicates everything already sent.
-        fail(`Aguarde ${cooldownRef.current}s antes de subir de novo.`, {
-          label: 'Tentar de novo',
+        fail(text('app.uploadCooldown', { seconds: cooldownRef.current }), {
+          label: text('app.tryAgain'),
           run: () => void retryRef.current(),
         });
         return;
@@ -1872,7 +1939,7 @@ export default function App() {
       if (
         tiles.some((tile) => tile.doc.waifu2x.enabled && waifu2xAvailability.status !== 'ready')
       ) {
-        fail('O waifu2x não está disponível neste computador. Desligue-o nas Tiles que o usam.');
+        fail(text('app.waifu2xUnavailableTiles'));
         return;
       }
       const startedUpload = beginRun('upload');
@@ -1883,7 +1950,11 @@ export default function App() {
 
       function titleOfTile(tile: Tile): string {
         const size = outputSize(tile.doc);
-        return postTitle(tile.doc.source?.name ?? 'carta', size.width, size.height);
+        return postTitle(
+          tile.doc.source?.name ?? t('app.defaultCardName'),
+          size.width,
+          size.height,
+        );
       }
 
       const group =
@@ -1907,14 +1978,14 @@ export default function App() {
       const controller = new AbortController();
       cancelRenderRef.current = controller;
       setPlaying(false);
-      const progress = batchProgress(tiles, 'Renderizando');
+      const progress = batchProgress(tiles, 'app.rendering');
 
       setUploading(true);
       clearNotice();
       setBadges((current) => ({
         ...current,
         ...Object.fromEntries(
-          tiles.map((tile) => [tile.id, { label: 'na fila', tone: 'busy' as const }]),
+          tiles.map((tile) => [tile.id, { state: 'queued', tone: 'busy' as const }]),
         ),
       }));
 
@@ -1927,7 +1998,7 @@ export default function App() {
         progress.done(entry.tile);
         setBadges((current) => ({
           ...current,
-          [entry.tile.id]: { label: 'enviado', tone: 'ok' },
+          [entry.tile.id]: { state: 'uploaded', tone: 'ok' },
         }));
         if (!source) return;
         const size = outputSize(entry.tile.doc);
@@ -1949,7 +2020,7 @@ export default function App() {
         const current = tile.doc;
         if (!current.source) return null;
         setBatch({
-          label: 'Renderizando',
+          label: 'app.rendering',
           done: rendered,
           total: tiles.length,
           name: current.source.name,
@@ -1989,7 +2060,7 @@ export default function App() {
           progress.done(tile);
           setBadges((current) => ({
             ...current,
-            [tile.id]: { label: 'falhou', tone: 'bad' },
+            [tile.id]: { state: 'failed', tone: 'bad' },
           }));
           return null;
         }
@@ -2006,7 +2077,7 @@ export default function App() {
           setBadges((current) => {
             const next = { ...current };
             for (const entry of split.tooLarge) {
-              next[entry.tile.id] = { label: 'grande', tone: 'bad' };
+              next[entry.tile.id] = { state: 'large', tone: 'bad' };
             }
             return next;
           });
@@ -2057,7 +2128,7 @@ export default function App() {
           // the smaller chunk too.
           persistSettings({ imageChestGold: false });
           cap = UPLOAD_BATCH_STANDARD;
-          inform('O Image Chest recusou o lote maior. A conta voltou para 20 arquivos por Post.');
+          inform(text('app.goldDemoted'));
           let next = target;
           for (const small of chunkItems(entries, UPLOAD_BATCH_STANDARD)) {
             next = await send(small, next);
@@ -2080,7 +2151,7 @@ export default function App() {
             const files = usable(entries);
             if (files.length === 0) continue;
             setBatch({
-              label: 'Subindo',
+              label: 'app.uploading',
               done: Math.max(0, links.length - (previousLinks?.length ?? 0)),
               total: tiles.length,
               name: files[0].tile.doc.source?.name ?? '',
@@ -2098,7 +2169,7 @@ export default function App() {
               if (!entry) return;
               if (usable([entry]).length === 0) return;
               setBatch({
-                label: 'Subindo',
+                label: 'app.uploading',
                 done: Math.max(0, links.length - (previousLinks?.length ?? 0)),
                 total: tiles.length,
                 name: tile.doc.source?.name ?? '',
@@ -2120,7 +2191,7 @@ export default function App() {
         }
 
         if (links.length === 0) {
-          fail('Nenhuma imagem subiu.');
+          fail(text('app.noImageUploaded'));
           return;
         }
         let copied = true;
@@ -2130,12 +2201,16 @@ export default function App() {
           copied = false;
         }
         const where = group
-          ? `Post ${postId ?? '—'}`
-          : `${links.length} ${links.length === 1 ? 'Post' : 'Posts'}`;
+          ? text('app.postWhere', { postId: postId ?? '—' })
+          : links.length === 1
+            ? text('app.postOne', { count: links.length })
+            : text('app.postMany', { count: links.length });
         inform(
           copied
-            ? `${links.length} ${links.length === 1 ? 'imagem' : 'imagens'} no ${where} · links copiados`
-            : `${links.length} imagens no ${where}. Não foi possível copiar; use o Histórico.`,
+            ? links.length === 1
+              ? text('app.uploadedOneCopied', { count: links.length, where })
+              : text('app.uploadedManyCopied', { count: links.length, where })
+            : text('app.uploadedNotCopied', { count: links.length, where }),
         );
       } catch (reason) {
         const cancelled = reason instanceof ExportError && reason.cancelled;
@@ -2143,7 +2218,7 @@ export default function App() {
           try {
             await copyText(joinLinks(links));
           } catch {
-            // The links are in the Histórico either way.
+            // The links are in the History either way.
           }
         }
         // A cancel is not a failure: drop the queued badges instead of painting
@@ -2152,8 +2227,8 @@ export default function App() {
           setBadges((current) => {
             const next = { ...current };
             for (const tile of tiles) {
-              // Only the queued ones: a precise 'grande'/'falhou' stays useful.
-              if (!sent.has(tile.id) && next[tile.id]?.label === 'na fila') {
+              // Only the queued ones: a precise 'large'/'failed' stays useful.
+              if (!sent.has(tile.id) && next[tile.id]?.state === 'queued') {
                 delete next[tile.id];
               }
             }
@@ -2164,15 +2239,15 @@ export default function App() {
             const next = { ...current };
             for (const tile of tiles) {
               // Keep the precise reason a Tile already has ('grande', 'falhou').
-              if (!sent.has(tile.id) && next[tile.id]?.label === 'na fila') {
-                next[tile.id] = { label: 'falhou', tone: 'bad' };
+              if (!sent.has(tile.id) && next[tile.id]?.state === 'queued') {
+                next[tile.id] = { state: 'failed', tone: 'bad' };
               }
             }
             return next;
           });
         }
         if (cancelled) {
-          inform('Render cancelado.');
+          inform(text('app.renderCancelled'));
         } else {
           uploadFailure(reason);
         }
@@ -2196,6 +2271,7 @@ export default function App() {
       persistHistory,
       persistSettings,
       renderWithProgress,
+      t,
       uploadFailure,
       waifu2xAvailability.status,
     ],
@@ -2215,34 +2291,34 @@ export default function App() {
 
   const clearToken = useCallback(() => {
     persistSettings({ token: '' });
-    setTokenResult({ ok: true, message: 'Token removido deste computador.' });
-    inform('Token do Image Chest removido.');
-  }, [inform, persistSettings]);
+    setTokenResult({ ok: true, message: text('app.tokenRemovedMessage') });
+    inform(text('app.tokenRemovedNotice'));
+  }, [inform, persistSettings, t]);
 
   const chooseFolder = useCallback(async () => {
     if (!isDesktop()) {
-      fail('A pasta só pode ser escolhida no app desktop.');
+      fail(text('app.folderDesktopOnly'));
       return;
     }
     try {
       const folder = await chooseExportFolder();
       if (!folder) return;
       persistSettings({ saveFolder: folder });
-      inform(`Pasta dos Exports: ${folder}`);
+      inform(text('app.exportFolder', { folder }));
     } catch (reason) {
-      fail(`Não foi possível escolher a pasta. ${messageOf(reason)}`);
+      fail(text('app.chooseFolderFailed', { reason: reasonOf(reason) }));
     }
-  }, [fail, inform, persistSettings]);
+  }, [fail, inform, persistSettings, t]);
 
   const testToken = useCallback(async () => {
     if (testingToken) return;
     if (!isDesktop()) {
-      setTokenResult({ ok: false, message: 'Testar o token só funciona no app desktop.' });
+      setTokenResult({ ok: false, message: text('app.testTokenDesktopOnly') });
       return;
     }
     const token = settingsRef.current.token;
     if (!token.trim()) {
-      setTokenResult({ ok: false, message: 'Cole o token antes de testar.' });
+      setTokenResult({ ok: false, message: text('app.pasteTokenFirst') });
       return;
     }
     setTestingToken(true);
@@ -2252,14 +2328,17 @@ export default function App() {
       if (account.gold !== null) persistSettings({ imageChestGold: account.gold });
       setTokenResult({
         ok: true,
-        message: `Conectado como ${account.name}${account.gold === true ? ' (Gold)' : ''}.`,
+        message:
+          account.gold === true
+            ? text('app.connectedAsGold', { name: account.name })
+            : text('app.connectedAs', { name: account.name }),
       });
     } catch (reason) {
       setTokenResult({ ok: false, message: uploadErrorMessage(reason) });
     } finally {
       setTestingToken(false);
     }
-  }, [persistSettings, testingToken]);
+  }, [persistSettings, t, testingToken]);
 
   /**
    * Ask Image Chest for the account tier again. The stored flag decides the
@@ -2269,11 +2348,11 @@ export default function App() {
   const checkAccount = useCallback(async () => {
     if (checkingAccount) return;
     if (!isDesktop()) {
-      fail('Verificar a conta só funciona no app desktop.');
+      fail(text('app.checkAccountDesktopOnly'));
       return;
     }
     if (!settingsRef.current.token.trim()) {
-      fail('Salve o token do Image Chest antes de verificar a conta.');
+      fail(text('app.saveTokenBeforeCheck'));
       return;
     }
     setCheckingAccount(true);
@@ -2282,15 +2361,15 @@ export default function App() {
       if (account.gold !== null) persistSettings({ imageChestGold: account.gold });
       inform(
         account.gold === true
-          ? `${account.name}: conta Gold, 200 arquivos por Post.`
-          : `${account.name}: conta padrão, 20 arquivos por Post.`,
+          ? text('app.accountGold', { name: account.name })
+          : text('app.accountStandard', { name: account.name }),
       );
     } catch (reason) {
       fail(uploadErrorMessage(reason));
     } finally {
       setCheckingAccount(false);
     }
-  }, [checkingAccount, fail, inform, persistSettings]);
+  }, [checkingAccount, fail, inform, persistSettings, t]);
 
   const changeAppendPostId = useCallback((value: string) => {
     setAppendPostId(value);
@@ -2307,12 +2386,12 @@ export default function App() {
     async (value: string) => {
       try {
         await copyText(value);
-        inform(`Copiado: ${value}`);
+        inform(text('app.copied', { value }));
       } catch (reason) {
-        fail(`Não foi possível copiar. ${messageOf(reason)}`);
+        fail(text('app.copyFailed', { reason: reasonOf(reason) }));
       }
     },
-    [fail, inform],
+    [fail, inform, t],
   );
 
   const openLink = useCallback(
@@ -2320,10 +2399,10 @@ export default function App() {
       try {
         await openExternal(value);
       } catch (reason) {
-        fail(`Não foi possível abrir o link. ${messageOf(reason)}`);
+        fail(text('app.openLinkFailed', { reason: reasonOf(reason) }));
       }
     },
-    [fail],
+    [fail, t],
   );
 
   const revealHistoryFile = useCallback(
@@ -2331,16 +2410,16 @@ export default function App() {
       try {
         await revealInExplorer(path);
       } catch (reason) {
-        fail(`Não foi possível abrir no Explorador. ${messageOf(reason)}`);
+        fail(text('app.revealFailed', { reason: reasonOf(reason) }));
       }
     },
-    [fail],
+    [fail, t],
   );
 
   const clearHistory = useCallback(() => {
     persistHistory([]);
-    inform('Histórico limpo.');
-  }, [inform, persistHistory]);
+    inform(text('app.historyCleared'));
+  }, [inform, persistHistory, t]);
 
   const exportRef = useRef(handleExport);
   exportRef.current = handleExport;
@@ -2363,20 +2442,16 @@ export default function App() {
     (hex: string) => {
       setDoc((current) => withPadColor(current, hex));
       setStageMode(leavePick);
-      inform(`Cor do Pad: ${hex}`);
+      inform(text('app.padColor', { hex }));
     },
-    [inform],
+    [inform, t],
   );
 
   const pickPadMiss = useCallback(
     (reason: 'outside' | 'transparent') => {
-      inform(
-        reason === 'transparent'
-          ? 'Essa área é transparente. Escolha outro ponto.'
-          : 'Clique dentro do Frame para pegar uma cor.',
-      );
+      inform(reason === 'transparent' ? text('app.pickTransparent') : text('app.pickInsideFrame'));
     },
-    [inform],
+    [inform, t],
   );
 
   const changeSharpness = useCallback((sharpness: number) => {
@@ -2386,13 +2461,13 @@ export default function App() {
   const changeWaifu2x = useCallback(
     (patch: Partial<Waifu2xSettings>) => {
       if (patch.enabled && waifu2xAvailability.status !== 'ready') {
-        fail(waifu2xAvailability.detail ?? 'O waifu2x não está disponível neste computador.');
+        fail(waifu2xAvailability.detail ?? text('app.waifu2xUnavailable'));
         return;
       }
       setOptimizeResult(null);
       setDoc((current) => withWaifu2x(current, patch));
     },
-    [fail, waifu2xAvailability.detail, waifu2xAvailability.status],
+    [fail, t, waifu2xAvailability.detail, waifu2xAvailability.status],
   );
 
   const changeTrim = useCallback((trim: Trim | null) => {
@@ -2700,17 +2775,27 @@ export default function App() {
   }, [importCandidates, importFromUrl, importPath]);
 
   useEffect(() => {
+    // `watchFileDrops` registers asynchronously, so a cleanup that runs before
+    // it resolves has nothing to dispose. The flag disposes the late listener
+    // immediately instead, which keeps one registration per app, not per render.
+    let alive = true;
     let dispose: (() => void) | undefined;
     watchFileDrops((paths) => {
       if (paths.length > 0) void importPaths(paths);
     }, setDragOver)
       .then((stop) => {
-        dispose = stop;
+        if (alive) dispose = stop;
+        else stop();
       })
       .catch(() => {
-        fail('Não foi possível ativar o arrastar e soltar. Use Ctrl+O ou Ctrl+V.');
+        if (alive) fail(text('app.dropActivateFailed'));
       });
-    return () => dispose?.();
+    return () => {
+      alive = false;
+      dispose?.();
+    };
+    // `fail` is stable and `globalT` reads the active language at call time, so
+    // this registers once; a language switch must not re-register the listener.
   }, [fail, importPaths]);
 
   // Browser-only fallback so `npm run dev` can exercise the same import path.
@@ -2767,8 +2852,8 @@ export default function App() {
                 strokeLinejoin="round"
               />
             </svg>
-            <strong>Solte para abrir</strong>
-            <span>PNG · JPG · GIF · WebP · APNG · MP4 · MOV · WebM</span>
+            <strong>{t('app.dropToOpen')}</strong>
+            <span>{t('app.dropFormats')}</span>
           </div>
         </div>
       )}
@@ -2818,21 +2903,21 @@ export default function App() {
                 inputMode="url"
                 value={link}
                 onChange={(event) => setLink(event.target.value)}
-                placeholder="Cole um link ou caminho"
-                aria-label="Link ou caminho da Source"
+                placeholder={t('app.linkPlaceholder')}
+                aria-label={t('app.linkLabel')}
                 spellCheck={false}
                 disabled={busy}
               />
               <button type="submit" disabled={busy || !linkTarget}>
-                Abrir
+                {t('app.open')}
               </button>
               <button
                 type="button"
                 className="link-import-browse"
                 onClick={() => void handleOpen()}
                 disabled={busy}
-                aria-label="Abrir arquivo do computador"
-                title="Abrir arquivo do computador (Ctrl+O)"
+                aria-label={t('app.openFileLabel')}
+                title={t('app.openFileTitle')}
               >
                 <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
                   <path
@@ -2850,8 +2935,8 @@ export default function App() {
               className="chip chip-button shortcuts-button"
               id="tour-shortcuts"
               onClick={() => setShortcutsOpen(true)}
-              title="Atalhos (?)"
-              aria-label="Atalhos"
+              title={t('app.shortcutsTitle')}
+              aria-label={t('app.shortcutsLabel')}
             >
               ?
             </button>
@@ -2860,9 +2945,9 @@ export default function App() {
               className="chip chip-button"
               id="tour-settings"
               onClick={openSettings}
-              title="Configurações (Ctrl+,)"
+              title={t('app.settingsTitle')}
             >
-              Configurações
+              {t('app.settings')}
             </button>
           </div>
           <WindowControls />
@@ -2870,8 +2955,8 @@ export default function App() {
 
         {notice.kind === 'info' && (
           <div className="notice overlay" role="status">
-            <span>{notice.message}</span>
-            <button type="button" aria-label="Fechar aviso" onClick={clearNotice}>
+            <span>{tr(notice.message)}</span>
+            <button type="button" aria-label={t('app.closeNotice')} onClick={clearNotice}>
               ×
             </button>
           </div>
@@ -2881,70 +2966,83 @@ export default function App() {
       {download.kind === 'downloading' ? (
         <div className="notice download" role="status">
           <span>
-            Baixando link… {formatBytes(download.received)}
-            {download.total ? ` de ${formatBytes(download.total)}` : ''}
+            {t('app.downloading', { received: formatBytes(download.received, locale) })}
+            {download.total
+              ? ` ${t('app.downloadingTotal', { total: formatBytes(download.total, locale) })}`
+              : ''}
           </span>
           <progress
             value={download.total ? download.received : undefined}
             max={download.total ?? undefined}
           />
           <button type="button" onClick={cancelDownload}>
-            cancelar
+            {t('app.cancel')}
           </button>
         </div>
       ) : importQueue ? (
         <div className="notice download" role="status">
           <span>
-            Importando {Math.min(importQueue.total, importQueue.done + 1)} de {importQueue.total}…
+            {t('app.importingCount', {
+              done: Math.min(importQueue.total, importQueue.done + 1),
+              total: importQueue.total,
+            })}
           </span>
           <progress value={importQueue.done} max={importQueue.total} />
         </div>
       ) : download.kind === 'finishing' ? (
         <div className="notice download" role="status">
-          <span>Importando…</span>
+          <span>{t('app.importing')}</span>
           <progress />
         </div>
       ) : batch ? (
         <div className="notice download render" role="status">
           <span>
-            {batch.label} {Math.min(batch.total, batch.done + 1)} de {batch.total}
-            {batch.name ? ` · ${batch.name}` : ''}…
+            {t('app.batchProgress', {
+              label: t(batch.label),
+              done: Math.min(batch.total, batch.done + 1),
+              total: batch.total,
+              name: batch.name ? ` · ${batch.name}` : '',
+            })}
           </span>
           <progress value={batch.done} max={batch.total} />
-          {batch.label !== 'Subindo' && (
+          {batch.label !== 'app.uploading' && (
             <button type="button" onClick={cancelRender}>
-              cancelar
+              {t('app.cancel')}
             </button>
           )}
         </div>
       ) : renderProgress ? (
         <div className="notice download render" role="status">
           <span>
-            {renderProgress.phase === 'optimize'
-              ? 'Otimizando GIF'
-              : renderProgress.phase === 'waifu2x'
-                ? 'Realçando com waifu2x'
-                : 'Renderizando'}
-            …{' '}
-            {renderProgress.total > 0
-              ? Math.min(100, Math.round((renderProgress.done / renderProgress.total) * 100))
-              : 0}
-            %
+            {t('app.renderProgress', {
+              phase:
+                renderProgress.phase === 'optimize'
+                  ? t('app.optimizingGif')
+                  : renderProgress.phase === 'waifu2x'
+                    ? t('app.enhancingWaifu2x')
+                    : t('app.rendering'),
+              percent: wholePercent(
+                renderProgress.total > 0
+                  ? Math.min(100, Math.round((renderProgress.done / renderProgress.total) * 100))
+                  : 0,
+                locale,
+              ),
+            })}
           </span>
           <progress value={renderProgress.done} max={renderProgress.total} />
           <button type="button" onClick={cancelRender}>
-            cancelar
+            {t('app.cancel')}
           </button>
         </div>
       ) : notice.kind === 'error' ? (
         <div className="notice error" role="alert">
-          <span>{notice.message}</span>
+          <span>{tr(notice.message)}</span>
           {notice.action && (
             <button type="button" className="notice-action" onClick={notice.action.run}>
-              {notice.action.label}
+              {tr(notice.action.label)}
             </button>
           )}
-          <button type="button" aria-label="Fechar aviso" onClick={clearNotice}>
+          <button type="button" aria-label={t('app.closeNotice')} onClick={clearNotice}>
             ×
           </button>
         </div>

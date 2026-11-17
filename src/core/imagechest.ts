@@ -8,14 +8,13 @@
  */
 import { MAX_UPLOAD_FILE_BYTES } from './limits';
 import { asRecord, parseJson } from './json';
+import { text, textOf, type TextRef } from './i18n/text';
+import type { MessageKey } from './i18n/messages.pt-BR';
 
 export type Privacy = 'public' | 'hidden' | 'secret';
 
-export const PRIVACY_OPTIONS: ReadonlyArray<{ value: Privacy; label: string }> = [
-  { value: 'hidden', label: 'Oculta' },
-  { value: 'public', label: 'Pública' },
-  { value: 'secret', label: 'Secreta' },
-];
+/** The privacy values Image Chest accepts; the label is UI copy, not data. */
+export const PRIVACY_VALUES: ReadonlyArray<Privacy> = ['hidden', 'public', 'secret'];
 
 /** Where Image Chest hands out the personal API token. */
 export const IMAGE_CHEST_API_KEY_URL = 'https://imgchest.com/profile/api';
@@ -72,18 +71,20 @@ export type ImageChestErrorCode =
 
 export class ImageChestError extends Error {
   readonly code: ImageChestErrorCode;
+  readonly text: TextRef;
   readonly status: number | null;
   readonly retryAfterSeconds: number | null;
 
   constructor(
     code: ImageChestErrorCode,
-    message: string,
+    message: TextRef,
     status: number | null = null,
     retryAfterSeconds: number | null = null,
   ) {
-    super(message);
+    super(message.key);
     this.name = 'ImageChestError';
     this.code = code;
+    this.text = message;
     this.status = status;
     this.retryAfterSeconds = retryAfterSeconds;
   }
@@ -172,71 +173,47 @@ export function isImageChestLink(link: string): boolean {
   }
 }
 
-export function uploadErrorMessage(error: unknown): string {
-  if (error instanceof ImageChestError) return error.message;
-  if (error instanceof Error && error.message) {
-    return `Não foi possível subir a imagem. ${error.message}`;
-  }
-  return 'Não foi possível subir a imagem. Tente de novo.';
+export function uploadErrorMessage(error: unknown): TextRef {
+  return textOf(error) ?? text('imagechest.uploadFailed');
 }
 
 function unauthorized(): ImageChestError {
-  return new ImageChestError(
-    'unauthorized',
-    'O token do Image Chest foi recusado. Confira o token em Configurações.',
-    401,
-  );
+  return new ImageChestError('unauthorized', text('imagechest.unauthorized'), 401);
 }
 
 function noToken(): ImageChestError {
-  return new ImageChestError(
-    'no-token',
-    'Salve o token do Image Chest em Configurações antes de subir.',
-  );
+  return new ImageChestError('no-token', text('imagechest.noToken'));
 }
 
 function tooLarge(name?: string): ImageChestError {
-  const which = name ? `"${name}"` : 'A imagem';
-  return new ImageChestError(
-    'too-large',
-    `${which} passa de 20 MB, o limite do Image Chest por arquivo. Reduza a escala ou otimize o arquivo.`,
-    413,
-  );
+  return name
+    ? new ImageChestError('too-large', text('imagechest.tooLargeNamed', { name }), 413)
+    : new ImageChestError('too-large', text('imagechest.tooLarge'), 413);
 }
 
 function rateLimited(seconds: number): ImageChestError {
   return new ImageChestError(
     'rate-limited',
-    `O Image Chest está limitando os pedidos. Tente de novo em ${seconds}s.`,
+    text('imagechest.rateLimited', { seconds }),
     429,
     seconds,
   );
 }
 
 function serverFailure(status: number): ImageChestError {
-  return new ImageChestError(
-    'server',
-    `O Image Chest respondeu ${status}. Tente de novo em instantes.`,
-    status,
-  );
+  return new ImageChestError('server', text('imagechest.serverFailure', { status }), status);
 }
 
 function malformed(): ImageChestError {
-  return new ImageChestError(
-    'malformed',
-    'O Image Chest respondeu sem um link direto. Tente de novo.',
-  );
+  return new ImageChestError('malformed', text('imagechest.malformed'));
 }
 
 function malformedAccount(): ImageChestError {
-  return new ImageChestError(
-    'malformed',
-    'O Image Chest respondeu sem os dados da conta. Confira o token.',
-  );
+  return new ImageChestError('malformed', text('imagechest.malformedAccount'));
 }
 
-function invalidPost(postId: string, reason: string): ImageChestError {
-  return new ImageChestError('invalid-post', `O Post "${postId}" ${reason}. Confira o id.`, 404);
+function invalidPost(postId: string, reason: MessageKey): ImageChestError {
+  return new ImageChestError('invalid-post', { key: reason, params: { postId } }, 404);
 }
 
 async function send(
@@ -247,11 +224,10 @@ async function send(
     return await transport.send(request);
   } catch (reason) {
     if (reason instanceof ImageChestError) throw reason;
-    const detail = reason instanceof Error && reason.message ? ` (${reason.message})` : '';
-    throw new ImageChestError(
-      'offline',
-      `Sem conexão com o Image Chest. Verifique a internet e tente de novo.${detail}`,
-    );
+    const detail =
+      textOf(reason) ??
+      (reason instanceof Error && reason.message ? reason.message : text('common.unknownCause'));
+    throw new ImageChestError('offline', text('imagechest.offline', { detail }));
   }
 }
 
@@ -368,8 +344,8 @@ async function requirePost(
     token,
   });
 
-  if (response.status === 404) throw invalidPost(postId, 'não existe');
-  if (response.status === 403) throw invalidPost(postId, 'não pode receber imagens');
+  if (response.status === 404) throw invalidPost(postId, 'imagechest.postMissing');
+  if (response.status === 403) throw invalidPost(postId, 'imagechest.postNoImages');
   const failure = failureFor(response);
   if (failure) throw failure;
   if (response.status !== 200) throw serverFailure(response.status);
@@ -415,14 +391,14 @@ export async function uploadBatch(input: UploadBatchInput): Promise<UploadBatchO
   const token = input.token.trim();
   if (!token) throw noToken();
   if (input.files.length === 0) {
-    throw new ImageChestError('malformed', 'Nenhum arquivo para subir.');
+    throw new ImageChestError('malformed', text('imagechest.noFiles'));
   }
   for (const file of input.files) {
     if (file.bytes.length > MAX_UPLOAD_BYTES) throw tooLarge(file.name);
   }
 
   const postId = (input.postId ?? '').trim();
-  if (postId && !isPostId(postId)) throw invalidPost(postId, 'não parece um id válido');
+  if (postId && !isPostId(postId)) throw invalidPost(postId, 'imagechest.postInvalid');
   const known = postId
     ? (input.knownImages ?? (await requirePost(input.transport, token, postId)))
     : null;
@@ -447,17 +423,13 @@ export async function uploadBatch(input: UploadBatchInput): Promise<UploadBatchO
   });
 
   if (postId && response.status === 403) {
-    throw invalidPost(postId, 'não é seu ou não pode receber imagens');
+    throw invalidPost(postId, 'imagechest.postNotYours');
   }
   if (response.status === 404) {
     // Appending to a Post that no longer exists is a bad Post id, not a server
     // hiccup — and it must never look like a reason to demote a Gold account.
-    if (postId) throw invalidPost(postId, 'não existe');
-    throw new ImageChestError(
-      'server',
-      'O Image Chest não aceitou o upload (404). Tente de novo.',
-      404,
-    );
+    if (postId) throw invalidPost(postId, 'imagechest.postMissing');
+    throw new ImageChestError('server', text('imagechest.notAccepted'), 404);
   }
   const failure = failureFor(response);
   if (failure) throw failure;

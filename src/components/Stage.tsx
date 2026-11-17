@@ -26,6 +26,7 @@ import {
   renderFrame,
 } from '../core/render';
 import { type StageMode } from '../core/stageMode';
+import { useI18n } from '../hooks/useI18n';
 
 /** Screen pixels of drag before a free resize starts snapping. */
 const SNAP_START_PX = 6;
@@ -44,17 +45,6 @@ const CENTRE_SNAP_EPSILON = 0.01;
 const NO_CENTRE_SNAP = { x: false, y: false } as const;
 
 const HANDLES: readonly Handle[] = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
-
-const HANDLE_LABELS: Record<Handle, string> = {
-  nw: 'canto superior esquerdo',
-  n: 'borda superior',
-  ne: 'canto superior direito',
-  e: 'borda direita',
-  se: 'canto inferior direito',
-  s: 'borda inferior',
-  sw: 'canto inferior esquerdo',
-  w: 'borda esquerda',
-};
 
 const MAGNIFIER_SIZE = 184;
 const MAGNIFIER_CANVAS = 180;
@@ -120,6 +110,17 @@ export function Stage({
   onPickColor,
   onPickMiss,
 }: StageProps) {
+  const { t } = useI18n();
+  const handleLabels: Record<Handle, string> = {
+    nw: t('stage.handleNw'),
+    n: t('stage.handleN'),
+    ne: t('stage.handleNe'),
+    e: t('stage.handleE'),
+    se: t('stage.handleSe'),
+    s: t('stage.handleS'),
+    sw: t('stage.handleSw'),
+    w: t('stage.handleW'),
+  };
   const hostRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<HTMLDivElement>(null);
   const backdropRef = useRef<HTMLCanvasElement>(null);
@@ -697,7 +698,7 @@ export function Stage({
       onPointerUp={endDrag}
       onPointerCancel={endDrag}
       onPointerLeave={() => setMagnifier(null)}
-      aria-label="Área de edição do Crop"
+      aria-label={t('stage.areaLabel')}
       role="group"
     >
       <div className="scene" ref={sceneRef} style={sceneStyle}>
@@ -746,7 +747,7 @@ export function Stage({
             <span className={`centre-line vertical${centreSnap.x ? ' on' : ''}`} />
             <span className={`centre-line horizontal${centreSnap.y ? ' on' : ''}`} />
             <span className={`centre-hint${centreSnap.x || centreSnap.y ? ' on' : ''}`}>
-              Grudado no centro · Alt solta
+              {t('stage.centreSnapHint')}
             </span>
           </div>
         )}
@@ -761,8 +762,8 @@ export function Stage({
                 key={handle}
                 type="button"
                 className={`frame-handle ${handle}`}
-                aria-label={`Ajustar Frame: ${HANDLE_LABELS[handle]}`}
-                title={`${HANDLE_LABELS[handle]} · setas ajustam 1 px na tela · Shift solta a proporção`}
+                aria-label={t('stage.handleAriaLabel', { handle: handleLabels[handle] })}
+                title={t('stage.handleTitle', { handle: handleLabels[handle] })}
                 onPointerDown={(event) => startResize(event, handle)}
                 onPointerMove={moveResize}
                 onPointerUp={endResize}
@@ -795,7 +796,7 @@ export function Stage({
             role="status"
             aria-live="polite"
           >
-            {`${ratioLabel(doc.frame.ratio)}`}
+            {ratioLabel(doc.frame.ratio, t('ratio.custom'))}
           </div>
         )}
       </div>

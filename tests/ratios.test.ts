@@ -28,12 +28,12 @@ describe('ratio presets', () => {
     expect(ids).toContain('square');
   });
 
-  it('labels the current orientation and calls a free ratio Personalizado', () => {
-    expect(ratioLabel(MUDAE_RATIO)).toBe('Mudae 9:14');
-    expect(ratioLabel(1 / MUDAE_RATIO)).toBe('Mudae 14:9');
-    expect(ratioLabel(16 / 9)).toBe('16:9');
-    expect(ratioLabel(1)).toBe('1:1');
-    expect(ratioLabel(1.2)).toBe('Personalizado');
+  it('labels a preset proportion and falls back to the caller free label', () => {
+    expect(ratioLabel(MUDAE_RATIO, 'Custom')).toBe('Mudae 9:14');
+    expect(ratioLabel(1 / MUDAE_RATIO, 'Custom')).toBe('Mudae 14:9');
+    expect(ratioLabel(16 / 9, 'Custom')).toBe('16:9');
+    expect(ratioLabel(1, 'Custom')).toBe('1:1');
+    expect(ratioLabel(1.2, 'Custom')).toBe('Custom');
   });
 
   it('splits portrait, landscape and square', () => {

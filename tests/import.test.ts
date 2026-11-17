@@ -1,3 +1,4 @@
+import { text } from '../src/core/i18n/text';
 import { describe, expect, it, vi } from 'vitest';
 import { createCanvas } from '@napi-rs/canvas';
 import {
@@ -212,7 +213,7 @@ describe('loadSource', () => {
     await expect(attempt).rejects.toBeInstanceOf(ImportError);
     await expect(attempt).rejects.toMatchObject({
       code: 'unsupported',
-      message: 'Formato não suportado: .bmp. Use PNG, JPG, GIF, WebP, APNG, MP4, MOV ou WebM.',
+      text: text('import.unsupportedExt', { ext: 'bmp' }),
     });
   });
 
@@ -221,7 +222,7 @@ describe('loadSource', () => {
       loadSource({ name: 'actually-bmp.png', path: null, bytes: BMP }, decodes),
     ).rejects.toMatchObject({
       code: 'corrupt',
-      message: 'Não foi possível ler "actually-bmp.png". O arquivo pode estar corrompido.',
+      text: text('import.corrupt', { name: 'actually-bmp.png' }),
     });
   });
 
@@ -233,7 +234,7 @@ describe('loadSource', () => {
       loadSource({ name: 'broken.png', path: null, bytes: PNG }, failing),
     ).rejects.toMatchObject({
       code: 'corrupt',
-      message: 'Não foi possível ler "broken.png". O arquivo pode estar corrompido.',
+      text: text('import.corrupt', { name: 'broken.png' }),
     });
   });
 
@@ -255,7 +256,7 @@ describe('loadSource', () => {
   });
 
   it('turns unknown failures into a readable message', () => {
-    expect(importErrorMessage(new Error('boom'))).toBe('boom');
-    expect(importErrorMessage('text')).toBe('Não foi possível abrir essa imagem.');
+    expect(importErrorMessage(new Error('boom'))).toEqual(text('import.failed'));
+    expect(importErrorMessage('text')).toEqual(text('import.failed'));
   });
 });

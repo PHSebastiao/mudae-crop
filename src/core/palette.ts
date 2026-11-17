@@ -3,6 +3,8 @@ import { sampleTrimIndices } from './animation';
 import { effectiveSource, effectiveTrim, type DocumentState } from './document';
 import { nativeSize } from './geometry';
 import { applySharpness, renderFrame, type RenderContext } from './render';
+import { text } from './i18n/text';
+import { KeyedError } from './errors';
 
 export const MIN_PALETTE = 4;
 export const MAX_PALETTE = 10;
@@ -469,7 +471,7 @@ export async function extractPaletteWithWaifu2x(
     : sampleTrimIndices(effectiveSource(doc), effectiveTrim(doc), MAX_WAIFU2X_PALETTE_FRAMES);
 
   for (const frameIndex of indices) {
-    if (signal?.aborted) throw new Error('Palette cancelada.');
+    if (signal?.aborted) throw new KeyedError(text('palette.cancelled'));
     // Match the Export's order: denoise the raw Crop, then sharpen it.
     renderFrame(
       ctx,

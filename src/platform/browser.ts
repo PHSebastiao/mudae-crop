@@ -9,6 +9,8 @@ import type { PaletteAdapter } from '../core/palette';
 import type { RenderContext } from '../core/render';
 import { deflateZlib } from './deflate';
 import { decodeVideoWithBrowser } from './video';
+import { text } from '../core/i18n/text';
+import { KeyedError } from '../core/errors';
 
 /** The one place that turns image bytes into a Blob with the matching MIME. */
 export function blobOf(bytes: Uint8Array, format: ImageFormat): Blob {
@@ -27,7 +29,7 @@ function canvasFromPixels(
   canvas.width = width;
   canvas.height = height;
   const context = canvas.getContext('2d');
-  if (!context) throw new Error('canvas 2D indisponível');
+  if (!context) throw new KeyedError(text('browser.noCanvas'));
   const copy = new Uint8ClampedArray(pixels.length);
   copy.set(pixels);
   context.putImageData(new ImageData(copy, width, height), 0, 0);
@@ -116,7 +118,7 @@ async function decodeWebCodecsAnimation(
       const context = canvas.getContext('2d');
       if (!context) {
         image.close();
-        throw new Error('canvas 2D indisponível');
+        throw new KeyedError(text('browser.noCanvas'));
       }
       context.drawImage(image as unknown as CanvasImageSource, 0, 0);
       const duration = image.duration;
@@ -188,7 +190,7 @@ export const browserExportAdapter: ExportAdapter = {
       return await encodeCanvasPng(canvas, deflateZlib);
     } catch (reason) {
       if (reason instanceof ExportError) throw reason;
-      throw new ExportError('Falha ao codificar o PNG.');
+      throw new ExportError(text('browser.pngEncodeFailed'));
     }
   },
   async decodePng(bytes: Uint8Array): Promise<CanvasImageSource> {
@@ -205,7 +207,7 @@ export const browserPaletteAdapter: PaletteAdapter = {
     canvas.width = width;
     canvas.height = height;
     const context = canvas.getContext('2d', { willReadFrequently: true });
-    if (!context) throw new Error('canvas 2D indisponível');
+    if (!context) throw new KeyedError(text('browser.noCanvas'));
     return { getContext: () => context as unknown as RenderContext };
   },
   encodePng: (canvas) => browserExportAdapter.encodePng(canvas as unknown as EncodableCanvas),

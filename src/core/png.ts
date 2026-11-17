@@ -1,3 +1,5 @@
+import { text } from './i18n/text';
+import { KeyedError } from './errors';
 /**
  * The app's own PNG writer. The platform canvas encoder writes one fixed row
  * filter and an alpha plane even when every pixel is opaque, which costs about
@@ -154,11 +156,11 @@ function concat(parts: readonly Uint8Array[]): Uint8Array {
 export async function encodePng(pixels: PngPixels, deflate: PngDeflate): Promise<Uint8Array> {
   const { data, width, height } = pixels;
   if (!(width > 0) || !(height > 0)) {
-    throw new Error('A PNG precisa de dimensões positivas.');
+    throw new KeyedError(text('png.positiveDimensions'));
   }
   const channels = data.length / (width * height);
   if (channels !== 3 && channels !== 4) {
-    throw new Error('A PNG precisa de 3 ou 4 canais por pixel.');
+    throw new KeyedError(text('png.channels'));
   }
   const source =
     data instanceof Uint8Array ? data : new Uint8Array(data.buffer, data.byteOffset, data.length);

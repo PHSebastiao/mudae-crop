@@ -1,5 +1,6 @@
 import type { OptimizeSettings } from './document';
 import { decodeGif } from './gif';
+import { text, type TextRef } from './i18n/text';
 
 /** One lossy/colour setting handed to the compressor. */
 export interface OptimizeCompression {
@@ -33,7 +34,7 @@ export interface OptimizeResult {
   readonly attempts: number;
   readonly droppedFrames: number;
   /** Set when the compressor or a candidate failed; the base bytes are kept. */
-  readonly error?: string;
+  readonly error?: TextRef;
 }
 
 export interface OptimizeHooks {
@@ -42,9 +43,13 @@ export interface OptimizeHooks {
 }
 
 export class OptimizeCancelledError extends Error {
+  readonly text: TextRef;
+
   constructor() {
-    super('Otimização cancelada.');
+    const message = text('optimize.cancelled');
+    super(message.key);
     this.name = 'OptimizeCancelledError';
+    this.text = message;
   }
 }
 
@@ -158,7 +163,7 @@ export async function optimizeGif(
     colors: null,
   };
   let attempts = 0;
-  let error: string | undefined;
+  let error: TextRef | undefined;
 
   let width = 0;
   let height = 0;
@@ -179,7 +184,7 @@ export async function optimizeGif(
       colors: null,
       attempts: 0,
       droppedFrames,
-      error: 'O GIF base é inválido.',
+      error: text('optimize.baseInvalid'),
     };
   }
 
@@ -200,12 +205,12 @@ export async function optimizeGif(
         level: 3,
       });
       if (!isValidGif(candidate, width, height)) {
-        error = 'O compressor devolveu um GIF inválido.';
+        error = text('optimize.outputInvalid');
         return;
       }
       if (replaceBestSoFar(best, candidate, lossy, colors)) error = undefined;
     } catch {
-      error = 'Não foi possível comprimir o GIF; o arquivo sem otimização foi mantido.';
+      error = text('optimize.failed');
     }
   };
 

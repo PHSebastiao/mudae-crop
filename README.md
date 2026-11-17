@@ -11,8 +11,8 @@
 
 ## O que é
 
-O mudae crop faz o caminho inteiro em uma janela: traz uma ou várias Sources,
-enquadra cada uma no Frame do card, ajusta a Borda e a Palette, trata o GIF e
+O mudae crop faz o caminho inteiro em uma janela: traz uma ou várias origens,
+enquadra cada uma na moldura do card, ajusta a Borda e a paleta, trata o GIF e
 exporta um PNG ou GIF pronto para o `$ai` — ou manda o lote inteiro para o
 Image Chest de uma vez.
 
@@ -21,40 +21,45 @@ Image Chest.
 
 ## Recursos
 
-- **Source** de arquivo, arrastar e soltar, Ctrl+V, link ou caminho local: PNG,
+- **Origem** de arquivo, arrastar e soltar, Ctrl+V, link ou caminho local: PNG,
   JPG, GIF, WebP, APNG e vídeos MP4/MOV/WebM.
-- **Board** com várias Tiles: cada Source tem o seu Frame, Crop, Borda, Pad e
-  tamanho de Export (o formato PNG/GIF é da sessão); a Tile ativa comanda os
-  ajustes, a Palette e a reprodução, o X remove a Tile (a última volta à tela
-  inicial) e o **Reordenar** arrasta a ordem.
-- **Importação em lote** pelo diálogo, arrastar e soltar ou Ctrl+V: cada Tile
+- **Prancheta** com vários blocos: cada origem tem a sua moldura, recorte, Borda,
+  preenchimento e tamanho de exportação (o formato PNG/GIF é da sessão); o bloco
+  ativo comanda os ajustes, a paleta e a reprodução, o X remove o bloco (o último
+  volta à tela inicial) e o **Reordenar** arrasta a ordem.
+- **Importação em lote** pelo diálogo, arrastar e soltar ou Ctrl+V: cada bloco
   aparece assim que o arquivo carrega, sem esperar o lote inteiro.
-- **Spotlight**: duplo clique numa Tile abre a Source inteira em tela cheia, com
-  o Crop em destaque e o que ficou de fora em volta.
-- **Navegação**: a roda rola o Board, Ctrl+roda dá zoom no Board e a roda sobre a
-  imagem dá zoom no Crop.
-- **Frame** por proporção, com Fit, Pad, largura/altura total, zoom, pan e
-  rotação em 90°.
-- **Ajustar Frame** abre a Tile no spotlight com oito alças, proporção travada,
+- **Destaque**: duplo clique num bloco abre a origem inteira em tela cheia, com o
+  recorte em destaque e o que ficou de fora em volta.
+- **Navegação**: a roda rola a prancheta, Ctrl+roda dá zoom na prancheta e a roda
+  sobre a imagem dá zoom no recorte.
+- **Moldura** por proporção, com Cobrir, Conter, largura/altura total, zoom,
+  deslocamento e rotação em 90°.
+- **Ajustar moldura** abre o bloco em destaque com oito alças, proporção travada,
   encaixe de proporção e centro, e guias de terços.
-- **Borda** de 1 px branca por padrão, sem teto de largura e escalando com o
-  Export (1 px no card 1× vira 2 px no 2×), com a **Palette** extraída do Crop
-  (inclusive de GIFs) e cópia do HEX.
-- **Sharpness** e **waifu2x** opcional (denoise 1×, 2× ou 4×) pelo sidecar
-  Vulkan.
-- **GIF tools**: trim, velocidade, grade de quadros, remover/retomar quadro e
-  otimização com alvo de 10 MB.
-- **Export** PNG ou GIF, no tamanho nativo, Carta 1×/2× ou resize com trava de
-  proporção; aviso de 10 MB e estimativa de tamanho. **Exportar todas** escolhe
-  uma pasta e nunca sobrescreve um arquivo existente.
+- **Borda** de 1 px branca por padrão, sem teto de largura e escalando com a
+  exportação (1 px no card 1× vira 2 px no 2×), com a **paleta** extraída do
+  recorte (inclusive de GIFs) e cópia do HEX.
+- **Nitidez** e **waifu2x** opcional (redução de ruído em 1×, 2× ou 4×) pelo
+  sidecar Vulkan.
+- **Ferramentas de GIF**: trecho, velocidade, grade de quadros, remover/retomar
+  quadro e otimização com alvo de 10 MB.
+- **Exportação** em PNG ou GIF, no tamanho nativo, Carta 1×/2× ou tamanho
+  personalizado com trava de proporção; aviso de 10 MB e estimativa de tamanho.
+  **Exportar todos** escolhe uma pasta e nunca sobrescreve um arquivo existente.
 - **Upload** para o Image Chest com link direto copiado, crédito opcional na
-  descrição (desligado por padrão; só a primeira imagem quando o lote vira um
-  Post só) e Histórico de 50 itens. **Subir todas** manda o lote num Post só — ou
-  um Post por Tile, com o checkbox **mesmo Post** — em blocos de 20 (200 quando
-  a conta é Gold) e copia os links separados por `$`.
-- A janela lembra tamanho e posição; cada abertura começa com o Board vazio.
+  descrição (desligado por padrão; só a primeira imagem quando o lote vira uma
+  publicação só) e histórico de 50 itens. **Subir todos** manda o lote numa
+  publicação só — ou uma publicação por bloco, com o checkbox **mesma
+  publicação** — em lotes de 20 (200 quando a conta é Gold) e copia os links
+  separados por `$`.
+- **Seis idiomas** — português, inglês, espanhol, russo, japonês e chinês. A
+  primeira abertura segue o idioma do Windows (e cai em inglês se não houver
+  correspondência); depois disso **Configurações → Idioma** troca na hora, sem
+  reiniciar.
+- A janela lembra tamanho e posição; cada abertura começa com a prancheta vazia.
 - **Tour de boas-vindas** na primeira abertura: um passo a passo que destaca a
-  Source, a proporção, o Board e o Export. Pode ser revisto em
+  origem, a proporção, a prancheta e a exportação. Pode ser revisto em
   **Configurações → Sobre**.
 
 ## Instalação
@@ -69,7 +74,7 @@ Há três opções:
 | `Mudae-Crop-<versão>-win64.exe`          | Executável sozinho, sem waifu2x.                            |
 
 O instalador baixa o WebView2 se ele não estiver presente; o ZIP e o `.exe`
-sozinho precisam do WebView2 já instalado. As configurações e o Histórico ficam
+sozinho precisam do WebView2 já instalado. As configurações e o histórico ficam
 em `%LOCALAPPDATA%\Mudae Crop`.
 
 As três builds se atualizam sozinhas: o app consulta o `latest.json` da última
@@ -106,6 +111,14 @@ O ícone do app sai de `assets/icon.svg`; `npm run icon` regenera os arquivos de
 `src-tauri/icons` para todas as plataformas. Ele renderiza um master de 1024 px
 antes de reduzir, para a borda fina não quebrar nos tamanhos pequenos.
 
+### Idiomas
+
+As mensagens vivem em `src/core/i18n/messages.<locale>.ts`: o pt-BR é a
+referência, e o tipo `Catalog` obriga cada idioma a ter todas as chaves, então
+uma tradução esquecida não compila. `docs/i18n.md` traz a política, a tabela de
+termos por idioma e o passo a passo para adicionar um idioma; o ADR-0007 explica
+por que não há biblioteca de i18n.
+
 ### Onboarding (product tour)
 
 O tour de primeira abertura é o primitivo `Tour` em
@@ -115,13 +128,13 @@ apontam para ids reais (`#tour-source`, `#tour-proportion`, `#tour-tools`,
 `#tour-shortcuts`). O flag `tourSeen` fica em `settings.json`; terminar ou pular
 grava o flag, e **Configurações → Sobre → Ver o tour novamente** abre de novo.
 
-A etapa **Abra a Source** é interativa: o scrim é recortado em quatro painéis
+A etapa **Abra a origem** é interativa: o scrim é recortado em quatro painéis
 em volta do campo, então o input e o botão de arquivo continuam utilizáveis. No
-momento em que uma Source carrega, o tour troca sozinho para os passos do editor
-(Ajustes da Source, Board, Export, Borda) em vez de continuar no tour básico. Se
-o tour básico terminar antes da primeira importação, a primeira Source abre o
-tour do editor uma vez, começando na proporção; o flag `editorTourSeen` guarda
-essa escolha.
+momento em que uma origem carrega, o tour troca sozinho para os passos do editor
+(ajustes da origem, prancheta, exportação, Borda) em vez de continuar no tour
+básico. Se o tour básico terminar antes da primeira importação, a primeira
+origem abre o tour do editor uma vez, começando na proporção; o flag
+`editorTourSeen` guarda essa escolha.
 
 Os estilos do tour são as regras `.tour-*` em `src/styles.css`; a animação usa
 `framer-motion` e os ícones vêm de `lucide-react`.
@@ -181,7 +194,7 @@ tests/          Vitest sobre src/core
 ```
 
 O `renderFrame()` em `src/core/render.ts` é o único caminho de renderização:
-Preview, Export e Palette passam por ele.
+Preview, exportação e paleta passam por ele.
 
 ## Notas
 

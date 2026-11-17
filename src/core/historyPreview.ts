@@ -1,5 +1,6 @@
 import { MAX_DOWNLOAD_BYTES } from './download';
 import type { ExportEntry, HistoryFormat } from './history';
+import { text, textOf, type TextRef } from './i18n/text';
 
 /**
  * Reads a saved Export from disk. The platform supplies this: the file lives
@@ -28,11 +29,13 @@ export type HistoryPreviewErrorCode = 'unreadable' | 'too-large';
 
 export class HistoryPreviewError extends Error {
   readonly code: HistoryPreviewErrorCode;
+  readonly text: TextRef;
 
-  constructor(code: HistoryPreviewErrorCode, message: string) {
-    super(message);
+  constructor(code: HistoryPreviewErrorCode, message: TextRef) {
+    super(message.key);
     this.name = 'HistoryPreviewError';
     this.code = code;
+    this.text = message;
   }
 }
 
@@ -85,21 +88,22 @@ export function createHistoryPreviewLoader(options: HistoryPreviewOptions): Hist
       try {
         bytes = await read(entry.path);
       } catch (reason) {
-        const detail = reason instanceof Error && reason.message ? ` ${reason.message}` : '';
-        throw new HistoryPreviewError('unreadable', `Não foi possível ler o Export.${detail}`);
+        const detail =
+          textOf(reason) ??
+          (reason instanceof Error && reason.message
+            ? reason.message
+            : text('common.unknownCause'));
+        throw new HistoryPreviewError('unreadable', text('historyPreview.unreadable', { detail }));
       }
       if (bytes.length > maxBytes) {
-        throw new HistoryPreviewError(
-          'too-large',
-          'O arquivo do Export é grande demais para a prévia.',
-        );
+        throw new HistoryPreviewError('too-large', text('historyPreview.tooLarge'));
       }
       const url = adapter.createUrl(bytes, entry.format);
       // The History may have cleared this row while the read was in flight.
       // Only the request still registered for this key may own the URL.
       if (cache.get(key)?.token !== token) {
         adapter.revokeUrl(url);
-        throw new HistoryPreviewError('unreadable', 'O Export saiu do Histórico.');
+        throw new HistoryPreviewError('unreadable', text('historyPreview.gone'));
       }
       return url;
     })();

@@ -171,13 +171,15 @@ describe('uploadBatch', () => {
 
     await expect(
       uploadBatch({ ...base, transport, files: [file('ok.png'), huge] }),
-    ).rejects.toThrow(/20 MB/);
+    ).rejects.toMatchObject({ code: 'too-large' });
     expect(requests).toHaveLength(0);
   });
 
   it('refuses an empty batch', async () => {
     const { transport } = script([]);
-    await expect(uploadBatch({ ...base, transport, files: [] })).rejects.toThrow(/Nenhum arquivo/);
+    await expect(uploadBatch({ ...base, transport, files: [] })).rejects.toMatchObject({
+      code: 'malformed',
+    });
   });
 });
 

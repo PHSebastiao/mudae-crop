@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { text } from '../src/core/i18n/text';
 import { withBorder } from '../src/core/document';
 import {
   EMPTY_DOCUMENT,
@@ -59,16 +60,16 @@ describe('Workspace', () => {
   it('keeps the Active Tile when a failed import is appended', () => {
     const workspace = workspaceWith(2);
     const active = workspace.activeId;
-    const failed = addFailedTile(workspace, 'arquivo corrompido');
+    const failed = addFailedTile(workspace, text('import.corrupt', { name: 'a.png' }));
 
     expect(failed.tiles).toHaveLength(3);
     expect(failed.activeId).toBe(active);
-    expect(failed.tiles[2].error).toBe('arquivo corrompido');
+    expect(failed.tiles[2].error).toEqual(text('import.corrupt', { name: 'a.png' }));
     expect(failed.tiles[2].doc.source).toBeNull();
   });
 
   it('leaves a failed import inactive on an empty Board', () => {
-    const failed = addFailedTile(EMPTY_WORKSPACE, 'nada');
+    const failed = addFailedTile(EMPTY_WORKSPACE, text('import.failed'));
     expect(failed.activeId).toBeNull();
   });
 
@@ -123,7 +124,7 @@ describe('Workspace', () => {
   });
 
   it('lists only the Tiles a batch can act on', () => {
-    const workspace = addFailedTile(workspaceWith(2), 'ruim');
+    const workspace = addFailedTile(workspaceWith(2), text('import.failed'));
     expect(readyTiles(workspace)).toHaveLength(2);
   });
 
@@ -152,7 +153,7 @@ describe('batch activation', () => {
 
 describe('removal with a failed neighbour', () => {
   it('skips a placeholder and hands the controls to a ready Tile', () => {
-    const withFailure = addFailedTile(workspaceWith(2), 'ruim');
+    const withFailure = addFailedTile(workspaceWith(2), text('import.failed'));
     const [first, second] = withFailure.tiles;
     const next = removeTile({ ...withFailure, activeId: second.id }, second.id);
     expect(next.activeId).toBe(first.id);

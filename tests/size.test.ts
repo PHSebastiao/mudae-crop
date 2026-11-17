@@ -30,10 +30,12 @@ describe('export size helpers', () => {
     expect(aspectMatches({ width: 350, height: 0 }, ratio)).toBe(false);
   });
 
-  it('formats landscape and portrait ratios with a decimal comma', () => {
-    expect(formatAspect({ width: 350, height: 225 })).toBe('1,56:1');
-    expect(formatAspect({ width: 225, height: 350 })).toBe('1:1,56');
-    expect(formatAspect({ width: 350, height: 350 })).toBe('1,00:1');
+  it('formats landscape and portrait ratios in the locale decimals', () => {
+    expect(formatAspect({ width: 350, height: 225 }, 'pt-BR')).toBe('1,56:1');
+    expect(formatAspect({ width: 225, height: 350 }, 'pt-BR')).toBe('1:1,56');
+    expect(formatAspect({ width: 350, height: 350 }, 'pt-BR')).toBe('1,00:1');
+    expect(formatAspect({ width: 350, height: 225 }, 'en')).toBe('1.56:1');
+    expect(formatAspect({ width: 225, height: 350 }, 'zh-Hans')).toBe('1:1.56');
   });
 
   it('flags an output that asks for more pixels than the Source has', () => {

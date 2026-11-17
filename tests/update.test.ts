@@ -16,21 +16,24 @@ function status(phase: UpdateStatus['phase'], version: string | null = null): Up
 describe('update', () => {
   it('starts idle and says so', () => {
     expect(IDLE_UPDATE.phase).toBe('idle');
-    expect(describeUpdate(IDLE_UPDATE)).toBe('Ainda não verificado');
+    expect(describeUpdate(IDLE_UPDATE)).toEqual({ key: 'update.statusIdle' });
   });
 
   it('names the offered version in the Sobre row', () => {
-    expect(describeUpdate(status('available', '0.2.0'))).toBe('Nova versão 0.2.0 disponível');
-    expect(describeUpdate(status('available'))).toBe('Nova versão disponível');
+    expect(describeUpdate(status('available', '0.2.0'))).toEqual({
+      key: 'update.statusAvailableVersion',
+      params: { version: '0.2.0' },
+    });
+    expect(describeUpdate(status('available'))).toEqual({ key: 'update.statusAvailable' });
   });
 
   it('distinguishes a failed check from a failed install', () => {
-    expect(describeUpdate(status('failed'))).toBe('Não foi possível verificar');
-    expect(describeUpdate(status('failed', '0.2.0'))).toBe('Falha ao atualizar');
+    expect(describeUpdate(status('failed'))).toEqual({ key: 'update.statusCheckFailed' });
+    expect(describeUpdate(status('failed', '0.2.0'))).toEqual({ key: 'update.statusFailed' });
   });
 
   it('never calls a browser build updated', () => {
-    expect(describeUpdate(status('unsupported'))).toBe('Verificação só no app desktop');
+    expect(describeUpdate(status('unsupported'))).toEqual({ key: 'update.statusUnsupported' });
   });
 
   it('keeps a skipped version quiet but lets a newer one through', () => {
@@ -59,7 +62,10 @@ describe('update', () => {
   });
 
   it('keeps the progress line readable without a total', () => {
-    expect(describeProgress(10, null)).toBe('Baixando…');
-    expect(describeProgress(50, 200)).toBe('Baixando… 25%');
+    expect(describeProgress(10, null)).toEqual({ key: 'update.statusDownloading' });
+    expect(describeProgress(50, 200)).toEqual({
+      key: 'update.progressPercent',
+      params: { percent: 25 },
+    });
   });
 });

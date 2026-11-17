@@ -6,6 +6,8 @@ import {
   type Source,
   type Trim,
 } from './document';
+import { decimal } from './format';
+import type { Locale } from './i18n/locale';
 
 /** One cycle of the active Trim at the requested speed, in milliseconds. */
 export function trimDurationMs(
@@ -51,9 +53,9 @@ export function sampleTrimIndices(
 }
 
 /** Seconds rendered as one decimal, for the timeline readout. */
-export function formatDuration(ms: number): string {
-  if (!Number.isFinite(ms) || ms <= 0) return '0,0 s';
-  return `${(ms / 1000).toFixed(1).replace('.', ',')} s`;
+export function formatDuration(ms: number, locale: Locale): string {
+  if (!Number.isFinite(ms) || ms <= 0) return `${decimal(0, 1, locale)} s`;
+  return `${decimal(ms / 1000, 1, locale)} s`;
 }
 
 /** Minutes and seconds, for long video durations. */
@@ -66,14 +68,14 @@ export function formatClock(ms: number): string {
 }
 
 /** The GIF-style readout for short clips, clock style for long videos. */
-export function formatPlaybackDuration(ms: number): string {
-  return ms >= 60_000 ? formatClock(ms) : formatDuration(ms);
+export function formatPlaybackDuration(ms: number, locale: Locale): string {
+  return ms >= 60_000 ? formatClock(ms) : formatDuration(ms, locale);
 }
 
 /** A detected video frame rate, without a trailing .0 for integer rates. */
-export function formatFps(fps: number): string {
+export function formatFps(fps: number, locale: Locale): string {
   if (!Number.isFinite(fps) || fps <= 0) return '—';
-  return Number.isInteger(fps) ? String(fps) : fps.toFixed(2).replace('.', ',');
+  return Number.isInteger(fps) ? String(fps) : decimal(fps, 2, locale);
 }
 
 /**

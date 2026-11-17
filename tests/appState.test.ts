@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { text } from '../src/core/i18n/text';
 import {
   IDLE_DOWNLOAD,
   INITIAL_APP_SHELL,
@@ -13,7 +14,7 @@ function run(...actions: readonly AppShellAction[]): AppShellState {
   return actions.reduce(reduceAppShell, INITIAL_APP_SHELL);
 }
 
-const action: NoticeAction = { label: 'Abrir Configurações', run: () => undefined };
+const action: NoticeAction = { label: text('app.openSettings'), run: () => undefined };
 
 describe('activity', () => {
   it('starts only when idle and names the operation that owns the app', () => {
@@ -43,24 +44,24 @@ describe('activity', () => {
 
 describe('notice', () => {
   it('holds one kind at a time: info replaces an error and drops its action', () => {
-    const failed = run({ type: 'fail', message: 'falhou', action });
-    expect(failed.notice).toEqual({ kind: 'error', message: 'falhou', action });
+    const failed = run({ type: 'fail', message: text('notice.busy'), action });
+    expect(failed.notice).toEqual({ kind: 'error', message: text('notice.busy'), action });
 
-    const informed = reduceAppShell(failed, { type: 'inform', message: 'deu certo' });
-    expect(informed.notice).toEqual({ kind: 'info', message: 'deu certo' });
+    const informed = reduceAppShell(failed, { type: 'inform', message: text('common.cancelled') });
+    expect(informed.notice).toEqual({ kind: 'info', message: text('common.cancelled') });
   });
 
   it('keeps the action only on an error that was given one', () => {
-    expect(run({ type: 'fail', message: 'falhou', action: null }).notice).toEqual({
+    expect(run({ type: 'fail', message: text('notice.busy'), action: null }).notice).toEqual({
       kind: 'error',
-      message: 'falhou',
+      message: text('notice.busy'),
       action: null,
     });
   });
 
   it('clears back to none and leaves a cleared bar untouched', () => {
     const cleared = run(
-      { type: 'fail', message: 'falhou', action: null },
+      { type: 'fail', message: text('notice.busy'), action: null },
       { type: 'clear-notice' },
     );
 
@@ -69,10 +70,10 @@ describe('notice', () => {
   });
 
   it('dismisses an error but leaves an info untouched, as Settings does', () => {
-    const failed = run({ type: 'fail', message: 'falhou', action });
+    const failed = run({ type: 'fail', message: text('notice.busy'), action });
     expect(reduceAppShell(failed, { type: 'dismiss-error' }).notice).toBe(NO_NOTICE);
 
-    const informed = run({ type: 'inform', message: 'deu certo' });
+    const informed = run({ type: 'inform', message: text('common.cancelled') });
     expect(reduceAppShell(informed, { type: 'dismiss-error' })).toBe(informed);
   });
 });

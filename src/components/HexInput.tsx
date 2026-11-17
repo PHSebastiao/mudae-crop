@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { normalizeHexColor } from '../core/color';
+import { useI18n } from '../hooks/useI18n';
 
 interface HexInputProps {
   readonly value: string;
@@ -14,6 +15,7 @@ interface HexInputProps {
  * half-typed value never repaints the Border or the Pad. Escape cancels.
  */
 export function HexInput({ value, onCommit, label, className, disabled = false }: HexInputProps) {
+  const { t } = useI18n();
   const [draft, setDraft] = useState(value);
   const [invalid, setInvalid] = useState(false);
   const cancelRef = useRef(false);
@@ -63,7 +65,7 @@ export function HexInput({ value, onCommit, label, className, disabled = false }
       }}
       aria-label={label}
       aria-invalid={invalid}
-      title={invalid ? 'HEX inválido. Use #RRGGBB.' : 'HEX · Enter aplica · Esc cancela'}
+      title={invalid ? t('hex.invalid') : t('hex.title')}
       maxLength={7}
       spellCheck={false}
       autoComplete="off"

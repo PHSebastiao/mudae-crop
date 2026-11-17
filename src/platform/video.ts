@@ -1,6 +1,8 @@
 import type { ImageFormat, VideoSource } from '../core/document';
 import { clampSpeed, isVideoFormat } from '../core/document';
 import { ImportError, mimeFor, type DecodedImage } from '../core/import';
+import { text, type TextRef } from '../core/i18n/text';
+import { KeyedError } from '../core/errors';
 
 const FALLBACK_VIDEO_FPS = 30;
 
@@ -67,14 +69,14 @@ function waitForMetadata(video: HTMLVideoElement): Promise<void> {
     };
     const onError = () => {
       cleanup();
-      reject(new Error('codec não suportado'));
+      reject(new KeyedError(text('video.codec')));
     };
     video.addEventListener('loadedmetadata', onLoaded, { once: true });
     video.addEventListener('error', onError, { once: true });
   });
 }
 
-function unsupportedVideo(message: string): ImportError {
+function unsupportedVideo(message: TextRef): ImportError {
   return new ImportError('corrupt', message);
 }
 
@@ -88,7 +90,7 @@ export async function decodeVideoWithBrowser(
   format: ImageFormat,
 ): Promise<DecodedImage> {
   if (!isVideoFormat(format)) {
-    throw unsupportedVideo('Formato de vídeo não reconhecido.');
+    throw unsupportedVideo(text('video.unrecognisedFormat'));
   }
 
   const buffer = new ArrayBuffer(bytes.byteLength);
@@ -114,11 +116,11 @@ export async function decodeVideoWithBrowser(
     video.src = url;
     await waitForMetadata(video);
     if (!video.videoWidth || !video.videoHeight) {
-      throw unsupportedVideo('O vídeo não tem dimensões válidas.');
+      throw unsupportedVideo(text('video.noDimensions'));
     }
     const durationMs = Number.isFinite(video.duration) ? video.duration * 1000 : 0;
     if (durationMs <= 0) {
-      throw unsupportedVideo('O vídeo não tem duração válida.');
+      throw unsupportedVideo(text('video.noDuration'));
     }
     const fps = await detectFrameRate(video);
 
@@ -128,7 +130,7 @@ export async function decodeVideoWithBrowser(
     canvas.width = width;
     canvas.height = height;
     const context = canvas.getContext('2d');
-    if (!context) throw unsupportedVideo('Não foi possível criar o canvas do vídeo.');
+    if (!context) throw unsupportedVideo(text('video.noCanvas'));
 
     const draw = (): HTMLCanvasElement => {
       context.drawImage(video, 0, 0, width, height);
@@ -143,7 +145,7 @@ export async function decodeVideoWithBrowser(
     const seekToMsInternal = (ms: number): Promise<void> =>
       new Promise((resolve, reject) => {
         if (disposed) {
-          reject(new Error('vídeo descartado'));
+          reject(new KeyedError(text('video.disposed')));
           return;
         }
         const target = Math.max(0, Math.min(durationMs - 1, ms)) / 1000;
@@ -163,7 +165,7 @@ export async function decodeVideoWithBrowser(
         };
         const onError = () => {
           cleanup();
-          reject(new Error('falha ao buscar o frame do vídeo'));
+          reject(new KeyedError(text('video.frameFetchFailed')));
         };
         video.addEventListener('seeked', onSeeked, { once: true });
         video.addEventListener('error', onError, { once: true });
@@ -226,8 +228,6 @@ export async function decodeVideoWithBrowser(
   } catch (reason) {
     teardown();
     if (reason instanceof ImportError) throw reason;
-    throw unsupportedVideo(
-      'Não foi possível ler este vídeo. O codec pode não ser suportado pelo app.',
-    );
+    throw unsupportedVideo(text('video.unreadable'));
   }
 }

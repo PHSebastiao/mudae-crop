@@ -1,15 +1,15 @@
 import { useEffect, useRef, type KeyboardEvent } from 'react';
 import { MIN_FRAME_DELAY_MS, scaledDelayMs, type Animation } from '../core/document';
+import { decimalTrimmed } from '../core/format';
+import type { Locale } from '../core/i18n/locale';
+import { useI18n } from '../hooks/useI18n';
 import { NumberField } from './NumberField';
 
 /** Longest side of a thumbnail, in CSS pixels. */
 const THUMB_SIZE = 54;
 
-function formatSpeed(speed: number): string {
-  return `${speed
-    .toFixed(2)
-    .replace(/\.?0+$/, '')
-    .replace('.', ',')}×`;
+function formatSpeed(speed: number, locale: Locale): string {
+  return `${decimalTrimmed(speed, 2, locale)}×`;
 }
 
 interface FrameGridProps {
@@ -84,6 +84,7 @@ export function FrameGrid({
   onDelete,
   onRetime,
 }: FrameGridProps) {
+  const { locale, t } = useI18n();
   const frames = animation.frames;
   const last = Math.max(0, frames.length - 1);
   const selected = Math.min(last, Math.max(0, selectedIndex));
@@ -92,7 +93,7 @@ export function FrameGrid({
   const selectedDelay = selectedFrame
     ? scaledDelayMs(selectedFrame.delayMs, speed)
     : MIN_FRAME_DELAY_MS;
-  const speedLabel = formatSpeed(speed);
+  const speedLabel = formatSpeed(speed, locale);
 
   const onThumbKey = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
     if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
@@ -110,25 +111,29 @@ export function FrameGrid({
   };
 
   return (
-    <section className="frame-grid" aria-label="Quadros da animação">
+    <section className="frame-grid" aria-label={t('frames.label')}>
       <div className="frame-grid-bar">
-        <span className="frame-grid-title">Quadros</span>
+        <span className="frame-grid-title">{t('frames.title')}</span>
         <label
           className="frame-grid-delay"
           onFocusCapture={() => {
             if (!disabled) onSelect(selected);
           }}
         >
-          <span>{speed === 1 ? 'duração do quadro' : `duração a ${speedLabel}`}</span>
+          <span>
+            {speed === 1 ? t('frames.delay') : t('frames.delayAt', { speed: speedLabel })}
+          </span>
           <NumberField
             value={selectedDelay}
             onCommit={(delayMs) => onRetime(selected, delayMs)}
-            label="Duração do quadro selecionado em milissegundos"
+            label={t('frames.delayLabel')}
             disabled={disabled || frames.length === 0}
           />
           <span className="unit">ms</span>
           {selectedFrame && selectedFrame.delayMs !== selectedDelay && (
-            <span className="frame-grid-base">base {selectedFrame.delayMs} ms</span>
+            <span className="frame-grid-base">
+              {t('frames.base', { ms: selectedFrame.delayMs })}
+            </span>
           )}
         </label>
         <button
@@ -136,18 +141,18 @@ export function FrameGrid({
           className="link frame-grid-remove"
           onClick={() => onDelete(selected)}
           disabled={disabled || frames.length <= 1}
-          title="Remover o quadro selecionado"
+          title={t('frames.removeTitle')}
         >
-          remover quadro
+          {t('frames.remove')}
         </button>
         <span className="frame-grid-count">
-          quadro {selected + 1}/{frames.length}
+          {t('frames.count', { index: selected + 1, count: frames.length })}
         </span>
       </div>
       <div className="frame-grid-strip">
         {frames.map((frame, index) => {
           const delay = scaledDelayMs(frame.delayMs, speed);
-          const base = frame.delayMs === delay ? '' : `, base ${frame.delayMs} ms`;
+          const base = frame.delayMs === delay ? '' : t('frames.baseSuffix', { ms: frame.delayMs });
           return (
             <button
               key={index}
@@ -157,12 +162,17 @@ export function FrameGrid({
               onKeyDown={(event) => onThumbKey(event, index)}
               disabled={disabled}
               aria-pressed={index === selected}
-              aria-label={`Quadro ${index + 1} de ${frames.length}, ${delay} ms${base}`}
-              title={`Quadro ${index + 1} · ${delay} ms${base}`}
+              aria-label={t('frames.cellLabel', {
+                index: index + 1,
+                count: frames.length,
+                ms: delay,
+                base,
+              })}
+              title={t('frames.cellTitle', { index: index + 1, ms: delay, base })}
             >
               <FrameThumbnail image={frame.image} width={thumb.width} height={thumb.height} />
               <span className="frame-cell-meta">
-                {index + 1} · {delay} ms
+                {t('frames.cellMeta', { index: index + 1, ms: delay })}
               </span>
             </button>
           );

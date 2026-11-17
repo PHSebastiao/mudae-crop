@@ -192,13 +192,13 @@ describe('encodePng', () => {
   it('rejects a buffer that is neither RGB nor RGBA', async () => {
     await expect(
       encodePng({ data: new Uint8Array(10), width: 3, height: 3 }, identity),
-    ).rejects.toThrow();
+    ).rejects.toThrow('png.channels');
   });
 
   it('rejects a raster without positive dimensions', async () => {
     await expect(
       encodePng({ data: new Uint8Array(3), width: 0, height: 1 }, identity),
-    ).rejects.toThrow();
+    ).rejects.toThrow('png.positiveDimensions');
   });
 
   it('encodes a 3-channel buffer as RGB', async () => {

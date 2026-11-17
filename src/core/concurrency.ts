@@ -1,3 +1,5 @@
+import { text } from './i18n/text';
+import { KeyedError } from './errors';
 /**
  * The two shapes a batch command needs to work on several Tiles at once: run
  * every item with a bounded window, and produce ahead while consuming in order.
@@ -8,7 +10,7 @@
 /** Throw the signal's reason, so a cancelled batch stays a cancelled batch. */
 function aborted(signal: AbortSignal): never {
   const reason: unknown = signal.reason;
-  throw reason instanceof Error ? reason : new Error('Cancelado.');
+  throw reason instanceof Error ? reason : new KeyedError(text('common.cancelled'));
 }
 
 /**

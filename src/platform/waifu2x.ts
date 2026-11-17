@@ -1,4 +1,5 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
+import { text, type TextRef } from '../core/i18n/text';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import {
   waifu2xArgs,
@@ -20,8 +21,8 @@ const PROBE_PNG = Uint8Array.from([
 
 export interface Waifu2xAvailability {
   readonly status: Waifu2xStatus;
-  /** A pt-BR explanation shown under the disabled controls. */
-  readonly detail: string | null;
+  /** An explanation shown under the disabled controls. */
+  readonly detail: TextRef | null;
 }
 
 interface Waifu2xProbeReply {
@@ -36,17 +37,26 @@ interface Waifu2xLogPayload {
 
 const STATUSES: readonly Waifu2xStatus[] = ['ready', 'unsupported', 'missing', 'failed'];
 
-function messageOf(reason: unknown): string {
-  if (typeof reason === 'string') return reason;
-  if (reason instanceof Error && reason.message) return reason.message;
-  return 'falha desconhecida';
+/**
+ * Why the sidecar is unavailable, as a sentence: the native detail is the raw
+ * cause and goes inside it, so a Japanese screen never shows an English
+ * paragraph of its own.
+ */
+export function availabilityDetail(status: Waifu2xStatus, detail: string | null): TextRef | null {
+  if (status === 'ready') return null;
+  if (status === 'missing') return text('waifu2x.missing');
+  // The native cause is a detail inside the sentence; without one the sentence
+  // still reads, because the keyed phrase fills the slot.
+  const cause = detail?.trim() ? detail.trim() : text('waifu2x.unknownFailure');
+  if (status === 'unsupported') return text('waifu2x.unsupported', { detail: cause });
+  return text('waifu2x.failed', { detail: cause });
 }
 
 async function probeOnce(): Promise<Waifu2xAvailability> {
   if (!isTauri()) {
     return {
       status: 'missing',
-      detail: 'waifu2x indisponível no navegador.',
+      detail: text('waifu2x.browserUnavailable'),
     };
   }
   try {
@@ -57,9 +67,12 @@ async function probeOnce(): Promise<Waifu2xAvailability> {
     const status = STATUSES.includes(reply.status as Waifu2xStatus)
       ? (reply.status as Waifu2xStatus)
       : 'failed';
-    return { status, detail: reply.detail };
+    return { status, detail: availabilityDetail(status, reply.detail) };
   } catch (reason) {
-    return { status: 'failed', detail: messageOf(reason) };
+    return {
+      status: 'failed',
+      detail: text('waifu2x.failed', { detail: text('waifu2x.unknownFailure') }),
+    };
   }
 }
 
@@ -80,13 +93,17 @@ let jobSequence = 0;
 function failureExit(reason: unknown): Waifu2xExit {
   const failure = reason as { code?: unknown; detail?: unknown } | null;
   if (failure && typeof failure.code === 'string') {
-    if (failure.code === 'cancelled') return { code: 130, stderr: 'cancelado' };
+    if (failure.code === 'cancelled') return { code: 130, stderr: '' };
+    // A missing sidecar has no cause to show: the keyed sentence fills the slot.
+    if (failure.code === 'missing') return { code: 1, stderr: '' };
     return {
       code: 1,
       stderr: typeof failure.detail === 'string' ? failure.detail : failure.code,
     };
   }
-  return { code: 1, stderr: messageOf(reason) };
+  // Empty rather than a sentence: `core/waifu2x.ts` owns the wording, and a
+  // phrase here would reach the screen untranslated.
+  return { code: 1, stderr: '' };
 }
 
 /**

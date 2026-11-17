@@ -1,3 +1,4 @@
+import type { TextRef } from './i18n/text';
 /**
  * The Board: an ordered list of Tiles, each with its own DocumentState, and
  * the one Tile that owns the controls. The collection is a pure value so every
@@ -11,7 +12,7 @@ export interface Tile {
   /** The Tile's own document. A failed import keeps the empty one. */
   readonly doc: DocumentState;
   /** Why the import failed; a failed Tile has no Source. */
-  readonly error: string | null;
+  readonly error: TextRef | null;
 }
 
 export interface Workspace {
@@ -79,7 +80,7 @@ export function addTile(
 }
 
 /** A Tile that stands in for a file that could not be imported. */
-export function addFailedTile(workspace: Workspace, error: string): Workspace {
+export function addFailedTile(workspace: Workspace, error: TextRef): Workspace {
   const tile: Tile = {
     id: makeTileId(),
     doc: emptyDocument(),

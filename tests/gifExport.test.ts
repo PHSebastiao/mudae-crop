@@ -1,3 +1,4 @@
+import { text } from '../src/core/i18n/text';
 import { createCanvas, type Canvas } from '@napi-rs/canvas';
 import { describe, expect, it, vi } from 'vitest';
 import {
@@ -413,10 +414,10 @@ describe('GIF Export', () => {
 
   it('refuses a still Source and an empty document', async () => {
     await expect(renderGif(makeDoc(makeSource(10, 10)), adapter)).rejects.toMatchObject({
-      message: 'A Source não é animada.',
+      text: text('export.notAnimated'),
     });
     await expect(renderGif(makeDoc(null), adapter)).rejects.toMatchObject({
-      message: 'Não há Source para exportar.',
+      text: text('export.errNoSource'),
     });
   });
 });

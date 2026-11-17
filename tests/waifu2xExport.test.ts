@@ -1,5 +1,6 @@
 import { createCanvas, loadImage } from '@napi-rs/canvas';
 import { describe, expect, it, vi } from 'vitest';
+import { text } from '../src/core/i18n/text';
 import {
   estimateExportSize,
   renderGif,
@@ -180,7 +181,7 @@ describe('waifu2x PNG Export', () => {
   it('refuses an enabled waifu2x without a runner', async () => {
     await expect(
       renderPng(withWaifu2xEnabled(makeDoc(makeSource(10, 10)), 1), adapter),
-    ).rejects.toMatchObject({ message: 'O waifu2x não está disponível.' });
+    ).rejects.toMatchObject({ text: text('export.errWaifuUnavailable') });
   });
 
   it('refuses a transparent sidecar output when the Crop was opaque', async () => {
@@ -189,18 +190,18 @@ describe('waifu2x PNG Export', () => {
     const waifu2x: Waifu2xFrameRunner = async () => transparent;
 
     await expect(renderPng(doc, adapter, { waifu2x })).rejects.toMatchObject({
-      message: 'O waifu2x não processou a imagem inteira. Tente exportar de novo.',
+      text: text('export.waifuIncomplete'),
     });
   });
 
   it('turns a non-zero sidecar exit into an Export error', async () => {
     const doc = withWaifu2xEnabled(makeDoc(makeSource(10, 10)), 1);
     const waifu2x: Waifu2xFrameRunner = async () => {
-      throw new Waifu2xError('O waifu2x falhou: vkCreateInstance failed');
+      throw new Waifu2xError(text('waifu2x.failed', { detail: 'vkCreateInstance failed' }));
     };
 
     await expect(renderPng(doc, adapter, { waifu2x })).rejects.toMatchObject({
-      message: 'O waifu2x falhou: vkCreateInstance failed',
+      text: text('waifu2x.failed', { detail: 'vkCreateInstance failed' }),
     });
   });
 
@@ -240,7 +241,7 @@ describe('waifu2x GIF Export', () => {
     const doc = withWaifu2xEnabled(makeDoc(source), 1);
     const waifu2x: Waifu2xFrameRunner = async () => {
       controller.abort();
-      throw new Waifu2xError('cancelado', true);
+      throw new Waifu2xError(text('waifu2x.cancelled'), true);
     };
 
     const before = doc;

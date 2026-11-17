@@ -5,6 +5,8 @@
  * desktop shell.
  */
 
+import type { TextRef } from './i18n/text';
+
 /** The one operation that can own the app at a time. */
 export type ActivityLabel = 'import' | 'export' | 'upload' | 'download';
 
@@ -12,7 +14,7 @@ export type Activity =
   { readonly kind: 'idle' } | { readonly kind: 'running'; readonly label: ActivityLabel };
 
 export interface NoticeAction {
-  readonly label: string;
+  readonly label: TextRef;
   readonly run: () => void;
 }
 
@@ -22,8 +24,8 @@ export interface NoticeAction {
  */
 export type Notice =
   | { readonly kind: 'none' }
-  | { readonly kind: 'info'; readonly message: string }
-  | { readonly kind: 'error'; readonly message: string; readonly action: NoticeAction | null };
+  | { readonly kind: 'info'; readonly message: TextRef }
+  | { readonly kind: 'error'; readonly message: TextRef; readonly action: NoticeAction | null };
 
 /** The bytes reported by the download transport. */
 export interface DownloadAmount {
@@ -60,8 +62,8 @@ export const INITIAL_APP_SHELL: AppShellState = {
 export type AppShellAction =
   | { readonly type: 'begin'; readonly label: ActivityLabel }
   | { readonly type: 'end'; readonly label: ActivityLabel }
-  | { readonly type: 'inform'; readonly message: string }
-  | { readonly type: 'fail'; readonly message: string; readonly action: NoticeAction | null }
+  | { readonly type: 'inform'; readonly message: TextRef }
+  | { readonly type: 'fail'; readonly message: TextRef; readonly action: NoticeAction | null }
   | { readonly type: 'clear-notice' }
   | { readonly type: 'dismiss-error' }
   | { readonly type: 'download-start' }

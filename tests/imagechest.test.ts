@@ -1,3 +1,4 @@
+import { text } from '../src/core/i18n/text';
 import { describe, expect, it } from 'vitest';
 import {
   ImageChestError,
@@ -199,7 +200,9 @@ describe('uploadStill', () => {
 
     expect(error).toBeInstanceOf(ImageChestError);
     expect((error as ImageChestError).code).toBe('invalid-post');
-    expect((error as ImageChestError).message).toContain('nope');
+    expect((error as ImageChestError).text).toEqual(
+      text('imagechest.postMissing', { postId: 'nope' }),
+    );
     expect(requests).toHaveLength(1);
   });
 
@@ -234,7 +237,7 @@ describe('upload failures', () => {
     const error = await uploadStill({ ...base, transport }).catch((reason: unknown) => reason);
 
     expect((error as ImageChestError).code).toBe('unauthorized');
-    expect(uploadErrorMessage(error)).toContain('Configurações');
+    expect(uploadErrorMessage(error)).toEqual(text('imagechest.unauthorized'));
   });
 
   it('maps 413 to the 20 MB explanation', async () => {
@@ -243,7 +246,7 @@ describe('upload failures', () => {
     const error = await uploadStill({ ...base, transport }).catch((reason: unknown) => reason);
 
     expect((error as ImageChestError).code).toBe('too-large');
-    expect(uploadErrorMessage(error)).toContain('20 MB');
+    expect(uploadErrorMessage(error)).toEqual(text('imagechest.tooLarge'));
   });
 
   it('maps 429 to a backoff with the Retry-After seconds', async () => {
@@ -253,7 +256,7 @@ describe('upload failures', () => {
 
     expect((error as ImageChestError).code).toBe('rate-limited');
     expect((error as ImageChestError).retryAfterSeconds).toBe(42);
-    expect(uploadErrorMessage(error)).toContain('42s');
+    expect(uploadErrorMessage(error)).toEqual(text('imagechest.rateLimited', { seconds: 42 }));
   });
 
   it('maps a thrown transport rejection to an offline error', async () => {
@@ -262,7 +265,9 @@ describe('upload failures', () => {
     const error = await uploadStill({ ...base, transport }).catch((reason: unknown) => reason);
 
     expect((error as ImageChestError).code).toBe('offline');
-    expect(uploadErrorMessage(error)).toContain('Sem conexão');
+    expect(uploadErrorMessage(error)).toEqual(
+      text('imagechest.offline', { detail: 'connection refused' }),
+    );
   });
 
   it('maps a success body without a direct link to malformed', async () => {
@@ -305,7 +310,7 @@ describe('upload failures', () => {
     const error = await testConnection(transport, 'bad').catch((reason: unknown) => reason);
 
     expect((error as ImageChestError).code).toBe('unauthorized');
-    expect((error as ImageChestError).message).toContain('recusado');
+    expect((error as ImageChestError).text).toEqual(text('imagechest.unauthorized'));
   });
 
   it('reports a token check that returns no account data', async () => {
@@ -314,7 +319,7 @@ describe('upload failures', () => {
     const error = await testConnection(transport, 'token').catch((reason: unknown) => reason);
 
     expect((error as ImageChestError).code).toBe('malformed');
-    expect((error as ImageChestError).message).toContain('conta');
+    expect((error as ImageChestError).text).toEqual(text('imagechest.malformedAccount'));
   });
 });
 

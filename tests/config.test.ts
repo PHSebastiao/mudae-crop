@@ -27,8 +27,11 @@ class MemoryStore implements ConfigStore {
 describe('config store', () => {
   it('loads defaults from an empty store', async () => {
     const store = new MemoryStore();
+    const loaded = await loadSettings(store, 'en');
 
-    expect(await loadSettings(store)).toEqual(DEFAULT_SETTINGS);
+    expect(loaded.settings).toEqual(DEFAULT_SETTINGS);
+    // Nothing was ever saved, so the detected language still has to be written.
+    expect(loaded.needsWrite).toBe(true);
     expect(await loadHistory(store)).toEqual([]);
   });
 
@@ -41,7 +44,10 @@ describe('config store', () => {
     await saveHistory(store, history);
 
     expect([...store.files.keys()].sort()).toEqual([SETTINGS_KEY, HISTORY_KEY].sort());
-    expect(await loadSettings(store)).toEqual(settings);
+    const loaded = await loadSettings(store, 'ja');
+    expect(loaded.settings).toEqual(settings);
+    // The file names a language, so a launch must not rewrite it.
+    expect(loaded.needsWrite).toBe(false);
     expect(await loadHistory(store)).toEqual(history);
   });
 
@@ -50,7 +56,8 @@ describe('config store', () => {
     await store.write(SETTINGS_KEY, '{broken');
     await store.write(HISTORY_KEY, 'not json');
 
-    expect(await loadSettings(store)).toEqual(DEFAULT_SETTINGS);
+    expect((await loadSettings(store, 'en')).settings).toEqual(DEFAULT_SETTINGS);
+    expect((await loadSettings(store, 'en')).needsWrite).toBe(true);
     expect(await loadHistory(store)).toEqual([]);
   });
 
@@ -60,7 +67,20 @@ describe('config store', () => {
 
     await saveSettings(store, settings);
 
-    expect(await loadSettings(store)).toEqual(settings);
+    expect((await loadSettings(store, 'en')).settings).toEqual(settings);
+  });
+
+  it('takes the detected language only for a file that never held one', async () => {
+    const store = new MemoryStore();
+    await saveSettings(store, { ...DEFAULT_SETTINGS, language: 'ru' });
+
+    expect((await loadSettings(store, 'ja')).settings.language).toBe('ru');
+
+    const fresh = new MemoryStore();
+    await fresh.write(SETTINGS_KEY, JSON.stringify({ token: 'abc' }));
+    const loaded = await loadSettings(fresh, 'zh-Hans');
+    expect(loaded.settings.language).toBe('zh-Hans');
+    expect(loaded.needsWrite).toBe(true);
   });
 
   it('caps history on save even if the caller sends more', async () => {
@@ -77,6 +97,6 @@ describe('config store', () => {
     await saveSettings(store, { ...DEFAULT_SETTINGS, token: 'abc' });
     await saveSettings(store, { ...DEFAULT_SETTINGS, token: '' });
 
-    expect((await loadSettings(store)).token).toBe('');
+    expect((await loadSettings(store, 'en')).settings.token).toBe('');
   });
 });

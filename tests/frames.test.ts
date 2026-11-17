@@ -1,3 +1,4 @@
+import { text } from '../src/core/i18n/text';
 import { describe, expect, it } from 'vitest';
 import {
   MIN_FRAME_DELAY_MS,
@@ -176,7 +177,7 @@ describe('frame edits in the Export', () => {
     expect(effectiveTrim(doc)).toBeNull();
     expect(exportKindFor(effectiveSource(doc)).format).toBe('png');
     await expect(renderGif(doc, testExportAdapter)).rejects.toMatchObject({
-      message: 'A Source não é animada.',
+      text: text('export.notAnimated'),
     });
   });
 

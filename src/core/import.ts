@@ -1,14 +1,17 @@
 import type { AnimationFrame, ImageFormat, Source, VideoSource } from './document';
+import { text, textOf, type TextRef } from './i18n/text';
 
 export type ImportErrorCode = 'unsupported' | 'corrupt' | 'empty';
 
 export class ImportError extends Error {
   readonly code: ImportErrorCode;
+  readonly text: TextRef;
 
-  constructor(code: ImportErrorCode, message: string) {
-    super(message);
+  constructor(code: ImportErrorCode, message: TextRef) {
+    super(message.key);
     this.name = 'ImportError';
     this.code = code;
+    this.text = message;
   }
 }
 
@@ -124,15 +127,13 @@ function extensionOf(name: string): string {
   return match ? match[1].toLowerCase() : '';
 }
 
-function unsupportedMessage(name: string): string {
+function unsupportedMessage(name: string): TextRef {
   const ext = extensionOf(name);
-  return ext
-    ? `Formato não suportado: .${ext}. Use PNG, JPG, GIF, WebP, APNG, MP4, MOV ou WebM.`
-    : 'Formato não suportado. Use PNG, JPG, GIF, WebP, APNG, MP4, MOV ou WebM.';
+  return ext ? text('import.unsupportedExt', { ext }) : text('import.unsupported');
 }
 
-function corruptMessage(name: string): string {
-  return `Não foi possível ler "${name}". O arquivo pode estar corrompido.`;
+function corruptMessage(name: string): TextRef {
+  return text('import.corrupt', { name });
 }
 
 /**
@@ -158,7 +159,7 @@ export async function loadSource(candidate: SourceCandidate, decode: Decoder): P
   const { name, path, bytes } = candidate;
 
   if (bytes.length === 0) {
-    throw new ImportError('empty', `"${name}" está vazio.`);
+    throw new ImportError('empty', text('import.empty', { name }));
   }
 
   // Content wins over the extension: a PNG renamed to .txt still imports.
@@ -222,8 +223,6 @@ export function localPathFrom(text: string): string | null {
   return SUPPORTED_EXTENSIONS.has(extensionOf(cleaned)) ? cleaned : null;
 }
 
-export function importErrorMessage(error: unknown): string {
-  if (error instanceof ImportError) return error.message;
-  if (error instanceof Error && error.message) return error.message;
-  return 'Não foi possível abrir essa imagem.';
+export function importErrorMessage(error: unknown): TextRef {
+  return textOf(error) ?? text('import.failed');
 }

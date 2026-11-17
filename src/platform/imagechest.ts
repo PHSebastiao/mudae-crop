@@ -4,6 +4,8 @@ import type {
   ImageChestResponse,
   ImageChestTransport,
 } from '../core/imagechest';
+import { text } from '../core/i18n/text';
+import { KeyedError } from '../core/errors';
 
 interface NativeReply {
   readonly status: number;
@@ -18,7 +20,7 @@ interface NativeReply {
 export const tauriImageChestTransport: ImageChestTransport = {
   async send(request: ImageChestRequest): Promise<ImageChestResponse> {
     if (!isTauri()) {
-      throw new Error('o upload só funciona no app desktop');
+      throw new KeyedError(text('imagechest.desktopOnly'));
     }
     const reply = await invoke<NativeReply>('imagechest_request', {
       method: request.method,

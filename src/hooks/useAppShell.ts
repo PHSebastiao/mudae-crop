@@ -9,12 +9,10 @@ import {
   type Notice,
   type NoticeAction,
 } from '../core/appState';
-
-/** The shared pt-BR explanation for refusing a second operation. */
-const BUSY_REFUSAL = 'Termine a operação em andamento antes de começar outra.';
+import { text, type TextRef } from '../core/i18n/text';
 
 export type ActivityStart =
-  { readonly ok: true } | { readonly ok: false; readonly message: string };
+  { readonly ok: true } | { readonly ok: false; readonly message: TextRef };
 
 /**
  * The shell of `App`: which operation owns it, what the notice bar shows and
@@ -29,8 +27,8 @@ export interface AppShell {
   readonly download: DownloadPhase;
   readonly begin: (label: ActivityLabel) => ActivityStart;
   readonly end: (label: ActivityLabel) => void;
-  readonly inform: (message: string) => void;
-  readonly fail: (message: string, action?: NoticeAction | null) => void;
+  readonly inform: (message: TextRef) => void;
+  readonly fail: (message: TextRef, action?: NoticeAction | null) => void;
   readonly clearNotice: () => void;
   readonly dismissError: () => void;
   readonly startDownload: () => void;
@@ -47,7 +45,7 @@ export function useAppShell(): AppShell {
   activityRef.current = state.activity;
 
   const begin = useCallback((label: ActivityLabel): ActivityStart => {
-    if (activityRef.current.kind === 'running') return { ok: false, message: BUSY_REFUSAL };
+    if (activityRef.current.kind === 'running') return { ok: false, message: text('notice.busy') };
     activityRef.current = { kind: 'running', label };
     dispatch({ type: 'begin', label });
     return { ok: true };
@@ -60,9 +58,9 @@ export function useAppShell(): AppShell {
     }
     dispatch({ type: 'end', label });
   }, []);
-  const inform = useCallback((message: string) => dispatch({ type: 'inform', message }), []);
+  const inform = useCallback((message: TextRef) => dispatch({ type: 'inform', message }), []);
   const fail = useCallback(
-    (message: string, action: NoticeAction | null = null) =>
+    (message: TextRef, action: NoticeAction | null = null) =>
       dispatch({ type: 'fail', message, action }),
     [],
   );

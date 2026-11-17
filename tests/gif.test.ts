@@ -289,7 +289,7 @@ describe('GIF encode', () => {
     const writer = new GifWriter({ width: 4, height: 4, loopCount: null });
 
     expect(() => writer.addEncodedFrame(encodeGifFrame(solid(2, 2, [1, 2, 3])), 100)).toThrow(
-      /menor que a dimensão/,
+      'gif.frameTooSmall',
     );
   });
 });

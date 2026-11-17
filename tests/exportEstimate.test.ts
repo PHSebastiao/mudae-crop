@@ -1,3 +1,4 @@
+import { text } from '../src/core/i18n/text';
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_OPTIMIZE,
@@ -245,6 +246,6 @@ describe('estimateExportSize', () => {
   it('refuses a still when a GIF was asked for', async () => {
     await expect(
       estimateExportSize(makeDoc(makeSource(10, 10)), adapter, { format: 'gif' }),
-    ).rejects.toMatchObject({ message: 'A Source não é animada.' });
+    ).rejects.toMatchObject({ text: text('export.notAnimated') });
   });
 });

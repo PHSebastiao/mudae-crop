@@ -4,6 +4,7 @@ import {
   DEFAULT_SETTINGS,
   parseSettings,
   serializeSettings,
+  settingsHasLanguage,
   type Settings,
 } from '../src/core/settings';
 
@@ -27,6 +28,7 @@ describe('settings', () => {
     const settings: Settings = {
       token: 'secret-token',
       defaultPrivacy: 'public',
+      language: 'ru',
       saveFolder: 'C:\\Cards\\Exports',
       borderColor: '#AABBCC',
       borderWidth: 3,
@@ -125,5 +127,19 @@ describe('settings', () => {
     expect(parseSettings('{}').editorTourSeen).toBe(false);
     expect(parseSettings(JSON.stringify({ editorTourSeen: 'yes' })).editorTourSeen).toBe(false);
     expect(parseSettings(JSON.stringify({ editorTourSeen: true })).editorTourSeen).toBe(true);
+  });
+
+  it('takes the detected language only when the file never held one', () => {
+    expect(parseSettings(null, 'ja').language).toBe('ja');
+    expect(parseSettings('{}', 'ja').language).toBe('ja');
+    expect(parseSettings(JSON.stringify({ language: 'klingon' }), 'ja').language).toBe('ja');
+    expect(parseSettings(JSON.stringify({ language: 'ru' }), 'ja').language).toBe('ru');
+  });
+
+  it('knows whether a stored file already names a language', () => {
+    expect(settingsHasLanguage(null)).toBe(false);
+    expect(settingsHasLanguage('{}')).toBe(false);
+    expect(settingsHasLanguage(JSON.stringify({ language: 'klingon' }))).toBe(false);
+    expect(settingsHasLanguage(JSON.stringify({ language: 'zh-Hans' }))).toBe(true);
   });
 });

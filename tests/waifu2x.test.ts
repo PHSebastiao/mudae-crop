@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
+import { text } from '../src/core/i18n/text';
+import { availabilityDetail } from '../src/platform/waifu2x';
 import {
   DEFAULT_WAIFU2X,
   Waifu2xError,
@@ -99,6 +101,20 @@ describe('waifu2x progress', () => {
   });
 });
 
+describe('waifu2x availability', () => {
+  it('maps every probe status to a keyed sentence or nothing', () => {
+    expect(availabilityDetail('ready', 'anything')).toBeNull();
+    expect(availabilityDetail('missing', null)).toEqual(text('waifu2x.missing'));
+    expect(availabilityDetail('unsupported', 'no device')).toEqual(
+      text('waifu2x.unsupported', { detail: 'no device' }),
+    );
+    // No native cause still reads as a sentence, never a dangling separator.
+    expect(availabilityDetail('failed', '')).toEqual(
+      text('waifu2x.failed', { detail: text('waifu2x.unknownFailure') }),
+    );
+  });
+});
+
 describe('waifu2x run', () => {
   it('returns the sidecar bytes on success', async () => {
     const { spawn, calls } = fakeSidecar({ output: new Uint8Array([4, 5, 6]) });
@@ -122,7 +138,19 @@ describe('waifu2x run', () => {
 
     await expect(attempt).rejects.toBeInstanceOf(Waifu2xError);
     await expect(attempt).rejects.toMatchObject({ cancelled: false });
-    await expect(attempt).rejects.toThrow('vkCreateInstance failed');
+    await expect(attempt).rejects.toThrow('waifu2x.failed');
+  });
+
+  it('names an unknown failure when the sidecar said nothing', async () => {
+    const { spawn } = fakeSidecar({ code: 1, stderr: '' });
+
+    const attempt = runWaifu2x(new Uint8Array([1]), DEFAULT_WAIFU2X, spawn);
+
+    // The empty stderr must become a keyed phrase, not an English sentence or a
+    // bare `exit code 1`: the sentence around it is already translated.
+    await expect(attempt).rejects.toMatchObject({
+      text: text('waifu2x.failed', { detail: text('waifu2x.unknownFailure') }),
+    });
   });
 
   it('fails when the sidecar produces no image', async () => {

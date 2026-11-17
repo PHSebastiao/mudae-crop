@@ -21,12 +21,16 @@ import { exportKindFor, type ExportFileFormat } from '../core/export';
 import { borderReferenceWidth, renderFrame } from '../core/render';
 import type { StageMode } from '../core/stageMode';
 import { activeTile, type Tile, type Workspace } from '../core/workspace';
+import { useI18n } from '../hooks/useI18n';
 import { EmptyBoard } from './EmptyBoard';
 import { Stage } from './Stage';
 
 /** A transient note on one Tile: uploading, sent, or a batch failure. */
+export type TileBadgeState = 'failed' | 'queued' | 'uploaded' | 'large';
+
 export interface TileBadge {
-  readonly label: string;
+  /** The state is the identifier; the label is its copy. */
+  readonly state: TileBadgeState;
   readonly tone: 'busy' | 'ok' | 'bad';
 }
 
@@ -161,7 +165,14 @@ function TileView({
   onReorderEnd,
   onReorderStep,
 }: TileViewProps) {
-  const name = tile.doc.source?.name ?? 'Importação falhou';
+  const { t, tr } = useI18n();
+  const name = tile.doc.source?.name ?? t('board.importFailed');
+  const badgeLabels: Readonly<Record<TileBadgeState, string>> = {
+    failed: t('board.badgeFailed'),
+    queued: t('board.badgeQueued'),
+    uploaded: t('board.badgeUploaded'),
+    large: t('board.badgeLarge'),
+  };
 
   return (
     <div
@@ -172,7 +183,7 @@ function TileView({
       style={{ width }}
       tabIndex={0}
       role="group"
-      aria-label={`${name}${active ? ' (ativa)' : ''}`}
+      aria-label={active ? t('board.tileLabelActive', { name }) : name}
       aria-current={active ? 'true' : undefined}
       onPointerDown={(event) => {
         if (event.button !== 0) return;
@@ -212,12 +223,12 @@ function TileView({
     >
       <div className="tile-head">
         {reordering && <span className="tile-num">{index + 1}</span>}
-        <span className="tile-name" title={`${name} · duplo clique para expor`}>
+        <span className="tile-name" title={t('board.tileTitle', { name })}>
           {name}
         </span>
         {badge && (
-          <span className={`tile-badge ${badge.tone}`} title={badge.label}>
-            {badge.label}
+          <span className={`tile-badge ${badge.tone}`} title={badgeLabels[badge.state]}>
+            {badgeLabels[badge.state]}
           </span>
         )}
       </div>
@@ -227,8 +238,8 @@ function TileView({
           <button
             type="button"
             className="tile-kill"
-            aria-label={`Remover ${name}`}
-            title="Remover do Board"
+            aria-label={t('board.removeTile', { name })}
+            title={t('board.removeTitle')}
             onClick={(event) => {
               event.stopPropagation();
               onRemove();
@@ -247,7 +258,7 @@ function TileView({
             </span>
           </>
         ) : (
-          <span className="tile-error">{tile.error}</span>
+          <span className="tile-error">{tile.error ? tr(tile.error) : null}</span>
         )}
       </div>
     </div>
@@ -285,6 +296,7 @@ export function Board({
   onExitAdjust,
   onExitPick,
 }: BoardProps) {
+  const { t, tr } = useI18n();
   const viewportRef = useRef<HTMLDivElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const [viewport, setViewport] = useState({ width: 0, height: 0 });
@@ -477,8 +489,8 @@ export function Board({
     if (tile.error !== null) {
       return (
         <div className="tile-placeholder" role="alert">
-          <strong>Não foi possível importar</strong>
-          <span>{tile.error}</span>
+          <strong>{t('board.importFailedTitle')}</strong>
+          <span>{tr(tile.error)}</span>
         </div>
       );
     }
@@ -579,13 +591,9 @@ export function Board({
             className={`chip chip-button${reordering ? ' on' : ''}`}
             onClick={() => setReordering((current) => !current)}
             aria-pressed={reordering}
-            title={
-              reordering
-                ? 'Concluir a ordem dos Tiles'
-                : 'Arrastar os Tiles para mudar a ordem do Post e do Export'
-            }
+            title={reordering ? t('board.reorderDoneTitle') : t('board.reorderTitle')}
           >
-            {reordering ? 'Pronto' : 'Reordenar'}
+            {reordering ? t('board.reorderDone') : t('board.reorder')}
           </button>
         </div>
       )}
@@ -595,7 +603,9 @@ export function Board({
           className={`board-spotlight${adjusting ? ' adjusting' : ''}`}
           role="dialog"
           aria-modal="true"
-          aria-label={`${spotlightTile.doc.source?.name ?? 'Tile'} em exposição`}
+          aria-label={t('board.spotlightLabel', {
+            name: spotlightTile.doc.source?.name ?? t('board.tileFallback'),
+          })}
           onPointerDown={(event) => {
             if (event.target === event.currentTarget) closeSpotlight();
           }}
@@ -606,7 +616,7 @@ export function Board({
                 {spotlightTile.doc.source?.name}
               </span>
               <span className="spotlight-hint">
-                {adjusting ? 'Esc ou C conclui o ajuste' : 'Esc ou clique fora para voltar'}
+                {adjusting ? t('board.adjustHint') : t('board.spotlightHint')}
               </span>
             </div>
             <div

@@ -7,16 +7,19 @@
 
 import type { Rgb } from './color';
 import { MIN_FRAME_DELAY_MS } from './document';
+import { text, type TextRef } from './i18n/text';
 
 export type GifErrorCode = 'corrupt' | 'unsupported' | 'cancelled';
 
 export class GifError extends Error {
   readonly code: GifErrorCode;
+  readonly text: TextRef;
 
-  constructor(code: GifErrorCode, message: string) {
-    super(message);
+  constructor(code: GifErrorCode, message: TextRef) {
+    super(message.key);
     this.name = 'GifError';
     this.code = code;
+    this.text = message;
   }
 }
 
@@ -86,7 +89,7 @@ class Reader {
 
   byte(): number {
     if (this.position >= this.bytes.length) {
-      throw new GifError('corrupt', 'GIF truncado.');
+      throw new GifError('corrupt', text('gif.truncated'));
     }
     return this.bytes[this.position++];
   }
@@ -99,7 +102,7 @@ class Reader {
 
   take(length: number): Uint8Array {
     if (length < 0 || this.position + length > this.bytes.length) {
-      throw new GifError('corrupt', 'GIF truncado.');
+      throw new GifError('corrupt', text('gif.truncated'));
     }
     const slice = this.bytes.subarray(this.position, this.position + length);
     this.position += length;
@@ -173,7 +176,7 @@ function decodeLzw(minCodeSize: number, data: Uint8Array, expected: number): Uin
     } else if (code === next && previous) {
       entry = [...previous, previous[0]];
     } else {
-      throw new GifError('corrupt', 'Código GIF inválido.');
+      throw new GifError('corrupt', text('gif.invalidCode'));
     }
 
     for (const value of entry) {
@@ -248,11 +251,11 @@ function drawFrame(
  */
 export function decodeGif(bytes: Uint8Array): DecodedGif {
   if (bytes.length < 13) {
-    throw new GifError('corrupt', 'GIF truncado.');
+    throw new GifError('corrupt', text('gif.truncated'));
   }
   const signature = String.fromCharCode(...bytes.subarray(0, 6));
   if (signature !== 'GIF87a' && signature !== 'GIF89a') {
-    throw new GifError('unsupported', 'Arquivo não é um GIF.');
+    throw new GifError('unsupported', text('gif.notGif'));
   }
 
   const reader = new Reader(bytes);
@@ -260,7 +263,7 @@ export function decodeGif(bytes: Uint8Array): DecodedGif {
   const width = reader.uint16();
   const height = reader.uint16();
   if (width <= 0 || height <= 0) {
-    throw new GifError('corrupt', 'GIF sem dimensões válidas.');
+    throw new GifError('corrupt', text('gif.noDimensions'));
   }
   const packed = reader.byte();
   reader.byte(); // background color index
@@ -287,7 +290,7 @@ export function decodeGif(bytes: Uint8Array): DecodedGif {
       const label = reader.byte();
       if (label === 0xf9) {
         const size = reader.byte();
-        if (size < 4) throw new GifError('corrupt', 'Bloco de controle GIF inválido.');
+        if (size < 4) throw new GifError('corrupt', text('gif.invalidControlBlock'));
         const control = reader.take(size);
         reader.byte(); // block terminator
         const disposal = (control[0] >> 2) & 0x07;
@@ -311,7 +314,7 @@ export function decodeGif(bytes: Uint8Array): DecodedGif {
     }
 
     if (marker !== 0x2c) {
-      throw new GifError('corrupt', 'Bloco GIF desconhecido.');
+      throw new GifError('corrupt', text('gif.unknownBlock'));
     }
 
     const left = reader.uint16();
@@ -320,7 +323,7 @@ export function decodeGif(bytes: Uint8Array): DecodedGif {
     const frameHeight = reader.uint16();
     const imagePacked = reader.byte();
     if (frameWidth <= 0 || frameHeight <= 0) {
-      throw new GifError('corrupt', 'Quadro GIF sem dimensões válidas.');
+      throw new GifError('corrupt', text('gif.frameNoDimensions'));
     }
     const localTable = (imagePacked & 0x80) !== 0;
     const interlaced = (imagePacked & 0x40) !== 0;
@@ -330,7 +333,7 @@ export function decodeGif(bytes: Uint8Array): DecodedGif {
       : globalColors;
     const minCodeSize = reader.byte();
     if (minCodeSize < 2 || minCodeSize > 8) {
-      throw new GifError('corrupt', 'Código de cor GIF inválido.');
+      throw new GifError('corrupt', text('gif.invalidColorCode'));
     }
     const data = readSubBlocks(reader);
 
@@ -363,7 +366,7 @@ export function decodeGif(bytes: Uint8Array): DecodedGif {
   }
 
   if (frames.length === 0) {
-    throw new GifError('corrupt', 'GIF sem quadros.');
+    throw new GifError('corrupt', text('gif.noFrames'));
   }
   return { width, height, frames, loopCount };
 }
@@ -715,7 +718,7 @@ export class GifWriter {
   addFrame(frame: GifEncodeFrame): void {
     this.assertOpen();
     if (frame.pixels.length < this.width * this.height * 4) {
-      throw new GifError('corrupt', 'Quadro menor que a dimensão do GIF.');
+      throw new GifError('corrupt', text('gif.frameTooSmall'));
     }
     this.addEncodedFrame(encodeGifFrame(frame.pixels), frame.delayMs);
   }
@@ -728,7 +731,7 @@ export class GifWriter {
   addEncodedFrame(frame: EncodedGifFrame, delayMs: number): void {
     this.assertOpen();
     if (frame.pixels < this.width * this.height) {
-      throw new GifError('corrupt', 'Quadro menor que a dimensão do GIF.');
+      throw new GifError('corrupt', text('gif.frameTooSmall'));
     }
     if (!this.started) {
       this.writeHeader(frame.palette);
@@ -758,12 +761,12 @@ export class GifWriter {
   }
 
   private assertOpen(): void {
-    if (this.ended) throw new GifError('corrupt', 'O GIF já foi finalizado.');
+    if (this.ended) throw new GifError('corrupt', text('gif.alreadyEnded'));
   }
 
   finish(): Uint8Array {
     if (!this.started) {
-      throw new GifError('corrupt', 'Não há quadros para codificar.');
+      throw new GifError('corrupt', text('gif.nothingToEncode'));
     }
     if (!this.ended) {
       this.writer.byte(0x3b);
@@ -810,7 +813,7 @@ export async function encodeGif(
   const writer = new GifWriter(options);
   for (let index = 0; index < frames.length; index += 1) {
     if (hooks.signal?.aborted) {
-      throw new GifError('cancelled', 'Codificação cancelada.');
+      throw new GifError('cancelled', text('gif.encodeCancelled'));
     }
     writer.addFrame(frames[index]);
     hooks.onProgress?.(index + 1, frames.length);

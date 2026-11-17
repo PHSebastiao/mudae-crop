@@ -1,6 +1,7 @@
 import type { ImageFormat } from './document';
 import { detectFormat, type SourceCandidate } from './import';
 import { MAX_MEDIA_BYTES } from './limits';
+import { text, textOf, type TextRef } from './i18n/text';
 
 /**
  * The download ceiling matches Image Chest's 30 MB per-file limit, so a fetched
@@ -9,20 +10,19 @@ import { MAX_MEDIA_BYTES } from './limits';
  */
 export const MAX_DOWNLOAD_BYTES = MAX_MEDIA_BYTES;
 
-const SIZE_MESSAGE = 'O download passa de 30 MB. Use um arquivo menor ou otimize o GIF antes.';
-const CANCELLED_MESSAGE = 'Download cancelado.';
-
 export type DownloadErrorCode =
   'invalid-url' | 'unreachable' | 'http' | 'not-image' | 'empty' | 'too-large' | 'cancelled';
 
 export class DownloadError extends Error {
   readonly code: DownloadErrorCode;
+  readonly text: TextRef;
   readonly status: number | null;
 
-  constructor(code: DownloadErrorCode, message: string, status: number | null = null) {
-    super(message);
+  constructor(code: DownloadErrorCode, message: TextRef, status: number | null = null) {
+    super(message.key);
     this.name = 'DownloadError';
     this.code = code;
+    this.text = message;
     this.status = status;
   }
 }
@@ -30,8 +30,9 @@ export class DownloadError extends Error {
 export type DownloadFailureCode = 'unreachable' | 'http' | 'too-large' | 'cancelled';
 
 /**
- * What a transport rejects with. The native layer maps its own failures onto
- * these codes so the wrapper can produce the wording without knowing reqwest.
+ * What a transport rejects with. It carries a code and a native detail, not a
+ * key: `asDownloadError` maps the code to the user-facing message, so this
+ * class never reaches the screen.
  */
 export class DownloadTransportError extends Error {
   readonly code: DownloadFailureCode;
@@ -148,15 +149,6 @@ export function sourceNameFromUrl(url: URL, format: ImageFormat): string {
   return `${stem || 'link'}.${CONTENT_EXTENSION[format]}`;
 }
 
-export function formatBytes(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
-  const units = ['B', 'KB', 'MB', 'GB'];
-  const exponent = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)));
-  const value = bytes / 1024 ** exponent;
-  const digits = exponent === 0 || value >= 100 ? 0 : 1;
-  return `${value.toFixed(digits)} ${units[exponent]}`;
-}
-
 function contentTypeOf(value: string | null): string | null {
   if (!value) return null;
   const type = value.split(';')[0].trim().toLowerCase();
@@ -172,25 +164,25 @@ function isImageContentType(type: string | null): boolean {
   );
 }
 
-function httpMessage(url: URL, status: number): string {
-  if (status === 404) return 'O link não existe (404). Confira o endereço.';
-  if (status === 403) return `O servidor recusou o acesso (403) a ${hostOf(url)}.`;
-  if (status === 0) return `O servidor não respondeu ao pedido para ${hostOf(url)}.`;
-  return `O servidor respondeu ${status} para ${hostOf(url)}.`;
+function httpMessage(url: URL, status: number): TextRef {
+  if (status === 404) return text('download.notFound');
+  if (status === 403) return text('download.forbidden', { host: hostOf(url) });
+  if (status === 0) return text('download.noResponse', { host: hostOf(url) });
+  return text('download.httpStatus', { status, host: hostOf(url) });
 }
 
-function notImageMessage(url: URL, type: string | null): string {
+function notImageMessage(url: URL, type: string | null): TextRef {
   return type
-    ? `O link não aponta para uma imagem ou vídeo (${type}). Use um link direto para PNG, JPG, GIF, WebP, MP4, MOV ou WebM.`
-    : `O link ${hostOf(url)} não devolveu uma imagem ou vídeo reconhecido. Use um link direto para o arquivo.`;
+    ? text('download.notImageType', { type })
+    : text('download.notImageHost', { host: hostOf(url) });
 }
 
 function cancelledError(): DownloadError {
-  return new DownloadError('cancelled', CANCELLED_MESSAGE);
+  return new DownloadError('cancelled', text('download.cancelled'));
 }
 
 function tooLargeError(): DownloadError {
-  return new DownloadError('too-large', SIZE_MESSAGE);
+  return new DownloadError('too-large', text('download.tooLarge'));
 }
 
 function asDownloadError(reason: unknown, url: URL): DownloadError {
@@ -206,14 +198,16 @@ function asDownloadError(reason: unknown, url: URL): DownloadError {
       default:
         return new DownloadError(
           'unreachable',
-          `Não foi possível alcançar ${hostOf(url)}. Verifique a conexão ou o link.`,
+          text('download.unreachable', { host: hostOf(url) }),
         );
     }
   }
-  const detail = reason instanceof Error && reason.message ? ` ${reason.message}` : '';
+  const detail =
+    textOf(reason) ??
+    (reason instanceof Error && reason.message ? reason.message : text('common.unknownCause'));
   return new DownloadError(
     'unreachable',
-    `Não foi possível baixar o link de ${hostOf(url)}.${detail}`,
+    text('download.failedHost', { host: hostOf(url), detail }),
   );
 }
 
@@ -228,7 +222,7 @@ export async function downloadSource(
 ): Promise<SourceCandidate> {
   const url = sourceUrlFrom(rawUrl);
   if (!url) {
-    throw new DownloadError('invalid-url', 'O link precisa começar com http:// ou https://.');
+    throw new DownloadError('invalid-url', text('download.invalidUrl'));
   }
 
   const maxBytes = options.maxBytes ?? MAX_DOWNLOAD_BYTES;
@@ -279,7 +273,7 @@ export async function downloadSource(
       throw new DownloadError('not-image', notImageMessage(url, type));
     }
     if (result.bytes.length === 0) {
-      throw new DownloadError('empty', 'O link devolveu um arquivo vazio.');
+      throw new DownloadError('empty', text('download.empty'));
     }
     const format = detectFormat(result.bytes);
     if (!format) {
@@ -300,8 +294,8 @@ export async function downloadSource(
   }
 }
 
-export function downloadErrorMessage(error: unknown): string {
-  if (error instanceof DownloadError) return error.message;
-  if (error instanceof Error && error.message) return error.message;
-  return 'Não foi possível baixar essa imagem.';
+export function downloadErrorMessage(error: unknown): TextRef {
+  const keyed = textOf(error);
+  if (keyed) return keyed;
+  return text('download.failed');
 }

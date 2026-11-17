@@ -24,7 +24,7 @@ import {
   type CartaScale,
 } from '../core/ratios';
 import type { Settings } from '../core/settings';
-import { formatBytes } from '../core/download';
+import { decimal, formatBytes, wholePercent } from '../core/format';
 import {
   MUDAE_SIZE_GUIDANCE_BYTES,
   aspectMatches,
@@ -32,6 +32,7 @@ import {
   exceedsSource,
   formatAspect,
 } from '../core/size';
+import { useI18n } from '../hooks/useI18n';
 import { NumberField } from './NumberField';
 import { ToggleGroup } from './ToggleGroup';
 
@@ -89,6 +90,7 @@ interface ExportRowProps {
  * becomes the permanent fallback when the file is gone or cannot be decoded.
  */
 function ExportRow({ entry, preview, root, onCopyText, onRevealPath }: ExportRowProps) {
+  const { locale, t } = useI18n();
   const rowRef = useRef<HTMLLIElement | null>(null);
   const [url, setUrl] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
@@ -146,20 +148,29 @@ function ExportRow({ entry, preview, root, onCopyText, onRevealPath }: ExportRow
           {entry.fileName}
         </span>
         <span className="history-meta">
-          {format} · {entry.width}×{entry.height} · {formatBytes(entry.size)}
+          {t('export.rowMeta', {
+            format,
+            width: entry.width,
+            height: entry.height,
+            size: formatBytes(entry.size, locale),
+          })}
         </span>
         <div className="history-foot">
-          <span className="history-meta">{formatHistoryDate(entry.createdAt)}</span>
+          <span className="history-meta">{formatHistoryDate(entry.createdAt, locale)}</span>
           <span className="history-actions">
-            <button type="button" onClick={() => onCopyText(entry.path)} title="Copiar caminho">
-              copiar
+            <button
+              type="button"
+              onClick={() => onCopyText(entry.path)}
+              title={t('export.copyPathTitle')}
+            >
+              {t('export.copy')}
             </button>
             <button
               type="button"
               onClick={() => onRevealPath(entry.path)}
-              title="Abrir no Explorador"
+              title={t('export.revealTitle')}
             >
-              mostrar
+              {t('export.reveal')}
             </button>
           </span>
         </div>
@@ -206,6 +217,7 @@ export const ExportPanel = memo(function ExportPanel({
   onRevealPath,
   onClearHistory,
 }: ExportPanelProps) {
+  const { locale, t, tr } = useI18n();
   const size = outputSize(doc);
   const baseSize = baseOutputSize(doc);
   const waifuScale = waifu2xScaleOf(doc);
@@ -229,7 +241,7 @@ export const ExportPanel = memo(function ExportPanel({
   const showCustom = doc.source !== null && (!isMudae || customOpen || customSelected);
   const aboveNative = exceedsSource(size, native);
   const nativeCapped = native.width > MAX_EXPORT_SIDE || native.height > MAX_EXPORT_SIDE;
-  const sizeCapTitle = `Limite de renderização: ${MAX_EXPORT_SIDE} px por lado (memória do canvas/GIF, não é uma regra do Mudae).`;
+  const sizeCapTitle = t('export.sizeCapTitle', { side: MAX_EXPORT_SIDE });
   const postId = appendPostId.trim();
   const badPostId = postId !== '' && !isPostId(postId);
   const hasToken = settings.token.trim() !== '';
@@ -240,12 +252,12 @@ export const ExportPanel = memo(function ExportPanel({
   const format = kind.label;
   const animated = isAnimated(effectiveSource(doc));
   const ratioMatches = aspectMatches(size, doc.frame.ratio);
-  const aspectLabel = formatAspect(size);
+  const aspectLabel = formatAspect(size, locale);
   const exportLabel = downloading
-    ? 'Aguarde o link…'
+    ? t('export.awaitLink')
     : exporting
-      ? 'Exportando…'
-      : `Exportar ${format}`;
+      ? t('export.exporting')
+      : t('export.export', { format });
   const optimize = doc.optimize;
   const optimizeGain =
     optimizeResult && optimizeResult.baseSize > 0
@@ -261,24 +273,27 @@ export const ExportPanel = memo(function ExportPanel({
     sizeEstimate !== null &&
     !sizeEstimate.exact &&
     estimatedBytes === optimize.targetBytes;
+  const bytesLabel = estimatedBytes === null ? null : formatBytes(estimatedBytes, locale);
   const estimateLabel =
-    estimatedBytes === null
+    bytesLabel === null
       ? null
       : cappedByTarget
-        ? `≤ ${formatBytes(estimatedBytes)}`
-        : `${sizeEstimate?.exact ? '' : '~'}${formatBytes(estimatedBytes)}`;
+        ? t('export.estimateCapped', { size: bytesLabel })
+        : sizeEstimate?.exact
+          ? bytesLabel
+          : t('export.estimateApproximate', { size: bytesLabel });
   const estimateTitle = doc.source?.video
-    ? 'Estimativa pelo frame atual; um vídeo em movimento pode ficar maior'
+    ? t('export.estimateVideoTitle')
     : sizeEstimate?.exact
-      ? 'Tamanho do arquivo'
-      : 'Tamanho estimado; a otimização pode mudar o resultado';
+      ? t('export.estimateExactTitle')
+      : t('export.estimateTitle');
   const overGuidance = exceedsSizeGuidance(estimatedBytes);
   const [optimizeOpen, setOptimizeOpen] = useState(false);
   const listRef = useRef<HTMLUListElement | null>(null);
   const postPrivacy: Record<string, string> = {
-    hidden: 'Post oculto',
-    public: 'Post público',
-    secret: 'Post secreto',
+    hidden: t('export.postHidden'),
+    public: t('export.postPublic'),
+    secret: t('export.postSecret'),
   };
 
   // Clearing the History, or the 50-entry cap evicting an old row, releases
@@ -289,11 +304,7 @@ export const ExportPanel = memo(function ExportPanel({
 
   const actions = (
     <div className="panel-actions">
-      {waifuUnavailable && (
-        <p className="panel-hint bad">
-          waifu2x indisponível neste computador. Desligue-o para exportar ou subir.
-        </p>
-      )}
+      {waifuUnavailable && <p className="panel-hint bad">{t('export.waifuUnavailable')}</p>}
       <button
         type="button"
         className="big primary"
@@ -309,23 +320,23 @@ export const ExportPanel = memo(function ExportPanel({
         disabled={hasToken ? uploadDisabled : busy}
         title={
           !doc.source
-            ? 'Importe uma Source primeiro'
+            ? t('export.uploadNoSourceTitle')
             : waifuUnavailable
-              ? 'Desligue o waifu2x para subir'
+              ? t('export.uploadWaifuTitle')
               : !hasToken
-                ? 'Configure o token do Image Chest para enviar'
+                ? t('export.uploadNoTokenTitle')
                 : badPostId
-                  ? 'Confira o Post id'
-                  : 'Cria um Post hidden e copia o link direto'
+                  ? t('export.uploadBadPostTitle')
+                  : t('export.uploadTitle')
         }
       >
         {!hasToken
-          ? 'Configurar token para subir'
+          ? t('export.configureToken')
           : uploading
-            ? 'Subindo…'
+            ? t('export.uploading')
             : cooling
-              ? `Aguarde ${cooldownSeconds}s`
-              : 'Subir e copiar link'}
+              ? t('export.cooldown', { seconds: cooldownSeconds })
+              : t('export.upload')}
       </button>
       {tileCount > 1 && (
         <div className="batch-actions">
@@ -334,26 +345,22 @@ export const ExportPanel = memo(function ExportPanel({
             className="batch-button"
             onClick={onExportAll}
             disabled={busy || waifuUnavailable}
-            title="Escolhe uma pasta e exporta todas as Tiles"
+            title={t('export.exportAllTitle')}
           >
-            Exportar todas ({tileCount})
+            {t('export.exportAll', { count: tileCount })}
           </button>
           <button
             type="button"
             className="batch-button"
             onClick={hasToken ? onUploadAll : onOpenSettings}
             disabled={hasToken ? uploadDisabled : busy}
-            title={samePost ? 'Um Post com todas as Tiles' : 'Um Post por Tile'}
+            title={samePost ? t('export.uploadAllOnePostTitle') : t('export.uploadAllPerTileTitle')}
           >
-            {hasToken ? `Subir todas (${tileCount})` : 'Token para subir todas'}
+            {hasToken ? t('export.uploadAll', { count: tileCount }) : t('export.uploadAllToken')}
           </button>
         </div>
       )}
-      <p className="panel-hint">
-        {hasToken
-          ? 'Ctrl+S exporta · Ctrl+Enter envia · Shift faz o lote todo.'
-          : 'Ctrl+S exporta.'}
-      </p>
+      <p className="panel-hint">{hasToken ? t('export.hintWithToken') : t('export.hint')}</p>
     </div>
   );
 
@@ -361,14 +368,14 @@ export const ExportPanel = memo(function ExportPanel({
     <aside className="panel" id="tour-export">
       <div className="panel-scroll">
         <section>
-          <h4>Export</h4>
+          <h4>{t('export.heading')}</h4>
 
           <div className="export-summary" aria-live="polite">
             <div className="export-summary-row">
               <strong>
                 {format}
                 <span className="export-summary-dims">
-                  {doc.source ? `${size.width}×${size.height}` : '—'}
+                  {doc.source ? `${size.width}×${size.height}` : t('export.noDimensions')}
                 </span>
                 {estimateLabel && (
                   <span className="export-summary-size" title={estimateTitle}>
@@ -379,14 +386,22 @@ export const ExportPanel = memo(function ExportPanel({
             </div>
             <div className="export-summary-row export-summary-foot">
               <span className={ratioMatches ? '' : 'warn'}>
-                {ratioMatches ? 'proporção da carta' : 'esticada'}
+                {ratioMatches ? t('export.ratioCard') : t('export.ratioStretched')}
               </span>
-              {optimizeResult && <span>otimizado · {formatBytes(optimizeResult.size)}</span>}
+              {optimizeResult && (
+                <span>
+                  {t('export.optimized', { size: formatBytes(optimizeResult.size, locale) })}
+                </span>
+              )}
             </div>
             {doc.source && (
               <div className="export-summary-row export-summary-foot">
                 <span>
-                  origem {doc.source.format.toUpperCase()} {doc.source.width}×{doc.source.height}
+                  {t('export.sourceMeta', {
+                    format: doc.source.format.toUpperCase(),
+                    width: doc.source.width,
+                    height: doc.source.height,
+                  })}
                 </span>
               </div>
             )}
@@ -394,33 +409,37 @@ export const ExportPanel = memo(function ExportPanel({
 
           {overGuidance && (
             <p className="panel-hint warn">
-              {estimateLabel} passa dos {formatBytes(MUDAE_SIZE_GUIDANCE_BYTES)} recomendados pelo
-              Mudae.
+              {t('export.overGuidance', {
+                estimate: estimateLabel ?? '',
+                limit: formatBytes(MUDAE_SIZE_GUIDANCE_BYTES, locale),
+              })}
               {kind.format === 'gif'
-                ? ' Otimize o GIF para reduzir; o upload continua liberado.'
-                : ' O upload continua liberado; reduza a escala para um arquivo menor.'}
+                ? t('export.overGuidanceGif')
+                : t('export.overGuidanceReduced')}
             </p>
           )}
 
           <ToggleGroup
-            label="Formato do Export"
+            label={t('export.formatLabel')}
             value={kind.format}
             onChange={onExportFormat}
             options={[
-              { value: 'png', label: 'PNG', title: 'Imagem estática' },
+              { value: 'png', label: t('export.formatPng'), title: t('export.formatPngTitle') },
               {
                 value: 'gif',
-                label: 'GIF',
-                title: animated ? 'GIF animado' : 'A Source é estática',
+                label: t('export.formatGif'),
+                title: animated
+                  ? t('export.formatGifAnimatedTitle')
+                  : t('export.formatGifStaticTitle'),
                 disabled: !animated,
               },
             ]}
           />
-          {!animated && <p className="panel-hint">GIF só para Source animada.</p>}
+          {!animated && <p className="panel-hint">{t('export.gifNeedsAnimation')}</p>}
 
-          <div className="size-label">Tamanho</div>
+          <div className="size-label">{t('export.sizeHeading')}</div>
           {isMudae && card1 && card2 && (
-            <div className="export-sizes" role="radiogroup" aria-label="Tamanho do Export">
+            <div className="export-sizes" role="radiogroup" aria-label={t('export.sizeLabel')}>
               <button
                 type="button"
                 className={`size-option${mudaeScale === 1 ? ' on' : ''}`}
@@ -432,7 +451,7 @@ export const ExportPanel = memo(function ExportPanel({
                 aria-checked={!waifuLocked && mudaeScale === 1}
                 disabled={!doc.source || waifuLocked}
               >
-                <span>Carta 1×</span>
+                <span>{t('export.carta1')}</span>
                 <span className="dims">
                   {card1.width}×{card1.height}
                 </span>
@@ -446,10 +465,10 @@ export const ExportPanel = memo(function ExportPanel({
                 }}
                 role="radio"
                 aria-checked={!waifuLocked && mudaeScale === 2}
-                title="Renderiza a Source em 2×"
+                title={t('export.carta2Title')}
                 disabled={!doc.source || waifuLocked}
               >
-                <span>Carta 2×</span>
+                <span>{t('export.carta2')}</span>
                 <span className="dims">
                   {card2.width}×{card2.height}
                 </span>
@@ -468,10 +487,10 @@ export const ExportPanel = memo(function ExportPanel({
                 }}
                 role="radio"
                 aria-checked={!waifuLocked && mudaeScale === null}
-                title={explicit ? 'Tamanho personalizado' : 'Tamanho automático do recorte'}
+                title={explicit ? t('export.customSizeTitle') : t('export.autoSizeTitle')}
                 disabled={!doc.source || waifuLocked}
               >
-                <span>{explicit ? 'Personalizado' : 'Nativo'}</span>
+                <span>{explicit ? t('export.custom') : t('export.native')}</span>
                 {!explicit && doc.source && (
                   <span className="dims">
                     {native.width}×{native.height}
@@ -483,7 +502,7 @@ export const ExportPanel = memo(function ExportPanel({
 
           {isMudae && !showCustom && (
             <button type="button" className="link size-edit" onClick={() => setCustomOpen(true)}>
-              Tamanho personalizado ›
+              {t('export.customSize')}
             </button>
           )}
 
@@ -496,7 +515,7 @@ export const ExportPanel = memo(function ExportPanel({
                     setCustomOpen(true);
                     onResizeWidth(width);
                   }}
-                  label="Largura do Export"
+                  label={t('export.widthLabel')}
                   title={sizeCapTitle}
                   disabled={!doc.source || waifuLocked}
                 />
@@ -506,12 +525,8 @@ export const ExportPanel = memo(function ExportPanel({
                   onClick={() => onResizeLocked(!doc.resizeLocked)}
                   disabled={!doc.source || waifuLocked}
                   aria-pressed={doc.resizeLocked}
-                  aria-label="Travar proporção da carta"
-                  title={
-                    doc.resizeLocked
-                      ? 'Proporção da carta travada'
-                      : 'Proporção livre — a imagem pode esticar'
-                  }
+                  aria-label={t('export.lockLabel')}
+                  title={doc.resizeLocked ? t('export.lockedTitle') : t('export.unlockedTitle')}
                 >
                   {doc.resizeLocked ? (
                     <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
@@ -561,7 +576,7 @@ export const ExportPanel = memo(function ExportPanel({
                     setCustomOpen(true);
                     onResizeHeight(height);
                   }}
-                  label="Altura do Export"
+                  label={t('export.heightLabel')}
                   title={sizeCapTitle}
                   disabled={!doc.source || waifuLocked}
                 />
@@ -569,11 +584,17 @@ export const ExportPanel = memo(function ExportPanel({
               <div className="custom-size-meta">
                 {doc.source && (
                   <span className="ratio-chip">
-                    {ratioMatches ? presetRatioLabel(doc.frame.ratio) : aspectLabel}
+                    {ratioMatches
+                      ? presetRatioLabel(doc.frame.ratio, t('ratio.custom'))
+                      : aspectLabel}
                   </span>
                 )}
                 <span>
-                  {!doc.source ? 'sem Source' : explicit ? 'personalizado' : 'automático'}
+                  {!doc.source
+                    ? t('export.noSource')
+                    : explicit
+                      ? t('export.customState')
+                      : t('export.autoState')}
                 </span>
               </div>
               <div className="custom-size-actions">
@@ -581,60 +602,65 @@ export const ExportPanel = memo(function ExportPanel({
                   <button
                     type="button"
                     onClick={onNative}
-                    title="Tamanho nativo do recorte"
+                    title={t('export.nativeTitle')}
                     disabled={!doc.source || waifuLocked}
                   >
-                    Nativo
+                    {t('export.native')}
                   </button>
                 )}
                 <button
                   type="button"
                   onClick={onHalve}
-                  title="Metade do tamanho atual"
+                  title={t('export.halveTitle')}
                   disabled={!doc.source || waifuLocked}
                 >
-                  ÷2
+                  {t('export.halve')}
                 </button>
                 <button
                   type="button"
                   onClick={onDouble}
-                  title="Dobro do tamanho atual"
+                  title={t('export.doubleTitle')}
                   disabled={!doc.source || waifuLocked}
                 >
-                  ×2
+                  {t('export.double')}
                 </button>
               </div>
               {waifuLocked && (
                 <p className="panel-hint">
-                  waifu2x {waifuScale}× define o tamanho final · base {baseSize.width}×
-                  {baseSize.height}
+                  {t('export.waifuLockedHint', {
+                    scale: waifuScale,
+                    width: baseSize.width,
+                    height: baseSize.height,
+                  })}
                 </p>
               )}
               {!doc.resizeLocked && !ratioMatches && (
-                <p className="panel-hint bad">fora da proporção da carta — a imagem vai esticar</p>
+                <p className="panel-hint bad">{t('export.offRatioHint')}</p>
               )}
             </div>
           )}
 
           {nativeCapped && (
             <p className="panel-hint warn">
-              nativo {native.width}×{native.height} · limite de renderização: {MAX_EXPORT_SIDE} px
-              por lado
+              {t('export.nativeCappedHint', {
+                width: native.width,
+                height: native.height,
+                side: MAX_EXPORT_SIDE,
+              })}
             </p>
           )}
 
           {showCustom && explicit && aboveNative && (
-            <p className="panel-hint warn">acima do nativo — ampliando</p>
+            <p className="panel-hint warn">{t('export.aboveNativeHint')}</p>
           )}
 
           {aboveNative && !(showCustom && explicit) && doc.source && (
-            <p className="panel-hint warn">acima do nativo — só amplia</p>
+            <p className="panel-hint warn">{t('export.aboveNativeOnlyHint')}</p>
           )}
 
           {animated && kind.format === 'gif' && isMudae && mudaeScale === 2 && (
             <p className="panel-hint">
-              Carta 2× renderiza a Source maior; o GIF pode passar de{' '}
-              {formatBytes(MUDAE_SIZE_GUIDANCE_BYTES)}.
+              {t('export.carta2GifHint', { limit: formatBytes(MUDAE_SIZE_GUIDANCE_BYTES, locale) })}
             </p>
           )}
 
@@ -646,31 +672,33 @@ export const ExportPanel = memo(function ExportPanel({
                 onClick={() => setOptimizeOpen((open) => !open)}
                 aria-expanded={optimizeOpen}
               >
-                <span>Otimizar GIF</span>
+                <span>{t('export.optimizeHeading')}</span>
                 <span>
                   {optimize.enabled
                     ? optimize.targetEnabled
-                      ? `ligado · ${(optimize.targetBytes / (1024 * 1024)).toFixed(1).replace('.', ',')} MB`
-                      : 'ligado · sem alvo'
-                    : 'desligado'}{' '}
+                      ? t('export.optimizeOnTarget', {
+                          size: decimal(optimize.targetBytes / (1024 * 1024), 1, locale),
+                        })
+                      : t('export.optimizeOnNoTarget')
+                    : t('export.optimizeOff')}{' '}
                   {optimizeOpen ? '▾' : '▸'}
                 </span>
               </button>
               {optimizeOpen && (
                 <>
                   <ToggleGroup
-                    label="Otimizar GIF"
+                    label={t('export.optimizeHeading')}
                     value={optimize.enabled ? 'on' : 'off'}
                     onChange={(next) => onOptimize({ enabled: next === 'on' })}
                     options={[
-                      { value: 'off', label: 'desligado' },
-                      { value: 'on', label: 'ligado' },
+                      { value: 'off', label: t('export.optimizeOff') },
+                      { value: 'on', label: t('export.optimizeOn') },
                     ]}
                   />
                   {optimize.enabled && (
                     <>
                       <label className="row">
-                        <span className="key">usar alvo</span>
+                        <span className="key">{t('export.useTarget')}</span>
                         <input
                           type="checkbox"
                           checked={optimize.targetEnabled}
@@ -679,22 +707,23 @@ export const ExportPanel = memo(function ExportPanel({
                       </label>
                       {optimize.targetEnabled ? (
                         <div className="row">
-                          <span className="key">alvo MB</span>
+                          <span className="key">{t('export.targetMb')}</span>
                           <NumberField
                             value={optimize.targetBytes / (1024 * 1024)}
                             onCommit={(mb) => onOptimize({ targetBytes: mb * 1024 * 1024 })}
-                            label="Alvo de tamanho em MB"
+                            label={t('export.targetMbLabel')}
                             precision={1}
                           />
                         </div>
                       ) : (
                         <p className="panel-hint">
-                          sem alvo — aplica a compressão escolhida, mesmo abaixo de{' '}
-                          {formatBytes(MUDAE_SIZE_GUIDANCE_BYTES)}
+                          {t('export.noTargetHint', {
+                            limit: formatBytes(MUDAE_SIZE_GUIDANCE_BYTES, locale),
+                          })}
                         </p>
                       )}
                       <div className="row">
-                        <span className="key">compressão</span>
+                        <span className="key">{t('export.compression')}</span>
                         <span className="pill">{optimize.lossy}</span>
                       </div>
                       <input
@@ -705,20 +734,20 @@ export const ExportPanel = memo(function ExportPanel({
                         step={5}
                         value={optimize.lossy}
                         onChange={(event) => onOptimize({ lossy: Number(event.target.value) })}
-                        aria-label="Compressão com lossy"
+                        aria-label={t('export.lossyLabel')}
                       />
                       <ToggleGroup
-                        label="Intensidade da compressão"
+                        label={t('export.compressionLevel')}
                         value={optimize.lossy}
                         onChange={(lossy) => onOptimize({ lossy })}
                         options={[
-                          { value: 30, label: 'leve' },
-                          { value: 100, label: 'média' },
-                          { value: 200, label: 'máxima' },
+                          { value: 30, label: t('export.levelLight') },
+                          { value: 100, label: t('export.levelMedium') },
+                          { value: 200, label: t('export.levelMax') },
                         ]}
                       />
                       <label className="row">
-                        <span className="key">reduzir cores</span>
+                        <span className="key">{t('export.reduceColors')}</span>
                         <input
                           type="checkbox"
                           checked={optimize.reduceColors}
@@ -727,17 +756,15 @@ export const ExportPanel = memo(function ExportPanel({
                       </label>
                       {optimize.reduceColors && (
                         <div className="row">
-                          <span className="key">cores</span>
+                          <span className="key">{t('export.colors')}</span>
                           <NumberField
                             value={optimize.colors}
                             onCommit={(colors) => onOptimize({ colors })}
-                            label="Número de cores"
+                            label={t('export.colorsLabel')}
                           />
                         </div>
                       )}
-                      <p className="panel-hint">
-                        sem reduzir cores, 100–200 comprime mais · compressão até {MAX_LOSSY}
-                      </p>
+                      <p className="panel-hint">{t('export.lossyHint', { max: MAX_LOSSY })}</p>
                     </>
                   )}
                 </>
@@ -745,26 +772,25 @@ export const ExportPanel = memo(function ExportPanel({
               {optimizeResult && (
                 <p className={`panel-hint${optimizeResult.met === false ? ' bad' : ''}`}>
                   {optimizeResult.met === null
-                    ? 'compressão aplicada'
+                    ? t('export.resultApplied')
                     : optimizeResult.met
-                      ? 'alvo atingido'
-                      : 'alvo não atingido'}
-                  {optimizeResult.size >= optimizeResult.baseSize ? (
-                    <> · sem ganho; original mantido</>
-                  ) : (
-                    <>
-                      {' '}
-                      · {formatBytes(optimizeResult.baseSize)} → {formatBytes(optimizeResult.size)}{' '}
-                      (−
-                      {optimizeGain}%)
-                    </>
-                  )}{' '}
-                  · lossy {optimizeResult.lossy}
-                  {optimizeResult.colors ? ` · ${optimizeResult.colors} cores` : ''}
-                  {optimizeResult.droppedFrames > 0
-                    ? ` · ${optimizeResult.droppedFrames} repetidos`
+                      ? t('export.resultMet')
+                      : t('export.resultMissed')}
+                  {optimizeResult.size >= optimizeResult.baseSize
+                    ? t('export.resultNoGain')
+                    : t('export.resultGain', {
+                        base: formatBytes(optimizeResult.baseSize, locale),
+                        size: formatBytes(optimizeResult.size, locale),
+                        gain: wholePercent(optimizeGain, locale),
+                      })}{' '}
+                  {t('export.resultLossy', { lossy: optimizeResult.lossy })}
+                  {optimizeResult.colors
+                    ? t('export.resultColors', { colors: optimizeResult.colors })
                     : ''}
-                  {optimizeResult.error ? ` · ${optimizeResult.error}` : ''}
+                  {optimizeResult.droppedFrames > 0
+                    ? t('export.resultDropped', { frames: optimizeResult.droppedFrames })
+                    : ''}
+                  {optimizeResult.error ? ` · ${tr(optimizeResult.error)}` : ''}
                 </p>
               )}
             </div>
@@ -774,11 +800,11 @@ export const ExportPanel = memo(function ExportPanel({
         {hasToken && (
           <details className="panel-disclosure">
             <summary>
-              <h4>Image Chest</h4>
-              <span title="Privacidade dos novos Posts">
+              <h4>{t('export.imageChest')}</h4>
+              <span title={t('export.privacyTitle')}>
                 {postId
-                  ? `Post ${postId}`
-                  : (postPrivacy[settings.defaultPrivacy] ?? 'Post oculto')}
+                  ? t('export.postId', { id: postId })
+                  : (postPrivacy[settings.defaultPrivacy] ?? t('export.postHidden'))}
               </span>
             </summary>
             <div className="panel-disclosure-body">
@@ -788,22 +814,22 @@ export const ExportPanel = memo(function ExportPanel({
                 value={appendPostId}
                 onChange={(event) => onAppendPostId(event.target.value)}
                 onBlur={onCommitAppendPostId}
-                placeholder="Post id (opcional)"
-                aria-label="Post id para anexar o Export"
+                placeholder={t('export.postIdPlaceholder')}
+                aria-label={t('export.postIdLabel')}
                 aria-invalid={badPostId}
                 spellCheck={false}
                 disabled={busy}
               />
-              {badPostId && <p className="panel-hint bad">O Post id aceita só letras e números.</p>}
+              {badPostId && <p className="panel-hint bad">{t('app.postIdInvalid')}</p>}
               {tileCount > 1 && (
                 <label className="row">
-                  <span className="key">mesmo Post</span>
+                  <span className="key">{t('export.samePost')}</span>
                   <input
                     type="checkbox"
                     checked={samePost}
                     onChange={(event) => onSamePost(event.target.checked)}
                     disabled={busy}
-                    title="Um Post com todas as Tiles do lote (o Post id também agrupa)"
+                    title={t('export.samePostTitle')}
                   />
                 </label>
               )}
@@ -813,27 +839,29 @@ export const ExportPanel = memo(function ExportPanel({
 
         <details className="panel-disclosure">
           <summary>
-            <h4>Histórico</h4>
+            <h4>{t('export.history')}</h4>
             <span>
               {history.length === 0
-                ? 'vazio'
-                : `${history.length} ${history.length === 1 ? 'item' : 'itens'}`}
+                ? t('export.historyEmpty')
+                : t(history.length === 1 ? 'export.historyItem' : 'export.historyItems', {
+                    count: history.length,
+                  })}
             </span>
           </summary>
           <div className="panel-disclosure-body">
             <div className="section-head">
-              <span className="panel-hint">Últimos uploads e Exports</span>
+              <span className="panel-hint">{t('export.historyHint')}</span>
               <button
                 type="button"
                 className="link"
                 onClick={onClearHistory}
                 disabled={history.length === 0}
               >
-                limpar
+                {t('export.clear')}
               </button>
             </div>
             {history.length === 0 ? (
-              <p className="panel-hint">Nenhum upload ou Export ainda.</p>
+              <p className="panel-hint">{t('export.historyNone')}</p>
             ) : (
               <ul className="history" ref={listRef}>
                 {history.map((entry) =>
@@ -845,16 +873,21 @@ export const ExportPanel = memo(function ExportPanel({
                           {entry.link.replace(/^https:\/\//, '')}
                         </span>
                         <span className="history-meta">
-                          {entry.format.toUpperCase()} · Post {entry.postId} ·{' '}
-                          {formatBytes(entry.size)}
+                          {t('export.uploadMeta', {
+                            format: entry.format.toUpperCase(),
+                            post: entry.postId,
+                            size: formatBytes(entry.size, locale),
+                          })}
                         </span>
-                        <span className="history-meta">{formatHistoryDate(entry.createdAt)}</span>
+                        <span className="history-meta">
+                          {formatHistoryDate(entry.createdAt, locale)}
+                        </span>
                         <span className="history-actions">
                           <button type="button" onClick={() => onCopyText(entry.link)}>
-                            copiar
+                            {t('export.copy')}
                           </button>
                           <button type="button" onClick={() => onOpenLink(entry.link)}>
-                            abrir
+                            {t('export.open')}
                           </button>
                         </span>
                       </div>

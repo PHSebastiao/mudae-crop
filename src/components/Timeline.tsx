@@ -1,6 +1,7 @@
 import { useRef, type KeyboardEvent, type PointerEvent } from 'react';
 import type { Trim } from '../core/document';
 import { formatPlaybackDuration } from '../core/animation';
+import { useI18n } from '../hooks/useI18n';
 
 interface TimelineProps {
   readonly frameIndex: number;
@@ -39,6 +40,7 @@ export function Timeline({
   onTrimEnabled,
   onTrimChange,
 }: TimelineProps) {
+  const { locale, t } = useI18n();
   const trackRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<DragTarget | null>(null);
   const last = Math.max(0, frameCount - 1);
@@ -136,14 +138,14 @@ export function Timeline({
   const playhead = percent(frameIndex);
 
   return (
-    <div className="timeline" aria-label="Reprodução do GIF">
+    <div className="timeline" aria-label={t('timeline.label')}>
       <button
         type="button"
         className="timeline-play"
         onClick={onTogglePlay}
         disabled={disabled}
-        aria-label={playing ? 'Pausar' : 'Reproduzir'}
-        title={playing ? 'Pausar (espaço)' : 'Reproduzir (espaço)'}
+        aria-label={playing ? t('timeline.pause') : t('timeline.play')}
+        title={playing ? t('timeline.pauseTitle') : t('timeline.playTitle')}
       >
         {playing ? (
           <svg viewBox="0 0 12 12" fill="currentColor" aria-hidden="true" focusable="false">
@@ -169,9 +171,9 @@ export function Timeline({
         onClick={() => onTrimEnabled(!trimEnabled)}
         disabled={disabled}
         aria-pressed={trimEnabled}
-        title="Escolher só um trecho do GIF"
+        title={t('timeline.trimTitle')}
       >
-        trecho
+        {t('timeline.trim')}
       </button>
 
       <div
@@ -197,7 +199,7 @@ export function Timeline({
               style={{ left: `${selectionLeft}%` }}
               onPointerDown={(event) => beginDrag(event, 'start')}
               onKeyDown={(event) => onHandleKey(event, 'start')}
-              aria-label="Primeiro quadro do trecho"
+              aria-label={t('timeline.startHandle')}
               role="slider"
               aria-valuemin={0}
               aria-valuemax={trim.end}
@@ -209,7 +211,7 @@ export function Timeline({
               style={{ left: `${percent(trim.end)}%` }}
               onPointerDown={(event) => beginDrag(event, 'end')}
               onKeyDown={(event) => onHandleKey(event, 'end')}
-              aria-label="Último quadro do trecho"
+              aria-label={t('timeline.endHandle')}
               role="slider"
               aria-valuemin={trim.start}
               aria-valuemax={last}
@@ -220,8 +222,11 @@ export function Timeline({
       </div>
 
       <span className="timeline-meta">
-        quadro {Math.min(last, Math.max(0, frameIndex)) + 1}/{frameCount} ·{' '}
-        {formatPlaybackDuration(durationMs)}
+        {t('timeline.meta', {
+          index: Math.min(last, Math.max(0, frameIndex)) + 1,
+          count: frameCount,
+          duration: formatPlaybackDuration(durationMs, locale),
+        })}
       </span>
     </div>
   );

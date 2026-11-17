@@ -85,21 +85,24 @@ describe('Animation trim', () => {
     expect(frameImage(null)).toBeNull();
   });
 
-  it('formats a duration in seconds with a decimal comma', () => {
-    expect(formatDuration(0)).toBe('0,0 s');
-    expect(formatDuration(1250)).toBe('1,3 s');
+  it('formats a duration in seconds in the locale decimals', () => {
+    expect(formatDuration(0, 'pt-BR')).toBe('0,0 s');
+    expect(formatDuration(1250, 'pt-BR')).toBe('1,3 s');
+    expect(formatDuration(1250, 'en')).toBe('1.3 s');
+    expect(formatDuration(1250, 'ja')).toBe('1.3 s');
   });
 
   it('formats long durations as minutes and seconds', () => {
     expect(formatClock(0)).toBe('0:00');
     expect(formatClock(65_000)).toBe('1:05');
     expect(formatClock(3_661_000)).toBe('61:01');
-    expect(formatPlaybackDuration(9_500)).toBe('9,5 s');
-    expect(formatPlaybackDuration(65_000)).toBe('1:05');
+    expect(formatPlaybackDuration(9_500, 'pt-BR')).toBe('9,5 s');
+    expect(formatPlaybackDuration(65_000, 'pt-BR')).toBe('1:05');
   });
 
-  it('formats a detected frame rate with a decimal comma only when needed', () => {
-    expect(formatFps(30)).toBe('30');
-    expect(formatFps(29.97002997)).toBe('29,97');
+  it('formats a detected frame rate with a decimal separator only when needed', () => {
+    expect(formatFps(30, 'en')).toBe('30');
+    expect(formatFps(29.97002997, 'pt-BR')).toBe('29,97');
+    expect(formatFps(29.97002997, 'ru')).toBe('29,97');
   });
 });

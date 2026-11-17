@@ -58,7 +58,7 @@ scope.onmessage = (event: MessageEvent<GifEncodeRequest>) => {
       minCodeSize: 2,
       data: new Uint8Array(0),
       pixels: 0,
-      error: reason instanceof Error && reason.message ? reason.message : 'falha ao codificar',
+      error: 'encode-failed',
     });
   }
 };

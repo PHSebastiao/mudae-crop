@@ -7,6 +7,7 @@ import {
   shouldOffer,
   type UpdateStatus,
 } from '../core/update';
+import type { TextRef } from '../core/i18n/text';
 import {
   appVersion,
   checkForUpdate,
@@ -44,7 +45,7 @@ export interface Updater {
   /** Whether the update modal should be shown. */
   readonly prompt: boolean;
   readonly progress: DownloadProgress | null;
-  readonly progressLabel: string;
+  readonly progressLabel: TextRef | null;
   readonly percent: number | null;
   /** Run the check now; a manual check ignores a skipped version. */
   readonly check: () => void;
@@ -232,7 +233,7 @@ export function useUpdater({ desktop, ready, skipped, onSkip }: UpdaterOptions):
     portable: portable === true,
     prompt,
     progress,
-    progressLabel: progress ? describeProgress(progress.received, progress.total) : '',
+    progressLabel: progress ? describeProgress(progress.received, progress.total) : null,
     percent: progress ? progressPercent(progress.received, progress.total) : null,
     check: () => void check(true),
     install: () => void install(),

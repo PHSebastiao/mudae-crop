@@ -4,6 +4,7 @@ import type { Privacy } from './imagechest';
 import { normalizeHexColor } from './color';
 import { asRecord, parseJson } from './json';
 import { normalizeVersion } from './update';
+import { DEFAULT_LOCALE, isLocale, type Locale } from './i18n/locale';
 
 /** The Export formats this slice can write. */
 export type ExportFormat = 'png' | 'gif';
@@ -18,6 +19,12 @@ export type ImportMode = 'append' | 'replace';
 export interface Settings {
   readonly token: string;
   readonly defaultPrivacy: Privacy;
+  /**
+   * The language the window is drawn in. Detected from the system once, on the
+   * first launch that finds no value here, and changed only by the user after
+   * that: a Windows language change never silently switches the app.
+   */
+  readonly language: Locale;
   readonly saveFolder: string | null;
   readonly borderColor: string;
   readonly borderWidth: number;
@@ -48,6 +55,7 @@ export interface Settings {
 export const DEFAULT_SETTINGS: Settings = Object.freeze({
   token: '',
   defaultPrivacy: 'hidden',
+  language: DEFAULT_LOCALE,
   saveFolder: null,
   borderColor: DEFAULT_BORDER.color,
   borderWidth: DEFAULT_BORDER.width,
@@ -111,6 +119,10 @@ function readFolder(value: unknown): string | null {
   return folder || null;
 }
 
+function readLanguage(value: unknown, fallback: Locale): Locale {
+  return isLocale(value) ? value : fallback;
+}
+
 function readVersion(value: unknown): string {
   const version = readString(value)?.trim() ?? '';
   return version ? normalizeVersion(version) : DEFAULT_SETTINGS.skippedUpdateVersion;
@@ -119,11 +131,17 @@ function readVersion(value: unknown): string {
 /**
  * Read whatever is on disk. A corrupt or partial file never throws and never
  * clears a field it does understand; each invalid field falls back alone.
+ *
+ * `detected` is the system language, used only when the file has never held a
+ * language: that is the one launch where the app picks for the user.
  */
-export function parseSettings(raw: string | null | undefined): Settings {
-  if (!raw) return { ...DEFAULT_SETTINGS };
+export function parseSettings(
+  raw: string | null | undefined,
+  detected: Locale = DEFAULT_LOCALE,
+): Settings {
+  if (!raw) return { ...DEFAULT_SETTINGS, language: detected };
   const data = asRecord(parseJson(raw));
-  if (!data) return { ...DEFAULT_SETTINGS };
+  if (!data) return { ...DEFAULT_SETTINGS, language: detected };
 
   const token = readString(data.token)?.trim() ?? DEFAULT_SETTINGS.token;
   const borderColor =
@@ -131,6 +149,7 @@ export function parseSettings(raw: string | null | undefined): Settings {
   return {
     token,
     defaultPrivacy: readPrivacy(data.defaultPrivacy),
+    language: readLanguage(data.language, detected),
     saveFolder: readFolder(data.saveFolder),
     borderColor,
     borderWidth: readBorderWidth(data.borderWidth),
@@ -149,4 +168,14 @@ export function parseSettings(raw: string | null | undefined): Settings {
 
 export function serializeSettings(settings: Settings): string {
   return `${JSON.stringify(settings, null, 2)}\n`;
+}
+
+/**
+ * Whether the stored file already names a language. The boot writes the
+ * detected one back only when this is false, so the detection happens once.
+ */
+export function settingsHasLanguage(raw: string | null | undefined): boolean {
+  if (!raw) return false;
+  const data = asRecord(parseJson(raw));
+  return data ? isLocale(data.language) : false;
 }

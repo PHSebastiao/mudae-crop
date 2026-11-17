@@ -6,6 +6,8 @@
 
 import { UPLOAD_BATCH_STANDARD } from './limits';
 import type { ImageChestErrorCode } from './imagechest';
+import { text } from './i18n/text';
+import { KeyedError } from './errors';
 
 /** Split a list into chunks of at most `size`; never returns an empty chunk. */
 export function chunkItems<T>(items: readonly T[], size: number): T[][] {
@@ -74,7 +76,7 @@ export async function freeFileName(
     const candidate = attempt === 1 ? name : `${stem}-${attempt}.${extension}`;
     if (!(await exists(candidate))) return candidate;
   }
-  throw new Error(`Não há nome livre para "${name}" nesta pasta.`);
+  throw new KeyedError(text('batch.noFreeName', { name }));
 }
 
 /**

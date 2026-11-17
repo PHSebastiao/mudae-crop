@@ -1,4 +1,6 @@
 import type { GifOptimizer, OptimizeCompression } from '../core/optimize';
+import { text } from '../core/i18n/text';
+import { KeyedError } from '../core/errors';
 
 function arrayBufferOf(bytes: Uint8Array): ArrayBuffer {
   return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
@@ -31,7 +33,7 @@ export const gifsicleOptimizer: GifOptimizer = {
       isStrict: false,
     });
     const output = outputs?.[0];
-    if (!output) throw new Error('gifsicle não devolveu um GIF.');
+    if (!output) throw new KeyedError(text('gifOptimizer.noOutput'));
     return new Uint8Array(await output.arrayBuffer());
   },
 };

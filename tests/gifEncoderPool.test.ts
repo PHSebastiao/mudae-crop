@@ -97,7 +97,7 @@ describe('GifWorkerPool', () => {
     const attempt = pool.encode(frame(1));
     workers[0].onerror?.(new Error('boom'));
 
-    await expect(attempt).rejects.toThrow(/codificador do GIF falhou/);
+    await expect(attempt).rejects.toThrow('gifEncoder.failed');
   });
 
   it('fails what is in flight when closed and starts over afterwards', async () => {
@@ -106,7 +106,7 @@ describe('GifWorkerPool', () => {
     const attempt = pool.encode(frame(1));
     pool.close();
 
-    await expect(attempt).rejects.toThrow(/encerrado/);
+    await expect(attempt).rejects.toThrow('gifEncoder.terminated');
     expect(workers[0].terminated).toBe(true);
 
     const again = pool.encode(frame(2));

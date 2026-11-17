@@ -1,4 +1,6 @@
+import { text } from '../src/core/i18n/text';
 import { describe, expect, it, vi } from 'vitest';
+import { formatBytes } from '../src/core/format';
 import { loadSource } from '../src/core/import';
 import {
   DownloadError,
@@ -6,7 +8,6 @@ import {
   MAX_DOWNLOAD_BYTES,
   downloadErrorMessage,
   downloadSource,
-  formatBytes,
   sourceNameFromUrl,
   sourceUrlFrom,
   type DownloadHandle,
@@ -177,7 +178,7 @@ describe('downloadSource', () => {
 
     await expect(downloadSource('card.png', { transport })).rejects.toMatchObject({
       code: 'invalid-url',
-      message: 'O link precisa começar com http:// ou https://.',
+      text: text('download.invalidUrl'),
     });
     expect(start).not.toHaveBeenCalled();
   });
@@ -191,7 +192,7 @@ describe('downloadSource', () => {
       downloadSource('https://missing.example.com/card.png', { transport }),
     ).rejects.toMatchObject({
       code: 'unreachable',
-      message: 'Não foi possível alcançar missing.example.com. Verifique a conexão ou o link.',
+      text: text('download.unreachable', { host: 'missing.example.com' }),
     });
   });
 
@@ -206,7 +207,7 @@ describe('downloadSource', () => {
     await expect(attempt).rejects.toMatchObject({
       code: 'http',
       status: 404,
-      message: 'O link não existe (404). Confira o endereço.',
+      text: text('download.notFound'),
     });
   });
 
@@ -218,8 +219,7 @@ describe('downloadSource', () => {
 
     await expect(downloadSource('https://example.com/page', { transport })).rejects.toMatchObject({
       code: 'not-image',
-      message:
-        'O link não aponta para uma imagem ou vídeo (text/html). Use um link direto para PNG, JPG, GIF, WebP, MP4, MOV ou WebM.',
+      text: text('download.notImageType', { type: 'text/html' }),
     });
   });
 
@@ -233,8 +233,7 @@ describe('downloadSource', () => {
       downloadSource('https://cdn.example.com/mystery', { transport }),
     ).rejects.toMatchObject({
       code: 'not-image',
-      message:
-        'O link cdn.example.com não devolveu uma imagem ou vídeo reconhecido. Use um link direto para o arquivo.',
+      text: text('download.notImageHost', { host: 'cdn.example.com' }),
     });
   });
 
@@ -263,7 +262,7 @@ describe('downloadSource', () => {
 
     await expect(attempt).rejects.toMatchObject({
       code: 'cancelled',
-      message: 'Download cancelado.',
+      text: text('download.cancelled'),
     });
     expect(script.cancels()).toBeGreaterThan(0);
   });
@@ -306,13 +305,14 @@ describe('downloadSource', () => {
 
 describe('presentation helpers', () => {
   it('formats byte counts for the progress readout', () => {
-    expect(formatBytes(0)).toBe('0 B');
-    expect(formatBytes(1536)).toBe('1.5 KB');
-    expect(formatBytes(MAX_DOWNLOAD_BYTES)).toBe('30.0 MB');
+    expect(formatBytes(0, 'pt-BR')).toBe('0 B');
+    expect(formatBytes(1536, 'pt-BR')).toBe('1,5 KB');
+    expect(formatBytes(MAX_DOWNLOAD_BYTES, 'pt-BR')).toBe('30,0 MB');
+    expect(formatBytes(1536, 'en')).toBe('1.5 KB');
   });
 
   it('falls back to a readable message for unknown failures', () => {
-    expect(downloadErrorMessage(new Error('boom'))).toBe('boom');
-    expect(downloadErrorMessage('text')).toBe('Não foi possível baixar essa imagem.');
+    expect(downloadErrorMessage(new Error('boom'))).toEqual(text('download.failed'));
+    expect(downloadErrorMessage('text')).toEqual(text('download.failed'));
   });
 });

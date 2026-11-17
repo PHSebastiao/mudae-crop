@@ -188,7 +188,7 @@ describe('optimizeGif', () => {
 
     expect(result.bytes).toBe(base);
     expect(result.attempts).toBeGreaterThan(0);
-    expect(result.error).toContain('inválido');
+    expect(result.error).toEqual({ key: 'optimize.outputInvalid' });
   });
 
   it('can be cancelled between attempts', async () => {
@@ -214,7 +214,7 @@ describe('optimizeGif', () => {
     expect(result.bytes).toBe(base);
     expect(result.attempts).toBe(0);
     expect(result.met).toBe(false);
-    expect(result.error).toBe('O GIF base é inválido.');
+    expect(result.error).toEqual({ key: 'optimize.baseInvalid' });
   });
 
   it('keeps the base when a decoded candidate is not smaller than the best', async () => {
@@ -236,7 +236,7 @@ describe('optimizeGif', () => {
 
     expect(result.bytes).toBe(base);
     expect(result.size).toBe(base.length);
-    expect(result.error).toContain('inválido');
+    expect(result.error).toEqual({ key: 'optimize.outputInvalid' });
   });
 
   it('runs the chosen lossy and colour passes once each when the target is off', async () => {

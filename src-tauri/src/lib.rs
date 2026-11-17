@@ -234,29 +234,29 @@ fn installer_detected() -> bool {
 /// name. A failure after the rename restores the old image.
 fn swap_executable(exe: &Path, bytes: &[u8]) -> Result<PathBuf, String> {
     if bytes.is_empty() {
-        return Err("O arquivo de atualização veio vazio.".into());
+        return Err("The update file was empty.".into());
     }
-    let dir = exe.parent().ok_or("A pasta do app não foi encontrada.")?;
+    let dir = exe.parent().ok_or("The app folder was not found.")?;
     let name = exe
         .file_name()
         .and_then(|name| name.to_str())
-        .ok_or("O nome do executável não foi lido.")?;
+        .ok_or("The executable name could not be read.")?;
     let staged = dir.join(format!("{name}.new"));
     let backup = dir.join(format!("{name}.old"));
 
     let _ = std::fs::remove_file(&staged);
     std::fs::write(&staged, bytes)
-        .map_err(|error| format!("Não foi possível gravar a atualização: {error}"))?;
+        .map_err(|error| format!("Could not write the update: {error}"))?;
 
     let _ = std::fs::remove_file(&backup);
     if let Err(error) = std::fs::rename(exe, &backup) {
         let _ = std::fs::remove_file(&staged);
-        return Err(format!("Não foi possível substituir o executável: {error}"));
+        return Err(format!("Could not replace the executable: {error}"));
     }
     if let Err(error) = std::fs::rename(&staged, exe) {
         let _ = std::fs::rename(&backup, exe);
         let _ = std::fs::remove_file(&staged);
-        return Err(format!("Não foi possível gravar o novo executável: {error}"));
+        return Err(format!("Could not write the new executable: {error}"));
     }
     Ok(backup)
 }
@@ -299,7 +299,7 @@ async fn install_portable_update(app: AppHandle, expected_version: String) -> Re
     // Only an unpacked copy may replace its own executable; an installed copy
     // must go through the signed NSIS setup instead.
     if installer_detected() {
-        return Err("Esta cópia foi instalada pelo instalador; use a atualização normal.".into());
+        return Err("This copy was installed by the installer; use the normal update.".into());
     }
 
     let updater = app
@@ -308,7 +308,7 @@ async fn install_portable_update(app: AppHandle, expected_version: String) -> Re
         .build()
         .map_err(|error| error.to_string())?;
     let Some(update) = updater.check().await.map_err(|error| error.to_string())? else {
-        return Err("Nenhuma atualização disponível.".into());
+        return Err("No update available.".into());
     };
     let mut offered = update.version.to_string();
     if let Some(stripped) = offered.strip_prefix(['v', 'V']) {
@@ -316,7 +316,7 @@ async fn install_portable_update(app: AppHandle, expected_version: String) -> Re
     }
     if offered != expected_version.trim_start_matches(['v', 'V']) {
         return Err(format!(
-            "A versão disponível mudou para {offered}; verifique novamente."
+            "The available version changed to {offered}; check again."
         ));
     }
 
@@ -341,7 +341,7 @@ async fn install_portable_update(app: AppHandle, expected_version: String) -> Re
     }
     Command::new(&exe)
         .spawn()
-        .map_err(|error| format!("Não foi possível abrir a nova versão: {error}"))?;
+        .map_err(|error| format!("Could not open the new version: {error}"))?;
     std::process::exit(0);
 }
 
@@ -534,7 +534,7 @@ fn read_file_bytes(path: String) -> Result<tauri::ipc::Response, String> {
 #[tauri::command]
 fn write_file_bytes(path: String, contents: Vec<u8>) -> Result<(), String> {
     if Path::new(&path).is_dir() {
-        return Err("O caminho escolhido é uma pasta, não um arquivo.".into());
+        return Err("The chosen path is a folder, not a file.".into());
     }
     std::fs::write(&path, contents).map_err(|error| error.to_string())
 }
@@ -550,12 +550,12 @@ async fn read_export_bytes(path: String) -> Result<tauri::ipc::Response, String>
 
 fn read_export_preview(path: &Path, max_bytes: u64) -> Result<Vec<u8>, String> {
     if !path.is_absolute() {
-        return Err("O caminho do Export precisa ser absoluto.".into());
+        return Err("The Export path must be absolute.".into());
     }
     let file = std::fs::File::open(path).map_err(|error| error.to_string())?;
     let metadata = file.metadata().map_err(|error| error.to_string())?;
     if !metadata.is_file() {
-        return Err("O caminho do Export não é um arquivo.".into());
+        return Err("The Export path is not a file.".into());
     }
     // Read one byte past the cap, so a file that grows after the metadata check
     // is still refused instead of being loaded whole.
@@ -564,7 +564,7 @@ fn read_export_preview(path: &Path, max_bytes: u64) -> Result<Vec<u8>, String> {
         .read_to_end(&mut bytes)
         .map_err(|error| error.to_string())?;
     if bytes.len() as u64 > max_bytes {
-        return Err("O arquivo do Export é grande demais para a prévia.".into());
+        return Err("The Export file is too large to preview.".into());
     }
     Ok(bytes)
 }
@@ -684,7 +684,7 @@ fn config_file_name(key: &str) -> Option<&'static str> {
 }
 
 fn config_path(app: &AppHandle, key: &str) -> Result<PathBuf, String> {
-    let file = config_file_name(key).ok_or("Chave de configuração desconhecida.")?;
+    let file = config_file_name(key).ok_or("Unknown configuration key.")?;
     let dir = app
         .path()
         .app_config_dir()
@@ -709,7 +709,7 @@ static CONFIG_WRITE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 #[tauri::command]
 fn write_config(app: AppHandle, key: String, contents: String) -> Result<(), String> {
     if contents.len() > 1_048_576 {
-        return Err("Arquivo de configuração grande demais.".into());
+        return Err("Configuration file too large.".into());
     }
     let path = config_path(&app, &key)?;
     // Write beside the target and rename, so a crash never leaves half a file.
@@ -754,10 +754,10 @@ async fn imagechest_request(
     files: Option<Vec<ImageChestFilePart>>,
 ) -> Result<ImageChestReply, String> {
     if !path.starts_with("/v1/") || path.contains("..") {
-        return Err("Caminho de API inválido.".into());
+        return Err("Invalid API path.".into());
     }
     if token.trim().is_empty() {
-        return Err("Token do Image Chest vazio.".into());
+        return Err("The Image Chest token is empty.".into());
     }
 
     let client = reqwest::Client::builder()
@@ -772,7 +772,7 @@ async fn imagechest_request(
         "GET" => client.get(url),
         "POST" => client.post(url),
         "PUT" => client.put(url),
-        _ => return Err("Método HTTP inválido.".into()),
+        _ => return Err("Invalid HTTP method.".into()),
     }
     .bearer_auth(token.trim());
 
@@ -829,7 +829,7 @@ fn copy_text(app: AppHandle, text: String) -> Result<(), String> {
 #[tauri::command]
 fn open_external(app: AppHandle, url: String) -> Result<(), String> {
     if !(url.starts_with("https://") || url.starts_with("http://")) {
-        return Err("Só links http(s) podem ser abertos.".into());
+        return Err("Only http(s) links can be opened.".into());
     }
     use tauri_plugin_opener::OpenerExt;
     app.opener()
@@ -1049,22 +1049,22 @@ fn sanitize_job_id(job_id: &str) -> String {
     }
 }
 
-/// Keep the useful tail of a sidecar failure and name the common Vulkan case.
-fn waifu2x_failure_detail(stderr: &str) -> String {
+/// Keep the useful tail of a sidecar failure. A *sentence* the app owns belongs
+/// in a catalog key — that is why the Vulkan wording moved to
+/// `waifu2x.unsupported` — while a native cause may stay English inside
+/// `{detail}`, as `docs/i18n.md` allows. `None` means "no cause to show" and
+/// the UI fills it with `waifu2x.unknownFailure`.
+fn waifu2x_failure_detail(stderr: &str) -> Option<String> {
     let text = stderr.trim();
     if text.is_empty() {
-        return "O waifu2x falhou sem detalhes.".into();
+        return None;
     }
-    let lower = text.to_lowercase();
+    // The tail, not the whole log: three lines is what a sidecar failure says,
+    // and the classification below matches on it too.
     let mut tail: Vec<&str> = text.lines().rev().take(3).collect();
     tail.reverse();
     let summary = tail.join(" · ");
-    let summary: String = summary.chars().take(400).collect();
-    if lower.contains("vulkan") || lower.contains("no device") || lower.contains("vkcreate") {
-        format!("Este computador não tem uma GPU com Vulkan. {summary}")
-    } else {
-        summary
-    }
+    Some(summary.chars().take(400).collect())
 }
 
 /// Run the sidecar once on `input` and return its output bytes. The child is
@@ -1094,7 +1094,7 @@ fn execute_waifu2x(
     std::fs::create_dir_all(&dir).map_err(|error| {
         Waifu2xFailure::detail(
             "failed",
-            format!("Não foi possível criar o diretório temporário: {error}"),
+            format!("Could not create the temporary directory: {error}"),
         )
     })?;
     let input_path = dir.join("input.png");
@@ -1103,7 +1103,7 @@ fn execute_waifu2x(
         let _ = std::fs::remove_dir_all(&dir);
         return Err(Waifu2xFailure::detail(
             "failed",
-            format!("Não foi possível gravar a imagem para o waifu2x: {error}"),
+            format!("Could not write the image for waifu2x: {error}"),
         ));
     }
 
@@ -1125,7 +1125,7 @@ fn execute_waifu2x(
             let _ = std::fs::remove_dir_all(&dir);
             return Err(Waifu2xFailure::detail(
                 "failed",
-                format!("Não foi possível iniciar o waifu2x: {error}"),
+                format!("Could not start waifu2x: {error}"),
             ));
         }
     };
@@ -1138,7 +1138,7 @@ fn execute_waifu2x(
             let _ = std::fs::remove_dir_all(&dir);
             return Err(Waifu2xFailure::detail(
                 "failed",
-                "O waifu2x não abriu a saída de erro.".into(),
+                "waifu2x did not open its error stream.".into(),
             ));
         }
     };
@@ -1203,7 +1203,7 @@ fn execute_waifu2x(
             let _ = std::fs::remove_dir_all(&dir);
             return Err(Waifu2xFailure::detail(
                 "failed",
-                "O waifu2x demorou demais para responder.".into(),
+                "waifu2x took too long to answer.".into(),
             ));
         }
         match child.try_wait() {
@@ -1211,9 +1211,11 @@ fn execute_waifu2x(
                 let stderr_text = reader.join().unwrap_or_default();
                 if !status.success() {
                     let _ = std::fs::remove_dir_all(&dir);
+                    // An empty detail is how "no cause" crosses the IPC seam;
+                    // `failureExit` turns it into a keyed phrase.
                     return Err(Waifu2xFailure::detail(
                         "failed",
-                        waifu2x_failure_detail(&stderr_text),
+                        waifu2x_failure_detail(&stderr_text).unwrap_or_default(),
                     ));
                 }
                 let bytes = match std::fs::read(&output_path) {
@@ -1222,7 +1224,7 @@ fn execute_waifu2x(
                         let _ = std::fs::remove_dir_all(&dir);
                         return Err(Waifu2xFailure::detail(
                             "failed",
-                            format!("O waifu2x não gravou a imagem: {error}"),
+                            format!("waifu2x did not write the image: {error}"),
                         ));
                     }
                 };
@@ -1230,7 +1232,7 @@ fn execute_waifu2x(
                 if bytes.is_empty() {
                     return Err(Waifu2xFailure::detail(
                         "failed",
-                        "O waifu2x gravou uma imagem vazia.".into(),
+                        "waifu2x wrote an empty image.".into(),
                     ));
                 }
                 return Ok(bytes);
@@ -1243,7 +1245,7 @@ fn execute_waifu2x(
                 let _ = std::fs::remove_dir_all(&dir);
                 return Err(Waifu2xFailure::detail(
                     "failed",
-                    format!("O waifu2x falhou: {error}"),
+                    format!("{error}"),
                 ));
             }
         }
@@ -1252,12 +1254,11 @@ fn execute_waifu2x(
 
 fn probe_waifu2x(app: &AppHandle, args: &[String], input: &[u8]) -> Waifu2xProbe {
     let Some((binary, models)) = find_waifu2x(app) else {
+        // No detail: the wording is `waifu2x.missing` in the catalogs, and a
+        // sentence here would be a second copy nobody renders.
         return Waifu2xProbe {
             status: "missing".into(),
-            detail: Some(
-                "O waifu2x não faz parte desta versão. Use o instalador ou o ZIP portátil para tê-lo; o resto do editor continua funcionando."
-                    .into(),
-            ),
+            detail: None,
         };
     };
     let cancel = AtomicBool::new(false);
@@ -1278,11 +1279,14 @@ fn probe_waifu2x(app: &AppHandle, args: &[String], input: &[u8]) -> Waifu2xProbe
         },
         Ok(_) => Waifu2xProbe {
             status: "failed".into(),
-            detail: Some("O waifu2x não produziu uma imagem de teste.".into()),
+            detail: Some("waifu2x produced no test image.".into()),
         },
         Err(failure) => {
-            let detail = failure.detail.unwrap_or_else(|| "falha do waifu2x".into());
-            let unsupported = detail.to_lowercase().contains("vulkan");
+            let detail = failure.detail.unwrap_or_default();
+            let lower = detail.to_lowercase();
+            let unsupported = ["vulkan", "no device", "vkcreate"]
+                .iter()
+                .any(|needle| lower.contains(needle));
             Waifu2xProbe {
                 status: if unsupported { "unsupported" } else { "failed" }.into(),
                 detail: Some(detail),
@@ -1305,7 +1309,7 @@ async fn waifu2x_probe(
         .await
         .unwrap_or_else(|_| Waifu2xProbe {
             status: "failed".into(),
-            detail: Some("A verificação do waifu2x falhou.".into()),
+            detail: Some("The waifu2x check failed.".into()),
         });
     *cache.lock() = Some(probe.clone());
     Ok(probe)
@@ -1360,6 +1364,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(Downloads::default())
         .manage(Waifu2xRuns::default())
@@ -1544,10 +1549,16 @@ mod tests {
     }
 
     #[test]
-    fn waifu2x_failure_names_a_vulkan_problem() {
-        let detail = waifu2x_failure_detail("vkCreateInstance failed");
-        assert!(detail.to_lowercase().contains("vulkan"));
-        assert_eq!(waifu2x_failure_detail("boom"), "boom");
+    fn waifu2x_failure_detail_is_only_the_cause() {
+        // The Vulkan wording lives in the catalog, so the native detail is the
+        // cause alone: a sentence here would be read twice on screen.
+        assert_eq!(
+            waifu2x_failure_detail("vkCreateInstance failed").as_deref(),
+            Some("vkCreateInstance failed")
+        );
+        assert_eq!(waifu2x_failure_detail("boom").as_deref(), Some("boom"));
+        // No cause at all is `None`, so the UI can show its own keyed phrase.
+        assert_eq!(waifu2x_failure_detail("   "), None);
     }
 
     #[test]

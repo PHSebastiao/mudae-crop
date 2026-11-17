@@ -69,9 +69,9 @@ export function presetForRatio(ratio: number): RatioPreset | null {
   return RATIO_PRESETS.find((preset) => matchesRatio(preset.ratio, ratio)) ?? null;
 }
 
-/** The label for a Frame proportion: preset label or `Personalizado`. */
-export function ratioLabel(ratio: number): string {
-  return presetForRatio(ratio)?.label ?? 'Personalizado';
+/** The label for a Frame proportion: a preset label, or the caller's free one. */
+export function ratioLabel(ratio: number, custom: string): string {
+  return presetForRatio(ratio)?.label ?? custom;
 }
 
 /**

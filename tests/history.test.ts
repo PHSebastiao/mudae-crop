@@ -77,10 +77,12 @@ describe('history', () => {
     expect(entry).toMatchObject({ kind: 'upload', format: 'gif' });
   });
 
-  it('formats a valid date and ignores an invalid one', () => {
-    expect(formatHistoryDate('not a date')).toBe('');
-    expect(formatHistoryDate(makeUploadEntry(1).createdAt)).toMatch(
-      /^\d{2}\/\d{2}\/\d{4} \d{2}:\d{2}$/,
-    );
+  it('formats a valid date in the locale and ignores an invalid one', () => {
+    expect(formatHistoryDate('not a date', 'pt-BR')).toBe('');
+    const iso = makeUploadEntry(1).createdAt;
+    const pt = formatHistoryDate(iso, 'pt-BR');
+    expect(pt).toMatch(/\d{2}\/\d{2}\/\d{4}/);
+    expect(pt).toMatch(/\d{2}:\d{2}/);
+    expect(formatHistoryDate(iso, 'en')).not.toBe(pt);
   });
 });

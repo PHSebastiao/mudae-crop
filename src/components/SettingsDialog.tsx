@@ -1,14 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { IMAGE_CHEST_API_KEY_URL, PRIVACY_OPTIONS } from '../core/imagechest';
+import { IMAGE_CHEST_API_KEY_URL, PRIVACY_VALUES, type Privacy } from '../core/imagechest';
+import { LOCALES, LOCALE_LABELS, type Locale } from '../core/i18n/locale';
+import type { TextRef } from '../core/i18n/text';
 import type { Settings } from '../core/settings';
 import { describeUpdate, type UpdateStatus } from '../core/update';
 import { useDialogFocus } from '../hooks/useDialogFocus';
+import { useI18n } from '../hooks/useI18n';
 import { DialogClose } from './DialogClose';
 import { NumberField } from './NumberField';
 
 export interface TokenTestResult {
   readonly ok: boolean;
-  readonly message: string;
+  readonly message: TextRef;
 }
 
 interface SettingsDialogProps {
@@ -54,6 +57,7 @@ export function SettingsDialog({
   onOpenRepository,
   onReplayTour,
 }: SettingsDialogProps) {
+  const { t, tr } = useI18n();
   // The token is a draft until blur, so a long token is not written once per
   // keystroke. Clearing it from another control resets the draft.
   const [tokenDraft, setTokenDraft] = useState(settings.token);
@@ -84,6 +88,12 @@ export function SettingsDialog({
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [close]);
 
+  const privacyLabel: Readonly<Record<Privacy, string>> = {
+    hidden: t('privacy.hidden'),
+    public: t('privacy.public'),
+    secret: t('privacy.secret'),
+  };
+
   return (
     <div
       className="modal-backdrop"
@@ -99,30 +109,49 @@ export function SettingsDialog({
         aria-labelledby="settings-title"
       >
         <header className="settings-head">
-          <h2 id="settings-title">Configurações</h2>
-          <DialogClose label="Fechar Configurações" onClick={close} />
+          <h2 id="settings-title">{t('settings.title')}</h2>
+          <DialogClose label={t('settings.close')} onClick={close} />
         </header>
 
         <section>
-          <h3>Image Chest</h3>
+          <h3>{t('settings.sectionLanguage')}</h3>
+          <label className="settings-field">
+            <span>{t('settings.languageLabel')}</span>
+            <select
+              value={settings.language}
+              onChange={(event) => onChange({ language: event.target.value as Locale })}
+              aria-label={t('settings.languageLabel')}
+            >
+              {LOCALES.map((locale) => (
+                <option key={locale} value={locale}>
+                  {LOCALE_LABELS[locale]}
+                </option>
+              ))}
+            </select>
+          </label>
+          <p className="settings-hint">{t('settings.languageHint')}</p>
+        </section>
+
+        <section>
+          <h3>{t('settings.sectionImageChest')}</h3>
 
           <div className="settings-group">
-            <h4 className="settings-group-title">Conexão</h4>
+            <h4 className="settings-group-title">{t('settings.groupConnection')}</h4>
             <label className="settings-field">
-              <span>Token pessoal</span>
+              <span>{t('settings.tokenLabel')}</span>
               <input
                 type="password"
                 value={tokenDraft}
                 onChange={(event) => setTokenDraft(event.target.value)}
                 onBlur={commitToken}
-                placeholder="cole o token pessoal"
+                placeholder={t('settings.tokenPlaceholder')}
                 autoComplete="off"
                 spellCheck={false}
-                aria-label="Token do Image Chest"
+                aria-label={t('settings.tokenAria')}
               />
             </label>
             <p className="settings-hint">
-              Salvo só neste computador.{' '}
+              {t('settings.tokenSavedHere')}{' '}
               <a
                 className="inline-link"
                 href={IMAGE_CHEST_API_KEY_URL}
@@ -133,7 +162,7 @@ export function SettingsDialog({
                   onOpenApiKeyPage();
                 }}
               >
-                Gerar um token
+                {t('settings.generateToken')}
               </a>
             </p>
             <div className="settings-actions">
@@ -145,39 +174,39 @@ export function SettingsDialog({
                 }}
                 disabled={testing || !tokenDraft.trim()}
               >
-                {testing ? 'Testando…' : 'Testar conexão'}
+                {testing ? t('settings.testing') : t('settings.testConnection')}
               </button>
               <button
                 type="button"
                 className="danger-ghost"
                 onClick={onClearToken}
                 disabled={testing || !settings.token}
-                title="Apaga o token salvo neste computador"
+                title={t('settings.clearTokenTitle')}
               >
-                Limpar token
+                {t('settings.clearToken')}
               </button>
             </div>
             {testResult && (
               <p className={`settings-result ${testResult.ok ? 'ok' : 'bad'}`} role="status">
-                {testResult.message}
+                {tr(testResult.message)}
               </p>
             )}
           </div>
 
           <div className="settings-group">
-            <h4 className="settings-group-title">Upload</h4>
+            <h4 className="settings-group-title">{t('settings.groupUpload')}</h4>
             <label className="settings-field">
-              <span>Privacidade padrão</span>
+              <span>{t('settings.defaultPrivacy')}</span>
               <select
                 value={settings.defaultPrivacy}
                 onChange={(event) =>
                   onChange({ defaultPrivacy: event.target.value as Settings['defaultPrivacy'] })
                 }
-                aria-label="Privacidade padrão do Post"
+                aria-label={t('settings.defaultPrivacyAria')}
               >
-                {PRIVACY_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
+                {PRIVACY_VALUES.map((value) => (
+                  <option key={value} value={value}>
+                    {privacyLabel[value]}
                   </option>
                 ))}
               </select>
@@ -189,21 +218,19 @@ export function SettingsDialog({
                 checked={settings.uploadCredit}
                 onChange={(event) => onChange({ uploadCredit: event.target.checked })}
               />
-              <span>Crédito na descrição</span>
+              <span>{t('settings.credit')}</span>
             </label>
-            <p className="settings-hint">
-              Um crédito por Post; num lote com Post único, só a primeira imagem.
-            </p>
+            <p className="settings-hint">{t('settings.creditHint')}</p>
 
             <div className="settings-row">
-              <span className="settings-key">Conta</span>
+              <span className="settings-key">{t('settings.account')}</span>
             </div>
             <div className="settings-row">
               {settings.imageChestGold === true
-                ? 'Gold · 200 por Post'
+                ? t('settings.accountGold')
                 : settings.imageChestGold === false
-                  ? 'Padrão · 20 por Post'
-                  : 'não verificada · 20 por Post'}
+                  ? t('settings.accountStandard')
+                  : t('settings.accountUnknown')}
             </div>
             <div className="settings-actions">
               <button
@@ -213,115 +240,105 @@ export function SettingsDialog({
                   onCheckAccount();
                 }}
                 disabled={checkingAccount || testing || !tokenDraft.trim()}
-                title="Pergunta ao Image Chest se a conta é Gold, para liberar lotes de 200"
+                title={t('settings.checkAccountTitle')}
               >
-                {checkingAccount ? 'Verificando…' : 'Verificar conta'}
+                {checkingAccount ? t('settings.checkingAccount') : t('settings.checkAccount')}
               </button>
             </div>
-            <p className="settings-hint">20 arquivos por Post; 200 em contas Gold.</p>
+            <p className="settings-hint">{t('settings.batchHint')}</p>
           </div>
         </section>
 
         <section>
-          <h3>Board</h3>
+          <h3>{t('settings.sectionBoard')}</h3>
           <label className="settings-field">
-            <span>Ao importar</span>
+            <span>{t('settings.importMode')}</span>
             <select
               value={settings.importMode}
               onChange={(event) =>
                 onChange({ importMode: event.target.value as Settings['importMode'] })
               }
-              aria-label="O que fazer ao importar com Tiles no Board"
+              aria-label={t('settings.importModeAria')}
             >
-              <option value="append">Adicionar ao Board</option>
-              <option value="replace">Substituir o Board</option>
+              <option value="append">{t('settings.importAppend')}</option>
+              <option value="replace">{t('settings.importReplace')}</option>
             </select>
           </label>
-          <p className="settings-hint">
-            Adicionar mantém as Tiles abertas; substituir limpa o Board e começa de novo com o que
-            você importou.
-          </p>
+          <p className="settings-hint">{t('settings.importHint')}</p>
         </section>
 
         <section>
-          <h3>Export</h3>
+          <h3>{t('settings.sectionExport')}</h3>
           <div className="settings-row">
-            <span className="settings-key">Pasta</span>
+            <span className="settings-key">{t('settings.folder')}</span>
             <code className="settings-path" title={settings.saveFolder ?? 'Downloads'}>
-              {settings.saveFolder ?? 'Downloads (padrão)'}
+              {settings.saveFolder ?? t('settings.downloadsDefault')}
             </code>
           </div>
           <div className="settings-actions">
             <button type="button" onClick={onChooseFolder} disabled={!desktop}>
-              Escolher pasta
+              {t('settings.chooseFolder')}
             </button>
             <button
               type="button"
               onClick={onClearFolder}
               disabled={!settings.saveFolder}
-              title="Volta a usar a pasta Downloads"
+              title={t('settings.useDownloadsTitle')}
             >
-              Usar Downloads
+              {t('settings.useDownloads')}
             </button>
           </div>
-          {!desktop && (
-            <p className="settings-hint">A pasta só pode ser escolhida no app desktop.</p>
-          )}
+          {!desktop && <p className="settings-hint">{t('app.folderDesktopOnly')}</p>}
           <div className="settings-row">
-            <span className="settings-key">Formato</span>
+            <span className="settings-key">{t('settings.format')}</span>
             <span>{settings.exportFormat.toUpperCase()}</span>
           </div>
-          <p className="settings-hint">
-            Escolhido no painel Export; uma Source estática sempre sai em PNG.
-          </p>
+          <p className="settings-hint">{t('settings.formatHint')}</p>
         </section>
 
         <section>
-          <h3>Borda</h3>
+          <h3>{t('settings.sectionBorder')}</h3>
           <div className="settings-row">
-            <span className="settings-key">Cor</span>
+            <span className="settings-key">{t('settings.color')}</span>
             <span className="settings-color">
               <input
                 type="color"
                 className="color"
                 value={settings.borderColor}
                 onChange={(event) => onChange({ borderColor: event.target.value.toUpperCase() })}
-                aria-label="Cor da Borda"
+                aria-label={t('settings.borderColorAria')}
               />
               <code>{settings.borderColor}</code>
             </span>
           </div>
           <div className="settings-row">
-            <span className="settings-key">Largura</span>
+            <span className="settings-key">{t('settings.width')}</span>
             <span className="settings-color">
               <NumberField
                 value={settings.borderWidth}
                 onCommit={(borderWidth) => onChange({ borderWidth })}
-                label="Largura da Borda"
+                label={t('settings.borderWidthLabel')}
               />
               <span className="unit">px</span>
             </span>
           </div>
-          <p className="settings-hint">
-            A largura é em pixels do card 1× e cresce junto com o Export: 1 px no 1× vira 2 px no
-            2×. Mudar a Borda não muda o tamanho escolhido no Export.
-          </p>
+          <p className="settings-hint">{t('settings.borderHint')}</p>
         </section>
 
         <section>
-          <h3>Sobre</h3>
+          <h3>{t('settings.sectionAbout')}</h3>
           <div className="settings-row">
-            <span className="settings-key">Versão</span>
+            <span className="settings-key">{t('settings.version')}</span>
             <span>{version ?? '—'}</span>
           </div>
           <div className="settings-row">
-            <span className="settings-key">Tour</span>
+            <span className="settings-key">{t('settings.tour')}</span>
             <button type="button" className="settings-link" onClick={onReplayTour}>
-              Ver o tour novamente
+              {t('settings.replayTour')}
             </button>
           </div>
           <div className="settings-row">
-            <span className="settings-key">Repositório</span>
+            <span className="settings-key">{t('settings.repository')}</span>
             <a
               className="inline-link"
               href="https://github.com/PHSebastiao/mudae-crop"
@@ -334,10 +351,13 @@ export function SettingsDialog({
             </a>
           </div>
           <div className="settings-row">
-            <span className="settings-key">Atualizações</span>
+            <span className="settings-key">{t('settings.updates')}</span>
             <span className="settings-color">
-              <span className="update-status" title={updateStatus.detail ?? undefined}>
-                {describeUpdate(updateStatus)}
+              <span
+                className="update-status"
+                title={updateStatus.detail ? tr(updateStatus.detail) : undefined}
+              >
+                {tr(describeUpdate(updateStatus))}
               </span>
               <button
                 type="button"
@@ -349,8 +369,8 @@ export function SettingsDialog({
                   updateStatus.phase === 'downloading' ||
                   updateStatus.phase === 'installing'
                 }
-                aria-label="Verificar atualizações"
-                title="Verificar atualizações"
+                aria-label={t('settings.checkUpdateAria')}
+                title={t('settings.checkUpdateTitle')}
               >
                 <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
                   <path
@@ -372,16 +392,13 @@ export function SettingsDialog({
               </button>
             </span>
           </div>
-          <p className="settings-hint">
-            A checagem roda ao abrir o app; uma versão pulada só volta a aparecer pelo botão ao
-            lado.
-          </p>
+          <p className="settings-hint">{t('settings.updateHint')}</p>
         </section>
 
         <footer className="settings-foot">
-          <span className="settings-hint">Esc fecha</span>
+          <span className="settings-hint">{t('settings.escCloses')}</span>
           <button type="button" className="settings-close" onClick={close}>
-            Fechar
+            {t('common.close')}
           </button>
         </footer>
       </div>

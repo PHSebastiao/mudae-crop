@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useDialogFocus } from '../hooks/useDialogFocus';
+import { useI18n, type I18n } from '../hooks/useI18n';
 import { DialogClose } from './DialogClose';
 
 interface Shortcut {
@@ -7,41 +8,47 @@ interface Shortcut {
   readonly label: string;
 }
 
-const FILE: readonly Shortcut[] = [
-  { keys: 'Ctrl+O', label: 'Abrir um ou vários arquivos' },
-  { keys: 'Ctrl+V', label: 'Colar imagens, um link ou um caminho' },
-  { keys: 'Ctrl+S', label: 'Exportar a Tile ativa' },
-  { keys: 'Ctrl+Shift+S', label: 'Exportar todas as Tiles numa pasta' },
-  { keys: 'Ctrl+Enter', label: 'Subir a Tile ativa e copiar o link' },
-  { keys: 'Ctrl+Shift+Enter', label: 'Subir todas as Tiles e copiar os links' },
-  { keys: 'Ctrl+,', label: 'Abrir Configurações' },
-  { keys: '?', label: 'Abrir esta lista' },
-];
+function fileShortcuts(t: I18n['t']): readonly Shortcut[] {
+  return [
+    { keys: t('shortcuts.openKey'), label: t('shortcuts.open') },
+    { keys: t('shortcuts.pasteKey'), label: t('shortcuts.paste') },
+    { keys: t('shortcuts.exportKey'), label: t('shortcuts.exportTile') },
+    { keys: t('shortcuts.exportAllKey'), label: t('shortcuts.exportAll') },
+    { keys: t('shortcuts.uploadKey'), label: t('shortcuts.upload') },
+    { keys: t('shortcuts.uploadAllKey'), label: t('shortcuts.uploadAll') },
+    { keys: t('shortcuts.settingsKey'), label: t('shortcuts.settings') },
+    { keys: t('shortcuts.helpKey'), label: t('shortcuts.help') },
+  ];
+}
 
-const FRAME: readonly Shortcut[] = [
-  { keys: 'C', label: 'Ajustar ou concluir o Frame' },
-  { keys: 'F', label: 'Mostrar ou ocultar os quadros (imagem animada)' },
-  { keys: 'Espaço', label: 'Reproduzir ou pausar a animação' },
-  { keys: 'Setas', label: 'Mover o Crop 1 px' },
-  { keys: 'Shift+Setas', label: 'Mover o Crop 10 px' },
-  { keys: '+ / −', label: 'Aumentar ou diminuir o zoom' },
-  { keys: 'R', label: 'Girar o Crop 90°' },
-  { keys: '[ / ]', label: 'Diminuir ou aumentar a Borda' },
-  { keys: '1 / 2', label: 'Escolher as proporções Mudae e 1:1' },
-  { keys: 'Esc', label: 'Sair da ferramenta atual' },
-];
+function frameShortcuts(t: I18n['t']): readonly Shortcut[] {
+  return [
+    { keys: t('shortcuts.adjustFrameKey'), label: t('shortcuts.adjustFrame') },
+    { keys: t('shortcuts.toggleFramesKey'), label: t('shortcuts.toggleFrames') },
+    { keys: t('shortcuts.playPauseKey'), label: t('shortcuts.playPause') },
+    { keys: t('shortcuts.nudgeKey'), label: t('shortcuts.nudge') },
+    { keys: t('shortcuts.nudgeFarKey'), label: t('shortcuts.nudgeFar') },
+    { keys: t('shortcuts.zoomKey'), label: t('shortcuts.zoom') },
+    { keys: t('shortcuts.rotateKey'), label: t('shortcuts.rotate') },
+    { keys: t('shortcuts.borderKey'), label: t('shortcuts.border') },
+    { keys: t('shortcuts.ratiosKey'), label: t('shortcuts.ratios') },
+    { keys: t('shortcuts.escapeKey'), label: t('shortcuts.escape') },
+  ];
+}
 
-const MOUSE: readonly Shortcut[] = [
-  { keys: 'Clique', label: 'Ativar uma Tile do Board' },
-  { keys: 'Duplo clique na Tile', label: 'Expor a Tile em tela cheia' },
-  { keys: 'Alt+←/→', label: 'Mover a Tile focada (modo Reordenar)' },
-  { keys: 'Arrastar', label: 'Mover a Source ou o Frame' },
-  { keys: 'Roda sobre a imagem', label: 'Zoom no Crop' },
-  { keys: 'Roda fora da imagem', label: 'Rolar o Board' },
-  { keys: 'Ctrl+roda', label: 'Zoom no Board' },
-  { keys: 'Shift', label: 'Soltar a proporção em Ajustar Frame' },
-  { keys: 'Alt', label: 'Ignorar os encaixes de proporção e de centro' },
-];
+function mouseShortcuts(t: I18n['t']): readonly Shortcut[] {
+  return [
+    { keys: t('shortcuts.clickKey'), label: t('shortcuts.click') },
+    { keys: t('shortcuts.doubleClickKey'), label: t('shortcuts.doubleClick') },
+    { keys: t('shortcuts.reorderKey'), label: t('shortcuts.reorder') },
+    { keys: t('shortcuts.dragKey'), label: t('shortcuts.drag') },
+    { keys: t('shortcuts.wheelCropKey'), label: t('shortcuts.wheelCrop') },
+    { keys: t('shortcuts.wheelBoardKey'), label: t('shortcuts.wheelBoard') },
+    { keys: t('shortcuts.wheelBoardZoomKey'), label: t('shortcuts.wheelBoardZoom') },
+    { keys: t('shortcuts.shiftKey'), label: t('shortcuts.shift') },
+    { keys: t('shortcuts.altKey'), label: t('shortcuts.alt') },
+  ];
+}
 
 function ShortcutList({ items }: { readonly items: readonly Shortcut[] }) {
   return (
@@ -59,6 +66,7 @@ function ShortcutList({ items }: { readonly items: readonly Shortcut[] }) {
 }
 
 export function ShortcutsDialog({ onClose }: { readonly onClose: () => void }) {
+  const { t } = useI18n();
   const modalRef = useRef<HTMLDivElement>(null);
   useDialogFocus(modalRef);
   useEffect(() => {
@@ -86,33 +94,33 @@ export function ShortcutsDialog({ onClose }: { readonly onClose: () => void }) {
         aria-labelledby="shortcuts-title"
       >
         <header className="settings-head">
-          <h2 id="shortcuts-title">Atalhos</h2>
-          <DialogClose label="Fechar atalhos" onClick={onClose} />
+          <h2 id="shortcuts-title">{t('shortcuts.title')}</h2>
+          <DialogClose label={t('shortcuts.closeLabel')} onClick={onClose} />
         </header>
 
         <div className="shortcuts-cols">
           <div className="shortcuts-col">
             <section>
-              <h3>Arquivo e export</h3>
-              <ShortcutList items={FILE} />
+              <h3>{t('shortcuts.fileSection')}</h3>
+              <ShortcutList items={fileShortcuts(t)} />
             </section>
             <section>
-              <h3>Mouse e gestos</h3>
-              <ShortcutList items={MOUSE} />
+              <h3>{t('shortcuts.mouseSection')}</h3>
+              <ShortcutList items={mouseShortcuts(t)} />
             </section>
           </div>
           <div className="shortcuts-col">
             <section>
-              <h3>Frame e animação</h3>
-              <ShortcutList items={FRAME} />
+              <h3>{t('shortcuts.frameSection')}</h3>
+              <ShortcutList items={frameShortcuts(t)} />
             </section>
           </div>
         </div>
 
         <footer className="settings-foot">
-          <span className="settings-hint">Esc fecha</span>
+          <span className="settings-hint">{t('shortcuts.hint')}</span>
           <button type="button" className="settings-close" onClick={onClose}>
-            Fechar
+            {t('common.close')}
           </button>
         </footer>
       </div>

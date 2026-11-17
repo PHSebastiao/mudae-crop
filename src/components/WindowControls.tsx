@@ -6,6 +6,7 @@ import {
   toggleMaximizeWindow,
   watchWindowMaximized,
 } from '../platform/tauri';
+import { useI18n } from '../hooks/useI18n';
 
 /**
  * The window is undecorated, so the top bar doubles as the title bar and these
@@ -13,6 +14,7 @@ import {
  * window to control there.
  */
 export const WindowControls = memo(function WindowControls() {
+  const { t } = useI18n();
   const [maximized, setMaximized] = useState(false);
 
   useEffect(() => {
@@ -37,8 +39,8 @@ export const WindowControls = memo(function WindowControls() {
     <div className="window-controls">
       <button
         type="button"
-        aria-label="Minimizar"
-        title="Minimizar"
+        aria-label={t('window.minimize')}
+        title={t('window.minimize')}
         onClick={() => void minimizeWindow()}
       >
         <svg viewBox="0 0 10 10" aria-hidden="true" focusable="false">
@@ -47,8 +49,8 @@ export const WindowControls = memo(function WindowControls() {
       </button>
       <button
         type="button"
-        aria-label={maximized ? 'Restaurar' : 'Maximizar'}
-        title={maximized ? 'Restaurar' : 'Maximizar'}
+        aria-label={maximized ? t('window.restore') : t('window.maximize')}
+        title={maximized ? t('window.restore') : t('window.maximize')}
         onClick={() => void toggleMaximizeWindow()}
       >
         {maximized ? (
@@ -83,8 +85,8 @@ export const WindowControls = memo(function WindowControls() {
       <button
         type="button"
         className="window-close"
-        aria-label="Fechar"
-        title="Fechar"
+        aria-label={t('window.close')}
+        title={t('window.close')}
         onClick={() => void closeWindow()}
       >
         <svg viewBox="0 0 10 10" aria-hidden="true" focusable="false">

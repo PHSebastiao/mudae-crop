@@ -1,4 +1,5 @@
 import { isImageChestLink } from './imagechest';
+import { intlLocale, type Locale } from './i18n/locale';
 import { asRecord, parseJson } from './json';
 
 export const MAX_HISTORY = 50;
@@ -110,11 +111,18 @@ export function serializeHistory(entries: readonly HistoryEntry[]): string {
   return `${JSON.stringify(cap(entries), null, 2)}\n`;
 }
 
-export function formatHistoryDate(iso: string): string {
+/**
+ * A History entry's local timestamp, in the locale's own order and digits:
+ * `05/02/2026, 14:07` in pt-BR, `02/05/2026, 02:07 PM` in English.
+ */
+export function formatHistoryDate(iso: string, locale: Locale): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return '';
-  const pad = (value: number) => String(value).padStart(2, '0');
-  return `${pad(date.getDate())}/${pad(date.getMonth() + 1)}/${date.getFullYear()} ${pad(
-    date.getHours(),
-  )}:${pad(date.getMinutes())}`;
+  return new Intl.DateTimeFormat(intlLocale(locale), {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date);
 }

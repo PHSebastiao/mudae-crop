@@ -1,6 +1,8 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import type { Border } from '../core/document';
 import { withWhiteFirst, type PaletteColor } from '../core/palette';
+import { wholePercent } from '../core/format';
+import { useI18n } from '../hooks/useI18n';
 import { HexInput } from './HexInput';
 import { NumberField } from './NumberField';
 
@@ -23,6 +25,7 @@ export function BorderBar({
   onCopy,
   onRecalc,
 }: BorderBarProps) {
+  const { locale, t } = useI18n();
   const swatches = hasSource ? withWhiteFirst(palette) : [];
   const listRef = useRef<HTMLDivElement | null>(null);
   // The selection ring is one element that travels, so it needs the centre of
@@ -56,21 +59,21 @@ export function BorderBar({
   return (
     <footer className="border-bar" id="tour-border">
       <div className="border-row">
-        <span className="label">Borda</span>
+        <span className="label">{t('border.label')}</span>
         <div className="current-color">
           <span className="swatch" style={{ background: border.color }} />
-          <HexInput value={border.color} onCommit={onColor} label="HEX da Borda" />
+          <HexInput value={border.color} onCommit={onColor} label={t('border.hexLabel')} />
           <button
             type="button"
             className="copy"
             onClick={() => onCopy(border.color)}
-            title="Copiar o hex da Borda"
+            title={t('border.copyTitle')}
           >
-            copiar
+            {t('border.copy')}
           </button>
         </div>
         <span className="field">
-          <NumberField value={border.width} onCommit={onWidth} label="Largura da Borda" />
+          <NumberField value={border.width} onCommit={onWidth} label={t('border.widthLabel')} />
           <span className="unit">px</span>
         </span>
         <span className="border-sep" aria-hidden="true" />
@@ -78,8 +81,8 @@ export function BorderBar({
           className="palette"
           ref={listRef}
           role="group"
-          aria-label="Cores da imagem"
-          title="Cores da imagem"
+          aria-label={t('border.palette')}
+          title={t('border.palette')}
         >
           <span
             className="palette-ring"
@@ -96,25 +99,27 @@ export function BorderBar({
                 className={`palette-swatch${selected ? ' selected' : ''}`}
                 style={{ background: color.hex }}
                 title={
-                  color.count === 0 ? color.hex : `${color.hex} · ${Math.round(color.share * 100)}%`
+                  color.count === 0
+                    ? color.hex
+                    : `${color.hex} · ${wholePercent(color.share * 100, locale)}`
                 }
-                aria-label={`Borda ${color.hex}`}
+                aria-label={t('border.swatchLabel', { hex: color.hex })}
                 aria-pressed={selected}
                 onClick={() => onColor(color.hex)}
                 disabled={!hasSource}
               />
             );
           })}
-          {swatches.length === 0 && <span className="muted">sem cores</span>}
+          {swatches.length === 0 && <span className="muted">{t('border.empty')}</span>}
         </div>
         <button
           type="button"
           className="recalc"
           onClick={onRecalc}
           disabled={!hasSource}
-          title="Recalcular a Palette a partir do Crop atual"
+          title={t('border.recalcTitle')}
         >
-          recalcular
+          {t('border.recalc')}
         </button>
       </div>
     </footer>

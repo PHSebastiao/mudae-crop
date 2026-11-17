@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { createPortal } from 'react-dom';
 import { ArrowLeft, ArrowRight, X } from 'lucide-react';
+import { useI18n } from '../../hooks/useI18n';
 
 /**
  * The onboarding tour: a spotlight over a target element plus a small card
@@ -77,6 +78,7 @@ export function Tour({
   clickToNext = false,
   className,
 }: TourProps) {
+  const { t } = useI18n();
   const reduce = useReducedMotion();
   const [mounted, setMounted] = useState(false);
   const [indexState, setIndexState] = useState(0);
@@ -284,7 +286,7 @@ export function Tour({
           transition={{ duration: reduce ? 0 : 0.2 }}
           role="dialog"
           aria-modal="true"
-          aria-label={typeof step.title === 'string' ? step.title : 'Tour do app'}
+          aria-label={typeof step.title === 'string' ? step.title : t('tour.appLabel')}
         >
           {spot ? (
             <>
@@ -377,7 +379,7 @@ export function Tour({
               <button
                 type="button"
                 onClick={skip}
-                aria-label="Fechar o tour"
+                aria-label={t('tour.close')}
                 className="tour-close"
               >
                 <X size={16} aria-hidden />
@@ -403,11 +405,11 @@ export function Tour({
                 {!isFirst && (
                   <button type="button" onClick={back} className="tour-back">
                     <ArrowLeft size={14} aria-hidden />
-                    Voltar
+                    {t('tour.back')}
                   </button>
                 )}
                 <button type="button" data-tour-primary onClick={next} className="tour-next">
-                  {isLast ? 'Concluir' : 'Avançar'}
+                  {isLast ? t('tour.finish') : t('tour.next')}
                   {!isLast && <ArrowRight size={14} aria-hidden />}
                 </button>
               </div>

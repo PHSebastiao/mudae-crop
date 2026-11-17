@@ -29,14 +29,19 @@ import {
   type RenderContext,
 } from './render';
 import { Waifu2xError } from './waifu2x';
+import { text, type TextRef } from './i18n/text';
+import { textOf } from './i18n/text';
 
 export class ExportError extends Error {
+  /** The message as a catalog key: the UI resolves it in the active language. */
+  readonly text: TextRef;
   /** True when the user cancelled a long render; the document is untouched. */
   readonly cancelled: boolean;
 
-  constructor(message: string, cancelled = false) {
-    super(message);
+  constructor(message: TextRef, cancelled = false) {
+    super(message.key);
     this.name = 'ExportError';
+    this.text = message;
     this.cancelled = cancelled;
   }
 }
@@ -124,7 +129,7 @@ async function renderOutputFrame(
     throw waifu2xExportError(reason);
   }
   if (!adapter.decodePng) {
-    throw new ExportError('A saída do waifu2x não pôde ser lida.');
+    throw new ExportError(text('export.waifuOutputUnreadable'));
   }
   const image = await adapter.decodePng(processed);
 
@@ -134,7 +139,7 @@ async function renderOutputFrame(
   prepareContext(ctx);
   ctx.drawImage(image, 0, 0, output.width, output.height);
   if (baseOpaque && hasTransparentPixel(ctx.getImageData(0, 0, output.width, output.height).data)) {
-    throw new ExportError('O waifu2x não processou a imagem inteira. Tente exportar de novo.');
+    throw new ExportError(text('export.waifuIncomplete'));
   }
   const rect = doc.crop.rect;
   const scale =
@@ -240,10 +245,10 @@ export async function renderPng(
   options: PngExportOptions = {},
 ): Promise<Uint8Array> {
   if (!doc.source) {
-    throw new ExportError('Não há Source para exportar.');
+    throw new ExportError(text('export.errNoSource'));
   }
   if (doc.waifu2x.enabled && !options.waifu2x) {
-    throw new ExportError('O waifu2x não está disponível.');
+    throw new ExportError(text('export.errWaifuUnavailable'));
   }
   await options.prepare?.();
   const base = baseOutputSize(doc);
@@ -278,7 +283,7 @@ export async function estimateExportSize(
   options: SizeEstimateOptions,
 ): Promise<SizeEstimate> {
   const source = doc.source;
-  if (!source) throw new ExportError('Não há Source para exportar.');
+  if (!source) throw new ExportError(text('export.errNoSource'));
 
   // waifu2x cannot run inside a size estimate (it would spawn the sidecar on
   // every debounced edit). Estimate the final raster without it and mark the
@@ -322,9 +327,9 @@ export async function estimateExportSize(
   }
 
   const view = effectiveSource(doc);
-  if (!view) throw new ExportError('Não há Source para exportar.');
+  if (!view) throw new ExportError(text('export.errNoSource'));
   const trim = effectiveTrim(doc);
-  if (!trim) throw new ExportError('A Source não é animada.');
+  if (!trim) throw new ExportError(text('export.notAnimated'));
 
   const size = outputSize(measureDoc);
   // Above the pixel budget, estimate from a native-resolution tile in the
@@ -463,7 +468,7 @@ function yieldToUi(): Promise<void> {
 }
 
 function cancelledError(): ExportError {
-  return new ExportError('Export cancelado.', true);
+  return new ExportError(text('app.exportCancelled'), true);
 }
 
 /** Await a worker result, but let a cancel cut the wait short. */
@@ -540,7 +545,11 @@ function foldFrame(
 /** A cancelled sidecar is an ordinary cancelled Export, not a crash. */
 function waifu2xExportError(reason: unknown): unknown {
   if (reason instanceof Waifu2xError) {
-    return reason.cancelled ? cancelledError() : new ExportError(reason.message);
+    return reason.cancelled
+      ? cancelledError()
+      : new ExportError(
+          textOf(reason) ?? text('export.failed', { detail: text('notice.unknown') }),
+        );
   }
   return reason;
 }
@@ -560,14 +569,14 @@ export async function renderGif(
 ): Promise<Uint8Array> {
   const view = effectiveSource(doc);
   if (!view) {
-    throw new ExportError('Não há Source para exportar.');
+    throw new ExportError(text('export.errNoSource'));
   }
   const trim = effectiveTrim(doc);
   if (!trim) {
-    throw new ExportError('A Source não é animada.');
+    throw new ExportError(text('export.notAnimated'));
   }
   if (doc.waifu2x.enabled && !options.waifu2x) {
-    throw new ExportError('O waifu2x não está disponível.');
+    throw new ExportError(text('export.errWaifuUnavailable'));
   }
 
   const baseSize = baseOutputSize(doc);

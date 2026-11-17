@@ -1,6 +1,7 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { getVersion } from '@tauri-apps/api/app';
 import { check, type Update } from '@tauri-apps/plugin-updater';
+import { text, textOf, type TextRef } from '../core/i18n/text';
 
 /**
  * The manifest carries one entry per build flavour: the installed copy takes
@@ -110,8 +111,12 @@ async function saveWindowGeometry(): Promise<void> {
 }
 
 /** A failure the notice bar can show without leaking a raw error object. */
-export function updateFailure(reason: unknown): string {
-  if (typeof reason === 'string' && reason) return reason;
-  if (reason instanceof Error && reason.message) return reason.message;
-  return 'falha de rede';
+export function updateFailure(reason: unknown): TextRef {
+  const keyed = textOf(reason);
+  if (keyed) return keyed;
+  if (typeof reason === 'string' && reason) return text('update.detail', { detail: reason });
+  if (reason instanceof Error && reason.message) {
+    return text('update.detail', { detail: textOf(reason) ?? reason.message });
+  }
+  return text('update.networkFailure');
 }

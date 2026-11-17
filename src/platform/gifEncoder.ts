@@ -2,6 +2,8 @@ import type { Rgb } from '../core/color';
 import type { GifFrameEncoder } from '../core/export';
 import { encodeGifFrame, type EncodedGifFrame, type GifEncodeFrame } from '../core/gif';
 import type { GifEncodeReply } from '../workers/gifEncoder.worker';
+import { text, type TextRef } from '../core/i18n/text';
+import { KeyedError } from '../core/errors';
 
 /** One frame waiting for a worker, or being encoded by one. */
 interface Job {
@@ -79,7 +81,7 @@ export class GifWorkerPool implements GifFrameEncoder {
     this.idle.length = 0;
     this.queue.length = 0;
     for (const job of this.jobs.values()) {
-      job.reject(new Error('O codificador do GIF foi encerrado.'));
+      job.reject(new KeyedError(text('gifEncoder.terminated')));
     }
     this.jobs.clear();
   }
@@ -158,9 +160,8 @@ export class GifWorkerPool implements GifFrameEncoder {
     if (existing) return existing;
     const worker = this.spawn(slot);
     worker.onmessage = (event: MessageEvent<GifEncodeReply>) => this.settle(slot, event.data);
-    worker.onerror = () => this.fail(slot, 'O codificador do GIF falhou.');
-    worker.onmessageerror = () =>
-      this.fail(slot, 'O codificador do GIF devolveu uma mensagem inválida.');
+    worker.onerror = () => this.fail(slot, text('gifEncoder.failed'));
+    worker.onmessageerror = () => this.fail(slot, text('gifEncoder.invalidMessage'));
     this.workers[slot] = worker;
     return worker;
   }
@@ -171,7 +172,7 @@ export class GifWorkerPool implements GifFrameEncoder {
     this.jobs.delete(reply.id);
     this.release(slot);
     if (reply.error) {
-      job.reject(new Error(reply.error));
+      job.reject(new KeyedError(text('gifEncoder.encodeFailed')));
     } else {
       job.resolve(decodedFrame(reply));
     }
@@ -179,7 +180,7 @@ export class GifWorkerPool implements GifFrameEncoder {
   }
 
   /** A broken worker is dropped; its frame fails rather than encoding twice. */
-  private fail(slot: number, message: string): void {
+  private fail(slot: number, message: TextRef): void {
     this.workers[slot]?.terminate();
     this.workers[slot] = null;
     const idleAt = this.idle.indexOf(slot);
@@ -187,7 +188,7 @@ export class GifWorkerPool implements GifFrameEncoder {
     for (const [id, job] of this.jobs) {
       if (job.slot !== slot) continue;
       this.jobs.delete(id);
-      job.reject(new Error(message));
+      job.reject(new KeyedError(message));
     }
     this.pump();
   }

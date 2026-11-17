@@ -1,4 +1,5 @@
 import { MUDAE_RATIO, presetForRatio, ratioLabel } from '../core/ratios';
+import { useI18n } from '../hooks/useI18n';
 
 interface EmptyBoardProps {
   /** The Frame proportion a new Tile starts at. */
@@ -12,8 +13,9 @@ interface EmptyBoardProps {
  * frame, so it invites a batch instead of showing two empty columns.
  */
 export function EmptyBoard({ ratio, busy, onOpen }: EmptyBoardProps) {
+  const { t } = useI18n();
   const preset = presetForRatio(ratio) ?? null;
-  const label = ratioLabel(ratio || MUDAE_RATIO);
+  const label = ratioLabel(ratio || MUDAE_RATIO, t('ratio.custom'));
   return (
     <div className="stage-empty">
       <div className="stage-empty-card">
@@ -31,11 +33,9 @@ export function EmptyBoard({ ratio, busy, onOpen }: EmptyBoardProps) {
           </div>
         </div>
         <div className="stage-empty-copy">
-          <h1>Arraste suas imagens</h1>
+          <h1>{t('empty.title')}</h1>
           <p className="stage-empty-sub">
-            {preset
-              ? `Cada uma vira uma carta ${label}, pronta para exportar.`
-              : 'Cada uma vira uma carta na proporção escolhida, pronta para exportar.'}
+            {preset ? t('empty.subtitlePreset', { label }) : t('empty.subtitle')}
           </p>
           <button
             type="button"
@@ -43,12 +43,12 @@ export function EmptyBoard({ ratio, busy, onOpen }: EmptyBoardProps) {
             onClick={onOpen}
             disabled={busy}
           >
-            Abrir imagens…
+            {t('empty.open')}
           </button>
           <p className="stage-empty-hint">
-            ou cole um link no topo · <kbd>Ctrl</kbd>+<kbd>V</kbd> · arraste vários arquivos
+            {t('empty.hintBefore')} <kbd>Ctrl</kbd>+<kbd>V</kbd> {t('empty.hintAfter')}
           </p>
-          <p className="stage-empty-formats">PNG · JPG · GIF · WebP · APNG · MP4 · MOV · WebM</p>
+          <p className="stage-empty-formats">{t('app.dropFormats')}</p>
         </div>
       </div>
     </div>

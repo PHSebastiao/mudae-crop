@@ -119,6 +119,8 @@ describe('freeFileName', () => {
   });
 
   it('throws instead of returning a taken name', async () => {
-    await expect(freeFileName('card.png', 'png', async () => true)).rejects.toThrow(/nome livre/);
+    await expect(freeFileName('card.png', 'png', async () => true)).rejects.toThrow(
+      'batch.noFreeName',
+    );
   });
 });

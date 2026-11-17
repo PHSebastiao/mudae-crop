@@ -4,6 +4,8 @@
  * found version is allowed to interrupt.
  */
 
+import { text, type TextRef } from './i18n/text';
+
 /** Where the updater is in its cycle. */
 export type UpdatePhase =
   | 'idle'
@@ -19,8 +21,8 @@ export interface UpdateStatus {
   readonly phase: UpdatePhase;
   /** The version the last check offered, if any. */
   readonly version: string | null;
-  /** Why the last check or install failed, in pt-BR. */
-  readonly detail: string | null;
+  /** Why the last check or install failed, as the platform reported it. */
+  readonly detail: TextRef | null;
 }
 
 export const IDLE_UPDATE: UpdateStatus = Object.freeze({
@@ -37,25 +39,31 @@ export function normalizeVersion(version: string): string {
 /**
  * The Sobre row's status text. It never claims an update is waiting while a
  * check is running, and it never hides a failure behind "Atualizado".
+ *
+ * Returns a key, not a sentence: the caller resolves it in the active language.
  */
-export function describeUpdate(status: UpdateStatus): string {
+export function describeUpdate(status: UpdateStatus): TextRef {
   switch (status.phase) {
     case 'idle':
-      return 'Ainda não verificado';
+      return text('update.statusIdle');
     case 'checking':
-      return 'Verificando…';
+      return text('update.statusChecking');
     case 'current':
-      return 'Atualizado';
+      return text('update.statusCurrent');
     case 'available':
-      return status.version ? `Nova versão ${status.version} disponível` : 'Nova versão disponível';
+      return status.version
+        ? text('update.statusAvailableVersion', { version: status.version })
+        : text('update.statusAvailable');
     case 'downloading':
-      return status.version ? `Baixando a versão ${status.version}…` : 'Baixando…';
+      return status.version
+        ? text('update.statusDownloadingVersion', { version: status.version })
+        : text('update.statusDownloading');
     case 'installing':
-      return 'Instalando…';
+      return text('update.statusInstalling');
     case 'failed':
-      return status.version ? 'Falha ao atualizar' : 'Não foi possível verificar';
+      return status.version ? text('update.statusFailed') : text('update.statusCheckFailed');
     case 'unsupported':
-      return 'Verificação só no app desktop';
+      return text('update.statusUnsupported');
   }
 }
 
@@ -77,7 +85,9 @@ export function progressPercent(received: number, total: number | null): number 
 }
 
 /** The progress line above the bar. */
-export function describeProgress(received: number, total: number | null): string {
+export function describeProgress(received: number, total: number | null): TextRef {
   const percent = progressPercent(received, total);
-  return percent === null ? 'Baixando…' : `Baixando… ${percent}%`;
+  return percent === null
+    ? text('update.statusDownloading')
+    : text('update.progressPercent', { percent });
 }

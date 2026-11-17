@@ -1,5 +1,6 @@
 import { parseHistory, serializeHistory, type HistoryEntry } from './history';
-import { parseSettings, serializeSettings, type Settings } from './settings';
+import { parseSettings, serializeSettings, settingsHasLanguage, type Settings } from './settings';
+import type { Locale } from './i18n/locale';
 
 export const SETTINGS_KEY = 'settings';
 /** Holds every History entry: uploads and local Exports. */
@@ -17,8 +18,18 @@ export interface ConfigStore {
   write(key: ConfigKey, contents: string): Promise<void>;
 }
 
-export async function loadSettings(store: ConfigStore): Promise<Settings> {
-  return parseSettings(await store.read(SETTINGS_KEY));
+export interface LoadedSettings {
+  readonly settings: Settings;
+  /**
+   * The file had never named a language, so the detected one was used and still
+   * has to be written back: the detection happens once, not on every launch.
+   */
+  readonly needsWrite: boolean;
+}
+
+export async function loadSettings(store: ConfigStore, detected: Locale): Promise<LoadedSettings> {
+  const raw = await store.read(SETTINGS_KEY);
+  return { settings: parseSettings(raw, detected), needsWrite: !settingsHasLanguage(raw) };
 }
 
 export async function saveSettings(store: ConfigStore, settings: Settings): Promise<void> {

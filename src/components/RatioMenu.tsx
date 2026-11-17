@@ -2,6 +2,7 @@ import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 
 import { flipRatio, matchesRatio, presetsFor, ratioLabel, ratioOrientation } from '../core/ratios';
 
 import { formatAspect } from '../core/size';
+import { useI18n } from '../hooks/useI18n';
 import { ToggleGroup } from './ToggleGroup';
 
 interface RatioMenuProps {
@@ -43,6 +44,7 @@ export const RatioMenu = memo(function RatioMenu({
   onSnapEnabled,
   onOpenChange,
 }: RatioMenuProps) {
+  const { locale, t } = useI18n();
   const [open, setOpen] = useState(false);
   const [placement, setPlacement] = useState({ left: 0, flip: false });
   const menuRef = useRef<HTMLDivElement>(null);
@@ -133,7 +135,7 @@ export const RatioMenu = memo(function RatioMenu({
         className="ratio-chip"
         aria-haspopup="dialog"
         aria-expanded={open}
-        title="Proporção do Frame"
+        title={t('ratio.title')}
         onClick={() => setOpen((value) => !value)}
       >
         <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
@@ -148,7 +150,7 @@ export const RatioMenu = memo(function RatioMenu({
             strokeWidth="1.2"
           />
         </svg>
-        <span>{ratioLabel(ratio)}</span>
+        <span>{ratioLabel(ratio, t('ratio.custom'))}</span>
         <span className="ratio-caret" aria-hidden="true">
           ▾
         </span>
@@ -158,32 +160,32 @@ export const RatioMenu = memo(function RatioMenu({
           ref={popoverRef}
           className={`ratio-popover${placement.flip ? ' flip' : ''}`}
           role="dialog"
-          aria-label="Proporção do Frame"
+          aria-label={t('ratio.title')}
           data-tauri-drag-region="false"
           style={{ left: placement.left }}
         >
           <ToggleGroup
-            label="Orientação"
+            label={t('ratio.orientation')}
             value={orientation}
             onChange={() => onRatio(flipRatio(ratio))}
             disabled={orientation === 'square'}
             options={[
-              { value: 'portrait', label: 'Retrato' },
-              { value: 'landscape', label: 'Paisagem' },
+              { value: 'portrait', label: t('ratio.portrait') },
+              { value: 'landscape', label: t('ratio.landscape') },
             ]}
           />
 
-          <div className="ratio-list" role="group" aria-label="Proporções">
+          <div className="ratio-list" role="group" aria-label={t('ratio.presets')}>
             {sourceRatio !== null && (
               <button
                 type="button"
                 aria-pressed={matchesRatio(ratio, sourceRatio)}
-                className={`ratio-row${matchesRatio(ratio, sourceRatio) ? ' on' : ''}`}
+                className={`ratio-row ratio-row-source${matchesRatio(ratio, sourceRatio) ? ' on' : ''}`}
                 onClick={(event) => pick(sourceRatio, event.detail === 0)}
               >
-                <span>Fonte</span>
+                <span>{t('ratio.source')}</span>
                 <span className="ratio-value">
-                  {formatAspect({ width: sourceRatio, height: 1 })}
+                  {formatAspect({ width: sourceRatio, height: 1 }, locale)}
                 </span>
               </button>
             )}
@@ -210,7 +212,7 @@ export const RatioMenu = memo(function RatioMenu({
               checked={snapEnabled}
               onChange={(event) => onSnapEnabled(event.target.checked)}
             />
-            <span>Encaixar proporções</span>
+            <span>{t('ratio.snap')}</span>
           </label>
         </div>
       )}

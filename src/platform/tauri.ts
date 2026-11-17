@@ -3,6 +3,7 @@ import { listen } from '@tauri-apps/api/event';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { open, save } from '@tauri-apps/plugin-dialog';
+import { t } from '../core/i18n/messages';
 import {
   DownloadTransportError,
   type DownloadHandle,
@@ -65,13 +66,13 @@ export function fileNameOf(path: string): string {
   return parts[parts.length - 1] || path;
 }
 
-/** The media picker; several files at once become several Tiles. */
+/** The media picker; several files at once become several Blocks. */
 export async function chooseSourceFiles(): Promise<string[]> {
   const selected = await open({
     multiple: true,
     directory: false,
-    title: 'Abrir imagens ou vídeos',
-    filters: [{ name: 'Imagens e vídeos', extensions: MEDIA_EXTENSIONS }],
+    title: t('dialog.openMedia'),
+    filters: [{ name: t('dialog.mediaFilter'), extensions: MEDIA_EXTENSIONS }],
   });
   if (!selected) return [];
   return Array.isArray(selected) ? selected : [selected];
@@ -82,7 +83,7 @@ export async function chooseExportPath(
   format: ExportFileFormat = 'png',
 ): Promise<string | null> {
   const selected = await save({
-    title: format === 'gif' ? 'Exportar GIF' : 'Exportar PNG',
+    title: format === 'gif' ? t('dialog.exportGif') : t('dialog.exportPng'),
     defaultPath,
     filters: [{ name: format.toUpperCase(), extensions: [format] }],
   });
@@ -94,7 +95,7 @@ export async function chooseExportFolder(defaultPath?: string): Promise<string |
   const selected = await open({
     directory: true,
     multiple: false,
-    title: 'Pasta dos Exports',
+    title: t('dialog.exportFolder'),
     ...(defaultPath ? { defaultPath } : {}),
   });
   return typeof selected === 'string' ? selected : null;
@@ -164,7 +165,7 @@ function transportError(reason: unknown): DownloadTransportError {
   }
   return new DownloadTransportError(
     'unreachable',
-    typeof reason === 'string' ? reason : 'falha de rede',
+    typeof reason === 'string' ? reason : 'network failure',
   );
 }
 
@@ -204,7 +205,7 @@ export const tauriDownloadTransport: DownloadTransport = {
       ]);
 
       try {
-        if (cancelled) throw new DownloadTransportError('cancelled', 'cancelado');
+        if (cancelled) throw new DownloadTransportError('cancelled', 'cancelled');
         const buffer = await invoke<ArrayBuffer>('download_source', {
           url,
           download_id: id,

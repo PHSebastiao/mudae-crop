@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { useDialogFocus } from '../hooks/useDialogFocus';
+import { useI18n } from '../hooks/useI18n';
 import type { UpdatePhase } from '../core/update';
+import type { TextRef } from '../core/i18n/text';
 
 interface UpdateDialogProps {
   readonly phase: UpdatePhase;
@@ -8,8 +10,8 @@ interface UpdateDialogProps {
   readonly version: string | null;
   /** The version this build reports. */
   readonly current: string | null;
-  readonly detail: string | null;
-  readonly progressLabel: string;
+  readonly detail: TextRef | null;
+  readonly progressLabel: TextRef | null;
   readonly percent: number | null;
   /** The portable swap downloads natively and cannot be cancelled mid-flight. */
   readonly canCancel: boolean;
@@ -41,6 +43,7 @@ export function UpdateDialog({
   onCloseFailure,
   onOpenReleases,
 }: UpdateDialogProps) {
+  const { t, tr } = useI18n();
   const modalRef = useRef<HTMLDivElement>(null);
   useDialogFocus(modalRef);
 
@@ -59,12 +62,12 @@ export function UpdateDialog({
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [dismiss]);
 
-  const title = phase === 'failed' ? 'Atualização interrompida' : 'Nova versão disponível';
+  const title = phase === 'failed' ? t('update.failedTitle') : t('update.title');
   const versionLine = version
     ? current
-      ? `A versão ${version} está pronta para instalar. Você está na ${current}.`
-      : `A versão ${version} está pronta para instalar.`
-    : 'Há uma nova versão pronta para instalar.';
+      ? t('update.readyAt', { version, current })
+      : t('update.ready', { version })
+    : t('update.available');
 
   return (
     <div
@@ -86,16 +89,14 @@ export function UpdateDialog({
 
         {phase === 'failed' ? (
           <section>
-            <p className="update-body">
-              Não foi possível atualizar automaticamente. Baixe a nova versão no GitHub.
-            </p>
-            {detail && <p className="settings-hint">{detail}</p>}
+            <p className="update-body">{t('update.failedBody')}</p>
+            {detail && <p className="settings-hint">{tr(detail)}</p>}
             <div className="settings-actions">
               <button type="button" className="settings-primary" onClick={onOpenReleases}>
-                Abrir a página da versão
+                {t('update.openReleases')}
               </button>
               <button type="button" onClick={onCloseFailure}>
-                Fechar
+                {t('common.close')}
               </button>
             </div>
           </section>
@@ -111,7 +112,7 @@ export function UpdateDialog({
                   onOpenReleases();
                 }}
               >
-                Veja as notas no GitHub
+                {t('update.notes')}
               </a>
             </p>
 
@@ -127,26 +128,27 @@ export function UpdateDialog({
                   <span style={percent === null ? undefined : { width: `${percent}%` }} />
                 </div>
                 <span className="settings-hint">
-                  {phase === 'installing' ? 'Instalando…' : progressLabel}
+                  {phase === 'installing'
+                    ? t('update.installing')
+                    : progressLabel
+                      ? tr(progressLabel)
+                      : null}
                 </span>
               </div>
             )}
 
             {phase === 'available' && (
               <>
-                <p className="settings-hint">
-                  O app fecha para instalar e reabre já na nova versão; o documento aberto é
-                  perdido.
-                </p>
+                <p className="settings-hint">{t('update.installNote')}</p>
                 <div className="settings-actions">
                   <button type="button" className="settings-primary" onClick={onInstall}>
-                    Instalar agora
+                    {t('update.installNow')}
                   </button>
                   <button type="button" onClick={onLater}>
-                    Agora não
+                    {t('update.later')}
                   </button>
                   <button type="button" className="danger-ghost" onClick={onSkip}>
-                    Pular esta versão
+                    {t('update.skip')}
                   </button>
                 </div>
               </>
@@ -155,7 +157,7 @@ export function UpdateDialog({
             {phase === 'downloading' && canCancel && (
               <div className="settings-actions">
                 <button type="button" onClick={onCancel}>
-                  Cancelar
+                  {t('common.cancel')}
                 </button>
               </div>
             )}

@@ -16,7 +16,10 @@ import {
   type Waifu2xStatus,
 } from '../core/document';
 import { formatPlaybackDuration, trimDurationMs } from '../core/animation';
+import { decimal, decimalTrimmed } from '../core/format';
 import { offsetPct, zoomOf } from '../core/geometry';
+import type { TextRef } from '../core/i18n/text';
+import { useI18n } from '../hooks/useI18n';
 import { HexInput } from './HexInput';
 import { NumberField } from './NumberField';
 import { ToggleGroup, type ToggleOption } from './ToggleGroup';
@@ -24,41 +27,12 @@ import { ToggleGroup, type ToggleOption } from './ToggleGroup';
 /** The tooltip's fixed width, shared by its placement and its inline style. */
 const TIP_WIDTH = 248;
 
-/** The four Scale modes in one group; they are exclusive, so they share a
- *  single 2×2 toggle group instead of reading as two unrelated controls. */
-const MODE_OPTIONS: ReadonlyArray<{ value: ScaleMode; label: string; title: string }> = [
-  { value: 'fit', label: 'Fit', title: 'Cobre o Frame, cortando o excesso da Source' },
-  { value: 'pad', label: 'Pad', title: 'Cabe inteira, preenchendo as sobras com o Pad color' },
-  { value: 'full-width', label: 'Largura', title: 'Encaixa a largura da Source no Frame' },
-  { value: 'full-height', label: 'Altura', title: 'Encaixa a altura da Source no Frame' },
-];
-
-/** What the selected Scale mode does, in one line under the toggles. */
-const MODE_HINTS: Record<ScaleMode, string> = {
-  fit: 'Cobre e corta o excesso.',
-  pad: 'Mostra a Source inteira.',
-  'full-width': 'Encaixa pela largura.',
-  'full-height': 'Encaixa pela altura.',
-};
-
 /** The sidecar's own denoise levels, 0 (least) to 3 (most). */
-const DENOISE_OPTIONS: ReadonlyArray<ToggleOption<Waifu2xSettings['denoise']>> = (
-  [0, 1, 2, 3] as const
-).map((level) => ({ value: level, label: String(level), title: `Denoise ${level}` }));
+const DENOISE_LEVELS = [0, 1, 2, 3] as const;
 
-const WAIFU2X_SCALE_OPTIONS: ReadonlyArray<ToggleOption<Waifu2xSettings['scale']>> = (
-  [1, 2, 4] as const
-).map((scale) => ({
-  value: scale,
-  label: `${scale}×`,
-  title:
-    scale === 1 ? 'Mantém o tamanho do Export' : `Amplia ${scale}× e define o tamanho do Export`,
-}));
+const WAIFU2X_SCALES = [1, 2, 4] as const;
 
-const SPEED_OPTIONS: ReadonlyArray<ToggleOption<number>> = [0.5, 1, 2].map((speed) => ({
-  value: speed,
-  label: `${speed.toString().replace('.', ',')}×`,
-}));
+const SPEEDS = [0.5, 1, 2] as const;
 
 interface ToolRailProps {
   readonly doc: DocumentState;
@@ -71,7 +45,7 @@ interface ToolRailProps {
   readonly onSharpness: (sharpness: number) => void;
   readonly waifu2x: Waifu2xSettings;
   readonly waifu2xStatus: Waifu2xStatus | 'checking';
-  readonly waifu2xDetail: string | null;
+  readonly waifu2xDetail: TextRef | null;
   readonly onWaifu2x: (patch: Partial<Waifu2xSettings>) => void;
   readonly onPickPadColor: () => void;
   readonly onTrim: (trim: Trim | null) => void;
@@ -137,6 +111,7 @@ export const ToolRail = memo(function ToolRail({
   adjustFrame,
   onToggleAdjustFrame,
 }: ToolRailProps) {
+  const { locale, t, tr } = useI18n();
   const hasSource = doc.source !== null;
   const mode = doc.crop.mode;
   const animated = isAnimated(effectiveSource(doc));
@@ -144,7 +119,7 @@ export const ToolRail = memo(function ToolRail({
   const frames = animationFrameCount(effectiveSource(doc));
   const trim = effectiveTrim(doc) ?? { start: 0, end: 0 };
   const trimmed = trimFrameCount(effectiveSource(doc), effectiveTrim(doc));
-  const speedLabel = `${doc.speed.toFixed(2).replace('.', ',')}×`;
+  const speedLabel = `${decimal(doc.speed, 2, locale)}×`;
   const zoom = zoomOf(doc);
   const offset = offsetPct(doc);
   const offsetX = Math.round(offset.x * 1000) / 10;
@@ -157,12 +132,62 @@ export const ToolRail = memo(function ToolRail({
   const waifu2xBlockDisabled = !hasSource || (!waifu2xReady && !waifu2x.enabled);
   const waifu2xHint =
     waifu2xStatus === 'checking'
-      ? 'verificando a GPU e o sidecar…'
+      ? t('rail.waifu2xChecking')
       : waifu2xStatus === 'ready'
         ? waifu2x.enabled
-          ? 'aplicado no Export'
-          : 'ligue para aplicar no Export'
-        : (waifu2xDetail ?? 'waifu2x indisponível neste computador');
+          ? t('rail.waifu2xApplied')
+          : t('rail.waifu2xEnableHint')
+        : waifu2xDetail
+          ? tr(waifu2xDetail)
+          : t('rail.waifu2xUnavailable');
+
+  /** The four Scale modes in one group; they are exclusive, so they share a
+   *  single 2×2 toggle group instead of reading as two unrelated controls. */
+  const modeOptions: ReadonlyArray<ToggleOption<ScaleMode>> = [
+    { value: 'fit', label: t('rail.modeFit'), title: t('rail.modeFitTitle') },
+    { value: 'pad', label: t('rail.modePad'), title: t('rail.modePadTitle') },
+    {
+      value: 'full-width',
+      label: t('rail.modeFullWidth'),
+      title: t('rail.modeFullWidthTitle'),
+    },
+    {
+      value: 'full-height',
+      label: t('rail.modeFullHeight'),
+      title: t('rail.modeFullHeightTitle'),
+    },
+  ];
+
+  /** What the selected Scale mode does, in one line under the toggles. */
+  const modeHints: Record<ScaleMode, string> = {
+    fit: t('rail.modeFitHint'),
+    pad: t('rail.modePadHint'),
+    'full-width': t('rail.modeFullWidthHint'),
+    'full-height': t('rail.modeFullHeightHint'),
+  };
+
+  const denoiseOptions: ReadonlyArray<ToggleOption<Waifu2xSettings['denoise']>> =
+    DENOISE_LEVELS.map((level) => ({
+      value: level,
+      label: String(level),
+      title: t('rail.denoiseLevel', { level }),
+    }));
+
+  const scaleOptions: ReadonlyArray<ToggleOption<Waifu2xSettings['scale']>> = WAIFU2X_SCALES.map(
+    (scale) => ({
+      value: scale,
+      label: `${scale}×`,
+      title:
+        scale === 1
+          ? t('rail.waifu2xKeepSize')
+          : t('rail.waifu2xUpscale', { scale: String(scale) }),
+    }),
+  );
+
+  const speedOptions: ReadonlyArray<ToggleOption<number>> = SPEEDS.map((speed) => ({
+    value: speed,
+    label: `${decimalTrimmed(speed, 2, locale)}×`,
+  }));
 
   const [tip, setTip] = useState<{ left: number; top: number } | null>(null);
   const showTip = (element: HTMLElement) => {
@@ -180,7 +205,7 @@ export const ToolRail = memo(function ToolRail({
   return (
     <aside className="rail" id="tour-tools">
       <div className="group">
-        <div className="label">Frame</div>
+        <div className="label">{t('rail.frame')}</div>
         <div
           className="rail-adjust-row"
           onMouseEnter={(event) => showTip(event.currentTarget)}
@@ -208,7 +233,7 @@ export const ToolRail = memo(function ToolRail({
                 <polyline points="422,481.5 422,195.5 102.5,195.5" />
               </g>
             </svg>
-            <span>{adjustFrame ? 'Concluir' : 'Ajustar Frame'}</span>
+            <span>{adjustFrame ? t('rail.finishAdjust') : t('rail.adjustFrame')}</span>
             <span className="rail-adjust-key">C</span>
           </button>
           {tip && (
@@ -218,36 +243,40 @@ export const ToolRail = memo(function ToolRail({
               role="tooltip"
               style={{ left: tip.left, top: tip.top, width: TIP_WIDTH }}
             >
-              <strong>Ajustar Frame</strong>
-              Arraste as bordas ou os cantos do Frame para enquadrar. Shift solta a proporção; +Alt
-              solta os encaixes (proporção e centro); a roda do mouse dá zoom. C ou Esc conclui.
+              <strong>{t('rail.adjustFrame')}</strong>
+              {t('rail.adjustTip')}
             </span>
           )}
         </div>
         <ToggleGroup
           className="mode-toggle"
-          label="Escala"
+          label={t('rail.scale')}
           value={mode}
           onChange={onMode}
-          options={MODE_OPTIONS}
+          options={modeOptions}
           columns={2}
         />
-        <p className="rail-hint mode-hint">{MODE_HINTS[mode]}</p>
-        <RailDisclosure label="Ajuste do Crop">
+        <p className="rail-hint mode-hint">{modeHints[mode]}</p>
+        <RailDisclosure label={t('rail.cropAdjust')}>
           <div className="row">
-            <span className="key">zoom</span>
+            <span className="key">{t('rail.zoom')}</span>
             <span className="field">
-              <NumberField value={zoom} onCommit={onZoom} label="Zoom" precision={2} />
+              <NumberField
+                value={zoom}
+                onCommit={onZoom}
+                label={t('rail.zoomLabel')}
+                precision={2}
+              />
               <span className="unit">×</span>
             </span>
           </div>
           <div className="row">
-            <span className="key">deslocamento H</span>
+            <span className="key">{t('rail.offsetH')}</span>
             <span className="field">
               <NumberField
                 value={offsetX}
                 onCommit={(next) => onOffset(next, offset.y * 100)}
-                label="Offset horizontal"
+                label={t('rail.offsetHLabel')}
                 precision={1}
                 step={0.5}
               />
@@ -255,12 +284,12 @@ export const ToolRail = memo(function ToolRail({
             </span>
           </div>
           <div className="row">
-            <span className="key">deslocamento V</span>
+            <span className="key">{t('rail.offsetV')}</span>
             <span className="field">
               <NumberField
                 value={offsetY}
                 onCommit={(next) => onOffset(offset.x * 100, next)}
-                label="Offset vertical"
+                label={t('rail.offsetVLabel')}
                 precision={1}
                 step={0.5}
               />
@@ -268,27 +297,27 @@ export const ToolRail = memo(function ToolRail({
             </span>
           </div>
           <div className="row">
-            <span className="key">girar</span>
+            <span className="key">{t('rail.rotate')}</span>
             <button type="button" className="pill" onClick={onRotate}>
               {doc.crop.rotation}° ↻
             </button>
           </div>
           <div className="row">
-            <span className="key">cor do Pad</span>
+            <span className="key">{t('rail.padColor')}</span>
             <span className="field">
               <input
                 className="color"
                 type="color"
                 value={doc.padColor}
                 onChange={(event) => onPadColor(event.target.value)}
-                aria-label="Cor do Pad"
-                title="Para pegar uma cor da imagem, use “pegar cor da imagem”"
+                aria-label={t('rail.padColorLabel')}
+                title={t('rail.padColorTitle')}
               />
               <HexInput
                 className="rail-hex"
                 value={doc.padColor}
                 onCommit={onPadColor}
-                label="HEX do Pad"
+                label={t('rail.padHexLabel')}
               />
             </span>
           </div>
@@ -298,18 +327,18 @@ export const ToolRail = memo(function ToolRail({
             onClick={onPickPadColor}
             aria-pressed={pickingPad}
           >
-            {pickingPad ? 'clique na imagem · Esc cancela' : 'pegar cor da imagem'}
+            {pickingPad ? t('rail.pickColorActive') : t('rail.pickColor')}
           </button>
           <button type="button" className="link" onClick={onResetCrop}>
-            redefinir Crop
+            {t('rail.resetCrop')}
           </button>
         </RailDisclosure>
       </div>
 
       <div className="group">
-        <div className="label">Realce</div>
+        <div className="label">{t('rail.enhance')}</div>
         <div className="row">
-          <span className="key">nitidez</span>
+          <span className="key">{t('rail.sharpness')}</span>
           <span className="pill">{doc.sharpness}</span>
         </div>
         <input
@@ -320,7 +349,7 @@ export const ToolRail = memo(function ToolRail({
           step={1}
           value={doc.sharpness}
           onChange={(event) => onSharpness(Number(event.target.value))}
-          aria-label="Nitidez"
+          aria-label={t('rail.sharpnessLabel')}
         />
         <div className={waifu2xBlockDisabled ? 'waifu2x-block disabled-group' : 'waifu2x-block'}>
           <div className="row">
@@ -331,29 +360,29 @@ export const ToolRail = memo(function ToolRail({
               onClick={() => onWaifu2x({ enabled: !waifu2x.enabled })}
               aria-pressed={waifu2x.enabled}
               disabled={!waifu2xReady && !waifu2x.enabled}
-              title={waifu2x.enabled ? 'Desligar o waifu2x' : 'Ligar o waifu2x'}
+              title={waifu2x.enabled ? t('rail.waifu2xDisable') : t('rail.waifu2xEnable')}
             >
-              {waifu2x.enabled ? 'ligado' : 'desligado'}
+              {waifu2x.enabled ? t('rail.on') : t('rail.off')}
             </button>
           </div>
-          <RailDisclosure label="Denoise e escala">
+          <RailDisclosure label={t('rail.denoiseScale')}>
             <div className="row">
-              <span className="key">denoise</span>
+              <span className="key">{t('rail.denoise')}</span>
               <span className="pill">{waifu2x.denoise}</span>
             </div>
             <ToggleGroup
-              label="Denoise do waifu2x"
+              label={t('rail.denoiseLabel')}
               value={waifu2x.denoise}
               onChange={(denoise) => onWaifu2x({ denoise })}
               disabled={waifu2xControlsDisabled}
-              options={DENOISE_OPTIONS}
+              options={denoiseOptions}
             />
             <ToggleGroup
-              label="Escala do waifu2x"
+              label={t('rail.waifu2xScaleLabel')}
               value={waifu2x.scale}
               onChange={(scale) => onWaifu2x({ scale })}
               disabled={waifu2xControlsDisabled}
-              options={WAIFU2X_SCALE_OPTIONS}
+              options={scaleOptions}
             />
           </RailDisclosure>
           <p className="panel-hint">{waifu2xHint}</p>
@@ -362,28 +391,35 @@ export const ToolRail = memo(function ToolRail({
 
       {animated && (
         <div className="group">
-          <div className="label">GIF</div>
+          <div className="label">{t('rail.gif')}</div>
           <div className="row">
-            <span className="key">quadros</span>
-            <span>{`${trimmed} de ${frames}`}</span>
+            <span className="key">{t('rail.frames')}</span>
+            <span>{t('rail.framesOf', { trimmed, total: frames })}</span>
           </div>
           <div className="row">
-            <span className="key">duração</span>
+            <span className="key">{t('rail.duration')}</span>
             <span>
               {formatPlaybackDuration(
                 trimDurationMs(effectiveSource(doc), effectiveTrim(doc), doc.speed),
+                locale,
               )}
             </span>
           </div>
           <div className="row">
-            <span className="key">trecho</span>
-            <span>{`${trim.start + 1}–${trim.end + 1} · ${doc.trimEnabled ? 'on' : 'off'}`}</span>
+            <span className="key">{t('rail.trimRange')}</span>
+            <span>
+              {t('rail.trimState', {
+                start: trim.start + 1,
+                end: trim.end + 1,
+                state: doc.trimEnabled ? t('rail.on') : t('rail.off'),
+              })}
+            </span>
           </div>
           <div className="row">
-            <span className="key">velocidade</span>
+            <span className="key">{t('rail.speed')}</span>
             <span className="pill">{speedLabel}</span>
           </div>
-          <RailDisclosure label="Ajustes do GIF">
+          <RailDisclosure label={t('rail.gifAdjust')}>
             <input
               className="slider"
               type="range"
@@ -392,16 +428,16 @@ export const ToolRail = memo(function ToolRail({
               step={0.05}
               value={doc.speed}
               onChange={(event) => onSpeed(Number(event.target.value))}
-              aria-label="Velocidade do GIF"
+              aria-label={t('rail.speedLabel')}
             />
             <ToggleGroup
-              label="Velocidade do GIF"
+              label={t('rail.speedLabel')}
               value={doc.speed}
               onChange={onSpeed}
-              options={SPEED_OPTIONS}
+              options={speedOptions}
             />
             <button type="button" className="link" onClick={() => onTrim(null)}>
-              redefinir trecho
+              {t('rail.resetTrim')}
             </button>
             {imageAnimation && (
               <button
@@ -410,9 +446,9 @@ export const ToolRail = memo(function ToolRail({
                 onClick={onToggleFrames}
                 aria-pressed={framesOpen}
                 aria-keyshortcuts="F"
-                title="Mostrar ou ocultar o painel de quadros (F)"
+                title={t('rail.toggleFramesTitle')}
               >
-                {framesOpen ? 'ocultar painel de quadros' : 'ver painel de quadros'}
+                {framesOpen ? t('rail.hideFrames') : t('rail.showFrames')}
               </button>
             )}
           </RailDisclosure>

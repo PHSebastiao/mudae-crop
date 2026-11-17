@@ -1,0 +1,36 @@
+/** Staging area for the Stage and Board copy. */
+export const stagePtBR = {
+  // Stage: the Frame, its handles and the centre snap
+  'stage.areaLabel': 'Área de edição do recorte',
+  'stage.centreSnapHint': 'Grudado no centro · Alt solta',
+  'stage.handleAriaLabel': 'Ajustar moldura: {handle}',
+  'stage.handleTitle': '{handle} · setas ajustam 1 px na tela · Shift solta a proporção',
+  'stage.handleNw': 'canto superior esquerdo',
+  'stage.handleN': 'borda superior',
+  'stage.handleNe': 'canto superior direito',
+  'stage.handleE': 'borda direita',
+  'stage.handleSe': 'canto inferior direito',
+  'stage.handleS': 'borda inferior',
+  'stage.handleSw': 'canto inferior esquerdo',
+  'stage.handleW': 'borda esquerda',
+
+  // Board: Tiles, their badges and the spotlight
+  'board.importFailed': 'Importação falhou',
+  'board.importFailedTitle': 'Não foi possível importar',
+  'board.tileFallback': 'Bloco',
+  'board.tileLabelActive': '{name} (ativo)',
+  'board.tileTitle': '{name} · duplo clique para expor',
+  'board.removeTile': 'Remover {name}',
+  'board.removeTitle': 'Remover da prancheta',
+  'board.reorder': 'Reordenar',
+  'board.reorderDone': 'Pronto',
+  'board.reorderTitle': 'Arrastar os blocos para mudar a ordem da publicação e da exportação',
+  'board.reorderDoneTitle': 'Concluir a ordem dos blocos',
+  'board.spotlightLabel': '{name} em destaque',
+  'board.adjustHint': 'Esc ou C conclui o ajuste',
+  'board.spotlightHint': 'Esc ou clique fora para voltar',
+  'board.badgeFailed': 'falhou',
+  'board.badgeQueued': 'na fila',
+  'board.badgeUploaded': 'enviado',
+  'board.badgeLarge': 'grande',
+} as const;

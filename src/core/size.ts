@@ -1,4 +1,6 @@
 import type { Size } from './rect';
+import { decimal } from './format';
+import type { Locale } from './i18n/locale';
 
 /** The allowed relative drift before an output is called stretched. */
 export const ASPECT_TOLERANCE = 0.005;
@@ -11,13 +13,13 @@ export function aspectMatches(output: Size, ratio: number, tolerance = ASPECT_TO
   return Math.abs(output.width - idealWidth) <= Math.max(1, idealWidth * tolerance);
 }
 
-/** The output ratio as `1,56:1` or `1:1,56`, matching the app's decimal comma. */
-export function formatAspect(size: Size): string {
+/** The output ratio as `1,56:1` or `1:1,56`, in the locale's decimals. */
+export function formatAspect(size: Size, locale: Locale): string {
   if (size.width <= 0 || size.height <= 0) return '0:1';
   if (size.width < size.height) {
-    return `1:${(size.height / size.width).toFixed(2).replace('.', ',')}`;
+    return `1:${decimal(size.height / size.width, 2, locale)}`;
   }
-  return `${(size.width / size.height).toFixed(2).replace('.', ',')}:1`;
+  return `${decimal(size.width / size.height, 2, locale)}:1`;
 }
 
 /** True when the output asks for pixels the Source does not have. */

@@ -1,3 +1,4 @@
+import { text, type TextRef } from './i18n/text';
 /**
  * The waifu2x sidecar seam. The app renders the Crop to a PNG, hands it to the
  * native sidecar, and draws the returned PNG back. This module owns the
@@ -138,12 +139,15 @@ export interface Waifu2xRunOptions {
 }
 
 export class Waifu2xError extends Error {
+  /** The message as a catalog key: the UI resolves it in the active language. */
+  readonly text: TextRef;
   /** True when the user cancelled; the caller keeps the document as it was. */
   readonly cancelled: boolean;
 
-  constructor(message: string, cancelled = false) {
-    super(message);
+  constructor(message: TextRef, cancelled = false) {
+    super(message.key);
     this.name = 'Waifu2xError';
+    this.text = message;
     this.cancelled = cancelled;
   }
 }
@@ -160,7 +164,7 @@ export async function runWaifu2x(
   options: Waifu2xRunOptions = {},
 ): Promise<Uint8Array> {
   if (options.signal?.aborted) {
-    throw new Waifu2xError('waifu2x cancelado.', true);
+    throw new Waifu2xError(text('waifu2x.cancelled'), true);
   }
 
   let lastProgress = -1;
@@ -177,14 +181,14 @@ export async function runWaifu2x(
   try {
     const exit = await handle.result;
     if (options.signal?.aborted) {
-      throw new Waifu2xError('waifu2x cancelado.', true);
+      throw new Waifu2xError(text('waifu2x.cancelled'), true);
     }
     if (exit.code !== 0) {
-      const detail = exit.stderr?.trim() || `código ${exit.code}`;
-      throw new Waifu2xError(`O waifu2x falhou: ${detail}`);
+      const detail = exit.stderr?.trim() ? exit.stderr.trim() : text('waifu2x.unknownFailure');
+      throw new Waifu2xError(text('waifu2x.failed', { detail }));
     }
     if (!exit.output || exit.output.length === 0) {
-      throw new Waifu2xError('O waifu2x não produziu uma imagem.');
+      throw new Waifu2xError(text('waifu2x.noImage'));
     }
     return exit.output;
   } finally {
