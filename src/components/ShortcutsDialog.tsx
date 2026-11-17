@@ -50,9 +50,15 @@ function mouseShortcuts(t: I18n['t']): readonly Shortcut[] {
   ];
 }
 
-function ShortcutList({ items }: { readonly items: readonly Shortcut[] }) {
+function ShortcutList({
+  items,
+  className,
+}: {
+  readonly items: readonly Shortcut[];
+  readonly className?: string;
+}) {
   return (
-    <dl className="shortcut-list">
+    <dl className={className ? `shortcut-list ${className}` : 'shortcut-list'}>
       {items.map((item) => (
         <div key={item.keys}>
           <dt>
@@ -106,7 +112,7 @@ export function ShortcutsDialog({ onClose }: { readonly onClose: () => void }) {
             </section>
             <section>
               <h3>{t('shortcuts.mouseSection')}</h3>
-              <ShortcutList items={mouseShortcuts(t)} />
+              <ShortcutList items={mouseShortcuts(t)} className="shortcut-list-gestures" />
             </section>
           </div>
           <div className="shortcuts-col">

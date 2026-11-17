@@ -2893,6 +2893,13 @@ button {
   border-bottom: 1px solid #272530;
 }
 
+/* The gesture list holds sentences, not key names: ru runs them to ~165px,
+   which overruns the fixed keycap column and onto the label. Size that column
+   to the widest gesture instead, and let the label column wrap. */
+.shortcut-list-gestures > div {
+  grid-template-columns: max-content minmax(0, 1fr);
+}
+
 .shortcut-list > div:last-child {
   border-bottom: 0;
   padding-bottom: 0;
